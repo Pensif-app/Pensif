@@ -1,0 +1,97 @@
+import { Contact, Pensee } from './types';
+
+export const seedContacts: Contact[] = [
+  {
+    id: 'papa',
+    prenom: 'Papa',
+    nom: '',
+    tel: '06 55 66 77 88',
+    date: '2026-09-09',
+    relation: 'Père',
+    initials: 'M',
+    color: 'plum',
+    q1: '',
+    q2: '',
+    q3: '',
+    giftSent: false,
+    favorite: false,
+  },
+  {
+    id: 'lea',
+    prenom: 'Léa',
+    nom: 'Fontaine',
+    tel: '06 12 34 56 78',
+    date: '2026-09-14',
+    relation: 'Amie',
+    initials: 'LF',
+    color: 'accent',
+    q1: "Escalade en salle, et des podcasts true crime en rentrant.",
+    q2: 'Minimaliste, beaucoup de vert sapin et de crème.',
+    q3: "Ses chaussons d'escalade sont usés, elle en reparle souvent.",
+    giftSent: false,
+    favorite: false,
+  },
+  {
+    id: 'karim',
+    prenom: 'Karim',
+    nom: 'Belkacem',
+    tel: '06 22 33 44 55',
+    date: '2026-09-23',
+    relation: 'Collègue',
+    initials: 'KB',
+    color: 'sage',
+    q1: 'Il teste plein de méthodes de café à la maison le week-end.',
+    q2: 'Look plutôt rétro, il porte souvent des vestes vintage.',
+    q3: 'Il recommence à acheter des vinyles, sa collection s’agrandit.',
+    giftSent: false,
+    favorite: false,
+  },
+  {
+    id: 'odile',
+    prenom: 'Odile',
+    nom: '(Grand-mère)',
+    tel: '06 00 11 22 33',
+    date: '2026-10-02',
+    relation: 'Famille',
+    initials: 'GO',
+    color: 'plum',
+    q1: '',
+    q2: '',
+    q3: '',
+    giftSent: false,
+    favorite: false,
+  },
+  {
+    id: 'sofia',
+    prenom: 'Sofia',
+    nom: 'Marchetti',
+    tel: '06 44 55 66 77',
+    date: '2026-11-18',
+    relation: 'Amie',
+    initials: 'SM',
+    color: 'accentStrong',
+    q1: '',
+    q2: '',
+    q3: '',
+    giftSent: false,
+    favorite: false,
+  },
+];
+
+export const seedPensees: Pensee[] = [
+  {
+    id: 'p1',
+    date: '2026-09-19',
+    texte: "Entretien d'embauche de Sofia",
+    remind: '1',
+    contactId: 'sofia',
+  },
+];
+
+export const messageTemplates = {
+  chaleureux: (prenom: string) =>
+    `Joyeux anniversaire ${prenom} ! J'espère que cette nouvelle année t'apporte plein de belles surprises. Gros bisous 🎂❤️`,
+  complice: (prenom: string) =>
+    `Bon alors officiellement t'as un an de plus aujourd'hui 😄 Joyeux anniv ${prenom}, profite bien de ta journée !`,
+  court: (prenom: string) => `Joyeux anniversaire ${prenom} 🎉 Grosse pensée pour toi aujourd'hui !`,
+};

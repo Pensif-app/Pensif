@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "pensif-app",
+    "name": "Pensif",
     "slug": "pensif-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
     },
@@ -20,6 +20,21 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Pensif peut utiliser tes contacts pour créer une fiche plus vite, uniquement si tu choisis d'importer quelqu'un."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D98B3F"
+        }
+      ]
+    ]
   }
 }

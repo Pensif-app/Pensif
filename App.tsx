@@ -1,20 +1,30 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StoreProvider, useStore } from './src/data/store';
+import { RootNavigator } from './src/navigation/RootNavigator';
+import { NamePromptModal } from './src/components/NamePromptModal';
 
-export default function App() {
+function AppShell() {
+  const { userName, namePromptOpen, setUserName } = useStore();
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
+    <>
+      <RootNavigator />
+      <NamePromptModal visible={!userName || namePromptOpen} initialValue={userName ?? ''} onSubmit={setUserName} />
       <StatusBar style="auto" />
-    </View>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StoreProvider>
+          <AppShell />
+        </StoreProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
