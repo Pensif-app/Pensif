@@ -6,6 +6,7 @@ import { rescheduleAllReminders, cancelAllReminders } from '../lib/notifications
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   deleteContactRemote,
+  deletePenseeRemote,
   ensureAnonSession,
   insertContactRemote,
   insertPenseeRemote,
@@ -37,6 +38,7 @@ type Store = {
   upsertContact: (contact: Contact) => void;
   deleteContact: (contactId: string) => void;
   addPensee: (pensee: Omit<Pensee, 'id'>) => void;
+  deletePensee: (penseeId: string) => void;
   toggleGiftSent: (contactId: string) => void;
   themePref: ThemePref;
   setThemePref: (pref: ThemePref) => void;
@@ -158,6 +160,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           insertPenseeRemote(userId, pensee)
             .then((created) => setPensees((prev) => prev.map((p) => (p.id === tempId ? created : p))))
             .catch(() => {});
+        }
+      },
+      deletePensee: (penseeId: string) => {
+        setPensees((prev) => prev.filter((p) => p.id !== penseeId));
+        if (isSupabaseConfigured && userId) {
+          deletePenseeRemote(penseeId).catch(() => {});
         }
       },
       toggleGiftSent: (contactId: string) => {

@@ -100,7 +100,19 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
 
   for (const p of pensees) {
     const parts = p.date.split('-');
-    const target = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 9, 0, 0);
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    if (p.remind === 'custom') {
+      if (p.customOffsetMinutes == null) continue;
+      // Même référence que le sélecteur dans l'app : la fin de la journée choisie, pas 9h — un
+      // rappel personnalisé doit pouvoir tomber n'importe quand dans le reste de ce jour-là.
+      const endOfDay = new Date(year, month, day, 23, 59, 59);
+      const reminder = new Date(endOfDay.getTime() - p.customOffsetMinutes * 60000);
+      await scheduleAt(reminder, '💭 Pensée', p.texte);
+      continue;
+    }
+    const target = new Date(year, month, day, 9, 0, 0);
     const reminder = new Date(target);
     reminder.setDate(reminder.getDate() - parseInt(p.remind, 10));
     await scheduleAt(reminder, '💭 Pensée', `${p.texte} (rappel ${reminderLabels[p.remind]})`);

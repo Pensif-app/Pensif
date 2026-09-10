@@ -210,8 +210,11 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, barWidth, rowX, rowY, rowH]);
 
-  const pillTint = isDark ? 'rgba(240,188,127,0.22)' : 'rgba(184,112,31,0.14)';
-  const pillBorder = isDark ? 'rgba(240,188,127,0.55)' : 'rgba(184,112,31,0.4)';
+  // Grammaire de la charte Pensif : violet = interaction, quel que soit le mode. Le contour et le
+  // fond de la barre restent un bleu nuit désaturé (pas de violet en fond permanent).
+  const pillTint = isDark ? 'rgba(114,87,232,0.16)' : 'rgba(114,87,232,0.10)';
+  const pillBorder = isDark ? 'rgba(149,129,242,0.45)' : 'rgba(114,87,232,0.35)';
+  const activeColor = '#A78BFA';
 
   return (
     <Animated.View style={[styles.wrap, barShiftStyle]} pointerEvents="box-none">
@@ -229,7 +232,7 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
                   iconName={ICONS[route.name] ?? 'ellipse'}
                   hovered={hovered}
                   inactiveColor={theme.inkSoft}
-                  activeColor={theme.accentStrong}
+                  activeColor={activeColor}
                   label={route.name}
                 />
               );

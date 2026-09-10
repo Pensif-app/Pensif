@@ -32,7 +32,10 @@ function Tabs() {
       <Tab.Screen name="Accueil" component={HomeScreen} />
       <Tab.Screen name="Contacts" component={ContactsScreen} />
       <Tab.Screen name="Cadeaux" component={GiftsScreen} />
-      <Tab.Screen name="Calendrier" component={CalendarScreen} />
+      {/* Le swipe latéral est ici géré par le calendrier lui-même (mois/semaine précédent-suivant)
+          plutôt que par le changement d'onglet, pour éviter que les deux gestes ne se marchent
+          dessus. */}
+      <Tab.Screen name="Calendrier" component={CalendarScreen} options={{ swipeEnabled: false }} />
     </Tab.Navigator>
   );
 }

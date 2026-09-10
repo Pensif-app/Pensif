@@ -58,7 +58,7 @@ export function MessageScreen() {
                 { backgroundColor: active ? theme.accent : theme.paperDim, borderColor: active ? theme.accent : theme.line },
               ]}
             >
-              <Text style={{ color: active ? '#3A2308' : theme.inkSoft, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+              <Text style={{ color: active ? '#FFFFFF' : theme.inkSoft, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
             </Pressable>
           );
         })}

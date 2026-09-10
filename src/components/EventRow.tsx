@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Palette } from '../theme/colors';
 import { CalEvent } from '../data/types';
 import { Dot } from './Dot';
@@ -8,11 +9,13 @@ export function EventRow({
   event,
   theme,
   onPress,
+  onDelete,
   flat = false,
 }: {
   event: CalEvent;
   theme: Palette;
   onPress?: () => void;
+  onDelete?: () => void;
   flat?: boolean;
 }) {
   const Wrapper = onPress ? Pressable : View;
@@ -30,6 +33,11 @@ export function EventRow({
         <Text style={[styles.label, { color: theme.ink }]}>{event.label}</Text>
         <Text style={[styles.kind, { color: theme.inkSoft }]}>{event.kind}</Text>
       </View>
+      {onDelete && (
+        <Pressable onPress={onDelete} hitSlop={10} style={styles.deleteBtn} accessibilityLabel="Supprimer">
+          <Ionicons name="trash-outline" size={16} color={theme.inkSoft} />
+        </Pressable>
+      )}
     </Wrapper>
   );
 }
@@ -39,4 +47,5 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   label: { fontWeight: '700', fontSize: 14 },
   kind: { fontSize: 12, marginTop: 2 },
+  deleteBtn: { padding: 4 },
 });

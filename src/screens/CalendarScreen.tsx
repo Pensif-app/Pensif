@@ -1,17 +1,21 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Screen } from '../components/Screen';
 import { EventRow } from '../components/EventRow';
 import { Dot } from '../components/Dot';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { DurationWheelPicker } from '../components/WheelPicker';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import {
   addDays,
   daysInMonth,
+  formatCustomOffset,
   getDayEvents,
   isPastDate,
   isoOf,
@@ -19,41 +23,115 @@ import {
   mondayOffset,
   monthAbbrev,
   monthFull,
-  reminderLabels,
   sameDate,
   weekdayFull,
   weekdayLabels,
 } from '../data/calendar';
 import { RootStackParamList } from '../navigation/types';
-import { ReminderOffset } from '../data/types';
-
-const REMIND_OPTIONS: ReminderOffset[] = ['0', '1', '3', '7', '14'];
 
 export function CalendarScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { contacts, pensees, addPensee, today, userName } = useStore();
+  const { contacts, pensees, addPensee, deletePensee, today, userName } = useStore();
 
   const [mode, setMode] = useState<'month' | 'week'>('month');
   const [view, setView] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [selected, setSelected] = useState({ year: today.getFullYear(), month: today.getMonth(), day: today.getDate() });
   const [formOpen, setFormOpen] = useState(false);
   const [texte, setTexte] = useState('');
-  const [remind, setRemind] = useState<ReminderOffset>('3');
   const [linkedContact, setLinkedContact] = useState<string | null>(null);
+  const [customDuration, setCustomDuration] = useState({ weeks: 0, days: 1, hours: 0, minutes: 0 });
+  const customOffsetMinutes =
+    (customDuration.weeks * 7 + customDuration.days) * 24 * 60 + customDuration.hours * 60 + customDuration.minutes;
+  // On ne peut pas se rappeler quelque chose "avant" un délai qui dépasserait la date de
+  // l'événement elle-même — le maximum sélectionnable est donc borné par le temps restant, à
+  // partir de maintenant (heure locale du téléphone), jusqu'à la fin de ce jour-là (23h59).
+  const maxReminderMinutes = Math.max(
+    0,
+    Math.floor((new Date(selected.year, selected.month, selected.day, 23, 59, 59).getTime() - Date.now()) / 60000),
+  );
+
+  // Tiroir du formulaire : le fond s'assombrit d'un coup (pas d'animation dessus, on l'a demandé
+  // ainsi), seule la carte glisse — à l'ouverture, mais aussi à la fermeture (balayage vers le
+  // bas ou tap en dehors), avant de démonter réellement la Modal.
+  const CARD_OFFSET = 600;
+  const cardY = useSharedValue(CARD_OFFSET);
+  useEffect(() => {
+    if (formOpen) {
+      cardY.value = CARD_OFFSET;
+      cardY.value = withTiming(0, { duration: 260 });
+    }
+  }, [formOpen, cardY]);
+  const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateY: cardY.value }] }));
+
+  function closeForm() {
+    cardY.value = withTiming(CARD_OFFSET, { duration: 200 }, (finished) => {
+      if (finished) runOnJS(setFormOpen)(false);
+    });
+  }
+
+  const sheetPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-9999, 14])
+        .failOffsetX([-20, 20])
+        .onUpdate((e) => {
+          'worklet';
+          if (e.translationY > 0) cardY.value = e.translationY;
+        })
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationY > 90 || e.velocityY > 800) {
+            runOnJS(closeForm)();
+          } else {
+            cardY.value = withTiming(0, { duration: 180 });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   function selectDate(year: number, month: number, day: number) {
     setSelected({ year, month, day });
     setView({ year, month });
   }
 
+  // Petit effet de transition (glisser + fondu) qui révèle le nouveau mois/semaine dans le sens
+  // du changement — que ce soit via le swipe ou les flèches.
+  const slideX = useSharedValue(0);
+  const contentOpacity = useSharedValue(1);
+  const TRANSITION_OFFSET = 26;
+  function playTransition(direction: 1 | -1) {
+    slideX.value = direction * TRANSITION_OFFSET;
+    contentOpacity.value = 0.35;
+    slideX.value = withTiming(0, { duration: 240 });
+    contentOpacity.value = withTiming(1, { duration: 240 });
+  }
+  const transitionStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: slideX.value }],
+    opacity: contentOpacity.value,
+  }));
+
   function goto(contactId?: string | null) {
     if (contactId) navigation.navigate('Fiche', { contactId });
+  }
+
+  // Calendrier étant le dernier onglet, "revenir en arrière" mène toujours à Cadeaux.
+  function goToPreviousTab() {
+    navigation.navigate('Cadeaux' as never);
+  }
+
+  function confirmDeletePensee(penseeId: string) {
+    Alert.alert('Supprimer cette pensée ?', 'Elle disparaîtra du calendrier et de l’accueil.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => deletePensee(penseeId) },
+    ]);
   }
 
   const monthLabel = monthFull[view.month].charAt(0).toUpperCase() + monthFull[view.month].slice(1) + ' ' + view.year;
 
   function prev() {
+    playTransition(-1);
     if (mode === 'month') {
       let m = view.month - 1;
       let y = view.year;
@@ -69,6 +147,7 @@ export function CalendarScreen() {
     }
   }
   function next() {
+    playTransition(1);
     if (mode === 'month') {
       let m = view.month + 1;
       let y = view.year;
@@ -83,6 +162,45 @@ export function CalendarScreen() {
       selectDate(dt.getFullYear(), dt.getMonth(), dt.getDate());
     }
   }
+
+  // Swipe latéral, limité à la zone de la grille/semaine : geste plutôt horizontal (sinon on
+  // laisse passer le scroll vertical de l'écran) et suffisamment franc pour ne pas se déclencher
+  // par erreur.
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-12, 12])
+        .onEnd((e) => {
+          'worklet';
+          if (Math.abs(e.translationX) < 32) return;
+          if (e.translationX < 0) runOnJS(next)();
+          else runOnJS(prev)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, view, selected],
+  );
+
+  // Le swipe latéral change de page (comme les autres onglets) partout sur cet écran SAUF dans la
+  // grille/bande du calendrier, où il change de mois/semaine à la place (geste ci-dessus). Le
+  // changement d'onglet natif (swipeEnabled) est désactivé pour tout l'onglet Calendrier — on le
+  // reproduit donc ici nous-mêmes. `requireExternalGestureToFail` évite que les deux gestes ne se
+  // déclenchent en même temps : sur la grille, celui du calendrier (plus spécifique) est essayé
+  // en premier, et celui-ci n'agit que s'il n'a pas été pris — donc jamais dans la zone du
+  // calendrier, partout ailleurs sans délai perceptible.
+  const pageSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-12, 12])
+        .requireExternalGestureToFail(swipeGesture)
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationX > 40) runOnJS(goToPreviousTab)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [swipeGesture],
+  );
 
   const weeks = useMemo(() => {
     const offset = mondayOffset(view.year, view.month);
@@ -121,14 +239,21 @@ export function CalendarScreen() {
       Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
       return;
     }
-    addPensee({ date: isoOf(selected.year, selected.month, selected.day), texte: texte.trim(), remind, contactId: linkedContact });
+    addPensee({
+      date: isoOf(selected.year, selected.month, selected.day),
+      texte: texte.trim(),
+      remind: 'custom',
+      customOffsetMinutes,
+      contactId: linkedContact,
+    });
     setTexte('');
     setLinkedContact(null);
-    setRemind('3');
-    setFormOpen(false);
+    setCustomDuration({ weeks: 0, days: 1, hours: 0, minutes: 0 });
+    closeForm();
   }
 
   return (
+    <GestureDetector gesture={pageSwipeGesture}>
     <Screen>
       <Text style={[styles.h1, { color: theme.ink }]}>Calendrier</Text>
       <Text style={[styles.sub, { color: theme.inkSoft }]}>Anniversaires et petites pensées</Text>
@@ -161,7 +286,8 @@ export function CalendarScreen() {
       </View>
 
       {mode === 'month' ? (
-        <>
+        <GestureDetector gesture={swipeGesture}>
+          <Animated.View style={transitionStyle}>
           <View style={styles.weekdayRow}>
             {weekdayLabels.map((w, i) => (
               <Text key={i} style={[styles.weekdayLabel, { color: theme.inkSoft }]}>{w}</Text>
@@ -200,9 +326,11 @@ export function CalendarScreen() {
               </View>
             ))}
           </View>
-        </>
+          </Animated.View>
+        </GestureDetector>
       ) : (
-        <>
+        <Animated.View style={transitionStyle}>
+          <GestureDetector gesture={swipeGesture}>
           <View style={styles.weekStrip}>
             {weekDates.map((dt, idx) => {
               const isToday = sameDate(dt, today);
@@ -232,6 +360,7 @@ export function CalendarScreen() {
               );
             })}
           </View>
+          </GestureDetector>
 
           <View style={{ gap: 10, marginTop: 14 }}>
             {weekDates.map((dt, idx) => {
@@ -264,14 +393,21 @@ export function CalendarScreen() {
                     <Text style={{ color: theme.inkSoft, fontSize: 13, paddingTop: 6 }}>Rien de prévu.</Text>
                   ) : (
                     events.map((ev, i) => (
-                      <EventRow key={i} event={ev} theme={theme} flat onPress={ev.contactId ? () => goto(ev.contactId) : undefined} />
+                      <EventRow
+                        key={i}
+                        event={ev}
+                        theme={theme}
+                        flat
+                        onPress={ev.contactId ? () => goto(ev.contactId) : undefined}
+                        onDelete={ev.penseeId ? () => confirmDeletePensee(ev.penseeId!) : undefined}
+                      />
                     ))
                   )}
                 </View>
               );
             })}
           </View>
-        </>
+        </Animated.View>
       )}
 
       <View style={styles.legend}>
@@ -292,7 +428,13 @@ export function CalendarScreen() {
             <Text style={{ color: theme.inkSoft, fontSize: 13 }}>Rien de prévu ce jour-là.</Text>
           ) : (
             selectedEvents.map((ev, i) => (
-              <EventRow key={i} event={ev} theme={theme} onPress={ev.contactId ? () => goto(ev.contactId) : undefined} />
+              <EventRow
+                key={i}
+                event={ev}
+                theme={theme}
+                onPress={ev.contactId ? () => goto(ev.contactId) : undefined}
+                onDelete={ev.penseeId ? () => confirmDeletePensee(ev.penseeId!) : undefined}
+              />
             ))
           )}
         </View>
@@ -305,63 +447,79 @@ export function CalendarScreen() {
         <Text style={{ color: theme.plum, fontWeight: '700' }}>+ Ajouter une pensée à ce jour</Text>
       </Pressable>
 
-      <Modal visible={formOpen} transparent animationType="slide" onRequestClose={() => setFormOpen(false)}>
-        <View style={styles.modalScrim}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-            <Text style={[styles.label, { color: theme.inkSoft }]}>C'EST À PROPOS DE QUOI ?</Text>
-            <TextInput
-              value={texte}
-              onChangeText={setTexte}
-              placeholder="Ex. entretien d'embauche de Sofia"
-              placeholderTextColor={theme.inkSoft}
-              multiline
-              style={[styles.textarea, { borderColor: theme.line, color: theme.ink }]}
-            />
+      <Modal visible={formOpen} transparent animationType="none" onRequestClose={closeForm}>
+        {/* La Modal rend son contenu dans une hiérarchie native à part — sans son propre
+            GestureHandlerRootView ici, ni les gestes (react-native-gesture-handler) ni parfois
+            le scroll normal ne fonctionnent correctement à l'intérieur. */}
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          {/* Fond assombri d'un coup (pas de transition dessus, demandé ainsi). La zone tap-pour-
+              fermer est un Pressable SÉPARÉ qui ne couvre que l'espace vide au-dessus de la carte
+              — la carte elle-même n'est plus enveloppée dans un Pressable, ce qui bloquait le
+              scroll de la roulette à l'intérieur (un Pressable parent capte le geste avant que
+              la ScrollView enfant ne puisse le faire). */}
+          <View style={styles.modalScrim}>
+            <Pressable style={{ flex: 1 }} onPress={closeForm} />
+            <Animated.View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.line }, cardStyle]}>
+              {/* Balayage vers le bas limité à cette poignée : le reste de la carte (roulette,
+                  champs) garde ses propres gestes de défilement sans interférence. */}
+              <GestureDetector gesture={sheetPanGesture}>
+                <View style={styles.gripZone}>
+                  <View style={[styles.grip, { backgroundColor: theme.line }]} />
+                </View>
+              </GestureDetector>
 
-            <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>LIER À UN CONTACT (OPTIONNEL)</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-              <Pressable
-                onPress={() => setLinkedContact(null)}
-                style={[styles.chip, { borderColor: theme.line, backgroundColor: linkedContact === null ? theme.accent : theme.paperDim }]}
-              >
-                <Text style={{ color: linkedContact === null ? '#3A2308' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>Aucun</Text>
-              </Pressable>
-              {contacts.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => setLinkedContact(c.id)}
-                  style={[styles.chip, { borderColor: theme.line, backgroundColor: linkedContact === c.id ? theme.accent : theme.paperDim }]}
-                >
-                  <Text style={{ color: linkedContact === c.id ? '#3A2308' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
-                    {c.prenom}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+                <Text style={[styles.label, { color: theme.inkSoft }]}>C'EST À PROPOS DE QUOI ?</Text>
+                <TextInput
+                  value={texte}
+                  onChangeText={setTexte}
+                  multiline
+                  style={[styles.textarea, { borderColor: theme.line, color: theme.ink }]}
+                />
 
-            <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>ME LE RAPPELER</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-              {REMIND_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt}
-                  onPress={() => setRemind(opt)}
-                  style={[styles.chip, { borderColor: theme.line, backgroundColor: remind === opt ? theme.accent : theme.paperDim }]}
-                >
-                  <Text style={{ color: remind === opt ? '#3A2308' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
-                    {reminderLabels[opt]}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+                <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>LIER À UN CONTACT (OPTIONNEL)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                  <Pressable
+                    onPress={() => setLinkedContact(null)}
+                    style={[styles.chip, { borderColor: theme.line, backgroundColor: linkedContact === null ? theme.accent : theme.paperDim }]}
+                  >
+                    <Text style={{ color: linkedContact === null ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>Aucun</Text>
+                  </Pressable>
+                  {contacts.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setLinkedContact(c.id)}
+                      style={[styles.chip, { borderColor: theme.line, backgroundColor: linkedContact === c.id ? theme.accent : theme.paperDim }]}
+                    >
+                      <Text style={{ color: linkedContact === c.id ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
+                        {c.prenom}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
 
-            <PrimaryButton label="Enregistrer la pensée" onPress={saveThought} />
-            <Pressable onPress={() => setFormOpen(false)} style={{ marginTop: 10, alignItems: 'center' }}>
-              <Text style={{ color: theme.inkSoft }}>Annuler</Text>
-            </Pressable>
+                <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>ME LE RAPPELER</Text>
+                <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13, marginBottom: 6 }}>
+                  {formatCustomOffset(customOffsetMinutes)}
+                </Text>
+                <View style={{ marginBottom: 16 }}>
+                  <DurationWheelPicker
+                    weeks={customDuration.weeks}
+                    days={customDuration.days}
+                    hours={customDuration.hours}
+                    minutes={customDuration.minutes}
+                    maxMinutes={maxReminderMinutes}
+                    onChange={setCustomDuration}
+                    theme={theme}
+                  />
+                </View>
+
+                <PrimaryButton label="Enregistrer la pensée" onPress={saveThought} />
+            </Animated.View>
           </View>
-        </View>
+        </GestureHandlerRootView>
       </Modal>
     </Screen>
+    </GestureDetector>
   );
 }
 
@@ -401,6 +559,8 @@ const styles = StyleSheet.create({
   addBtn: { marginTop: 16, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 14, paddingVertical: 13, alignItems: 'center' },
   modalScrim: { flex: 1, backgroundColor: 'rgba(20,24,28,0.5)', justifyContent: 'flex-end' },
   modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, paddingBottom: 32 },
+  gripZone: { paddingVertical: 8, alignItems: 'center' },
+  grip: { width: 36, height: 4, borderRadius: 999 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 },
   textarea: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 60, textAlignVertical: 'top', fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, marginRight: 6 },

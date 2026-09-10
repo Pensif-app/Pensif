@@ -15,7 +15,7 @@ export type Contact = {
   favorite: boolean;
 };
 
-export type ReminderOffset = '0' | '1' | '3' | '7' | '14';
+export type ReminderOffset = '0' | '1' | '3' | '7' | '14' | 'custom';
 
 export type Pensee = {
   id: string;
@@ -23,6 +23,8 @@ export type Pensee = {
   date: string;
   texte: string;
   remind: ReminderOffset;
+  /** Délai personnalisé avant l'événement, en minutes — uniquement quand remind === 'custom'. */
+  customOffsetMinutes?: number | null;
   contactId: string | null;
 };
 
@@ -41,4 +43,5 @@ export type CalEvent = {
   label: string;
   kind: string;
   contactId?: string | null;
+  penseeId?: string;
 };

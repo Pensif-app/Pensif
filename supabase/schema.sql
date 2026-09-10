@@ -5,6 +5,7 @@
 -- les "create table if not exists" ci-dessous ne rejoueront pas les nouvelles colonnes. Lance
 -- plutôt cette ligne une fois dans l'éditeur SQL pour la mettre à jour :
 --   alter table contacts add column if not exists favorite boolean default false;
+--   alter table pensees add column if not exists custom_offset_minutes integer;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -29,6 +30,7 @@ create table if not exists pensees (
   date_evenement date not null,
   texte text not null,
   remind_offset text not null default '3',
+  custom_offset_minutes integer,
   created_at timestamptz default now()
 );
 

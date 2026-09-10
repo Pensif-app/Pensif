@@ -127,7 +127,22 @@ export const reminderLabels: Record<string, string> = {
   '3': '3 jours avant',
   '7': '1 semaine avant',
   '14': '2 semaines avant',
+  custom: 'à définir',
 };
+
+/** Formate un délai personnalisé (en minutes) en "X sem Y j Z h W min avant" (ignore les unités nulles). */
+export function formatCustomOffset(totalMinutes: number): string {
+  const weeks = Math.floor(totalMinutes / (7 * 24 * 60));
+  const days = Math.floor((totalMinutes % (7 * 24 * 60)) / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (weeks) parts.push(`${weeks} sem`);
+  if (days) parts.push(`${days} j`);
+  if (hours) parts.push(`${hours} h`);
+  if (minutes || parts.length === 0) parts.push(`${minutes} min`);
+  return `${parts.join(' ')} avant`;
+}
 
 /** Nombre de jours avant la prochaine occurrence (anniversaire) d'une date 'YYYY-MM-DD'. 0 = aujourd'hui. */
 export function daysUntilNext(dateStr: string, today: Date) {
@@ -179,7 +194,17 @@ export function getDayEvents(
   pensees.forEach((p) => {
     if (p.date === iso) {
       const extra = p.contactId ? ` · liée à ${contactName(contacts, p.contactId)}` : '';
-      list.push({ type: 'pensee', label: p.texte, kind: `Pensée · rappel ${reminderLabels[p.remind]}${extra}`, contactId: p.contactId });
+      const remindLabel =
+        p.remind === 'custom' && p.customOffsetMinutes != null
+          ? formatCustomOffset(p.customOffsetMinutes)
+          : reminderLabels[p.remind];
+      list.push({
+        type: 'pensee',
+        label: p.texte,
+        kind: `Pensée · rappel ${remindLabel}${extra}`,
+        contactId: p.contactId,
+        penseeId: p.id,
+      });
     }
   });
 

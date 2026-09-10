@@ -1,7 +1,7 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Avatar } from '../components/Avatar';
@@ -16,7 +16,7 @@ const monthFull = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 
 export function HomeScreen() {
   const theme = useTheme();
-  const { contacts, pensees, userName, today } = useStore();
+  const { contacts, pensees, deletePensee, userName, today } = useStore();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const sorted = useMemo(() => {
@@ -111,6 +111,19 @@ export function HomeScreen() {
                   <Text style={[styles.name, { color: theme.ink, fontSize: 14 }]}>{p.texte}</Text>
                   <Text style={[styles.meta, { color: theme.inkSoft }]}>{p.date.split('-').reverse().join('/')}</Text>
                 </View>
+                <Pressable
+                  onPress={() =>
+                    Alert.alert('Supprimer cette pensée ?', 'Elle disparaîtra du calendrier et de l’accueil.', [
+                      { text: 'Annuler', style: 'cancel' },
+                      { text: 'Supprimer', style: 'destructive', onPress: () => deletePensee(p.id) },
+                    ])
+                  }
+                  hitSlop={10}
+                  style={{ padding: 4 }}
+                  accessibilityLabel="Supprimer"
+                >
+                  <Ionicons name="trash-outline" size={16} color={theme.inkSoft} />
+                </Pressable>
               </View>
             ))}
           </View>

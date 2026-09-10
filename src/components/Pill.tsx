@@ -6,7 +6,7 @@ type Tone = 'accent' | 'plum' | 'sage' | 'muted';
 
 export function Pill({ label, tone, theme }: { label: string; tone: Tone; theme: Palette }) {
   const toneStyles: Record<Tone, { bg: string; fg: string }> = {
-    accent: { bg: theme.accent, fg: '#3A2308' },
+    accent: { bg: theme.accent, fg: '#FFFFFF' },
     plum: { bg: theme.plumTint, fg: theme.plum },
     sage: { bg: theme.sageTint, fg: theme.sage },
     muted: { bg: theme.paperDim, fg: theme.inkSoft },

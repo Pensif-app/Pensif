@@ -39,7 +39,14 @@ function rowToContact(row: any): Contact {
 }
 
 function rowToPensee(row: any): Pensee {
-  return { id: row.id, date: row.date_evenement, texte: row.texte, remind: row.remind_offset, contactId: row.contact_id };
+  return {
+    id: row.id,
+    date: row.date_evenement,
+    texte: row.texte,
+    remind: row.remind_offset,
+    customOffsetMinutes: row.custom_offset_minutes,
+    contactId: row.contact_id,
+  };
 }
 
 export async function ensureAnonSession(): Promise<string | null> {
@@ -167,6 +174,12 @@ export async function deleteContactRemote(contactId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function deletePenseeRemote(penseeId: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase non configuré');
+  const { error } = await supabase.from('pensees').delete().eq('id', penseeId);
+  if (error) throw error;
+}
+
 export async function insertPenseeRemote(userId: string, pensee: Omit<Pensee, 'id'>): Promise<Pensee> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { data, error } = await supabase
@@ -176,6 +189,7 @@ export async function insertPenseeRemote(userId: string, pensee: Omit<Pensee, 'i
       date_evenement: pensee.date,
       texte: pensee.texte,
       remind_offset: pensee.remind,
+      custom_offset_minutes: pensee.customOffsetMinutes ?? null,
       contact_id: pensee.contactId,
     })
     .select()
