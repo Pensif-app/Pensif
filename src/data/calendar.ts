@@ -1,4 +1,4 @@
-import { CalEvent, Contact, Pensee } from './types';
+import { CalEvent, Contact, FamilyRole, Pensee } from './types';
 
 export const monthAbbrev = ['jan', 'fév', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
 export const monthFull = [
@@ -11,6 +11,11 @@ export const weekdayFull = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', '
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 export const isoOf = (y: number, m: number, d: number) => `${y}-${pad2(m + 1)}-${pad2(d)}`;
 export const dIso = (d: Date) => isoOf(d.getFullYear(), d.getMonth(), d.getDate());
+/** 'YYYY-MM-DD' → "12 sept." */
+export function frDate(iso: string) {
+  const [, m, d] = iso.split('-');
+  return `${parseInt(d, 10)} ${monthAbbrev[parseInt(m, 10) - 1]}`;
+}
 
 export function daysInMonth(y: number, m: number) {
   return new Date(y, m + 1, 0).getDate();
@@ -98,6 +103,14 @@ export function familyFetes(year: number) {
   return f;
 }
 
+/** Fait le lien entre le libellé d'une fête calendaire et le "Lien précis" attendu sur une fiche. */
+const FAMILY_FETE_ROLE: Record<string, FamilyRole> = {
+  'Fête des Mères': 'Mère',
+  'Fête des Pères': 'Père',
+  'Fête des Grands-mères': 'Grand-mère',
+  'Fête des Grands-pères': 'Grand-père',
+};
+
 /** Table simplifiée du calendrier des prénoms (non exhaustive) — juste pour illustrer le bonus "fête du prénom". */
 export const namedayTable: Record<string, string> = {
   lea: '03-22', odile: '12-13', sofia: '05-25', sophie: '05-25',
@@ -155,6 +168,13 @@ export function daysUntilNext(dateStr: string, today: Date) {
   return Math.round((next.getTime() - todayMid.getTime()) / 86400000);
 }
 
+/** Pensées de période (surlignage) qui touchent au moins un jour du mois affiché. */
+export function periodsInMonth(pensees: Pensee[], year: number, month: number): Pensee[] {
+  const monthStart = isoOf(year, month, 1);
+  const monthEnd = isoOf(year, month, daysInMonth(year, month));
+  return pensees.filter((p): p is Pensee & { endDate: string } => Boolean(p.endDate) && p.date <= monthEnd && p.endDate! >= monthStart);
+}
+
 export function getDayEvents(
   year: number,
   month: number,
@@ -192,18 +212,22 @@ export function getDayEvents(
   }
 
   pensees.forEach((p) => {
-    if (p.date === iso) {
+    const isPeriod = Boolean(p.endDate);
+    const inRange = isPeriod ? iso >= p.date && iso <= p.endDate! : p.date === iso;
+    if (inRange) {
       const extra = p.contactId ? ` · liée à ${contactName(contacts, p.contactId)}` : '';
       const remindLabel =
         p.remind === 'custom' && p.customOffsetMinutes != null
           ? formatCustomOffset(p.customOffsetMinutes)
           : reminderLabels[p.remind];
+      const periodLabel = isPeriod ? `Du ${frDate(p.date)} au ${frDate(p.endDate!)}` : `Pensée · rappel ${remindLabel}`;
       list.push({
         type: 'pensee',
         label: p.texte,
-        kind: `Pensée · rappel ${remindLabel}${extra}`,
+        kind: `${periodLabel}${extra}`,
         contactId: p.contactId,
         penseeId: p.id,
+        isPeriod,
       });
     }
   });
@@ -211,7 +235,24 @@ export function getDayEvents(
   const hol = frenchHolidays(year)[iso];
   if (hol) list.push({ type: 'civil', label: hol, kind: 'Jour férié', contactId: null });
   const fam = familyFetes(year)[iso];
-  if (fam) list.push({ type: 'civil', label: fam, kind: 'Fête calendaire', contactId: null });
+  if (fam) {
+    list.push({ type: 'civil', label: fam, kind: 'Fête calendaire', contactId: null });
+    // Un contact dont le lien familial précis correspond (Père, Mère, Grand-mère…) obtient en
+    // plus un rappel personnalisé — c'est tout l'intérêt de renseigner "Lien précis" sur sa fiche.
+    const role = FAMILY_FETE_ROLE[fam];
+    if (role) {
+      contacts
+        .filter((c) => c.familyRole === role)
+        .forEach((c) => {
+          list.push({
+            type: 'fete',
+            label: `${fam} — pense à ${c.prenom} !`,
+            kind: `Bonus 🎉 · ${c.relation.toLowerCase() === 'famille' ? role : c.relation}`,
+            contactId: c.id,
+          });
+        });
+    }
+  }
 
   return list;
 }

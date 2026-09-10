@@ -1,104 +1,137 @@
-import { Contact, GiftIdea } from './types';
-import { normalizeName } from './calendar';
+import { Contact, GiftIdea, InterestTag, TraitKey } from './types';
+import { computeTraits, isQuizComplete, sortedTraits } from './quiz';
 
 type CatalogItem = {
   id: string;
   title: string;
   price: number;
   emoji: string;
-  keywords: string[];
+  interests: InterestTag[];
+  trait: TraitKey;
 };
 
 /**
- * Catalogue générique de cadeaux, rattachés à des mots-clés. En production, ce serait remplacé
- * par un vrai catalogue produit (avec liens d'affiliation) — voir Analyse_business_monetisation.md.
+ * Catalogue générique de cadeaux, rattachés aux centres d'intérêt du quiz plutôt qu'à des
+ * mots-clés en texte libre. En production, ce serait remplacé par un vrai catalogue produit (avec
+ * liens d'affiliation) — voir Analyse_business_monetisation.md.
  */
 const CATALOG: CatalogItem[] = [
-  { id: 'dripper', title: 'Dripper à café en céramique', price: 34, emoji: '☕', keywords: ['cafe', 'expresso', 'filtre'] },
-  { id: 'moulin', title: 'Moulin à café manuel', price: 58, emoji: '⚙️', keywords: ['cafe', 'moulin'] },
-  { id: 'carnet', title: 'Carnet en cuir recyclé', price: 22, emoji: '📓', keywords: ['carnet', 'notes', 'ecrit', 'journal'] },
-  { id: 'stylo', title: 'Beau stylo plume', price: 28, emoji: '🖋️', keywords: ['ecrit', 'stylo', 'lettre', 'journal'] },
-  { id: 'vinyle', title: "Bon d'achat chez un disquaire", price: 20, emoji: '🎵', keywords: ['vinyle', 'disque', 'musique', 'concert'] },
-  { id: 'casque', title: 'Casque audio', price: 79, emoji: '🎧', keywords: ['musique', 'podcast', 'ecoute', 'playlist'] },
-  { id: 'friperie', title: "Bon d'achat friperie / vintage", price: 30, emoji: '👕', keywords: ['vintage', 'retro', 'friperie', 'brocante'] },
-  { id: 'tasses', title: 'Set de tasses en grès fait main', price: 45, emoji: '🏺', keywords: ['retro', 'artisanal', 'ceramique', 'brocante'] },
-  { id: 'escalade', title: "Chaussons d'escalade", price: 75, emoji: '🧗', keywords: ['escalade', 'grimpe', 'bloc'] },
-  { id: 'podcast', title: 'Abonnement podcast premium', price: 12, emoji: '🎧', keywords: ['podcast', 'true crime', 'ecoute'] },
-  { id: 'plante', title: "Plante d'intérieur facile d'entretien", price: 25, emoji: '🪴', keywords: ['plante', 'jardin', 'balcon'] },
-  { id: 'the', title: 'Coffret de thés premium', price: 24, emoji: '🍵', keywords: ['the', 'tisane', 'infusion'] },
-  { id: 'chocolat', title: 'Coffret dégustation chocolat', price: 29, emoji: '🍫', keywords: ['chocolat', 'gourmand', 'sucre', 'patisserie'] },
-  { id: 'livre', title: "Carte cadeau librairie", price: 20, emoji: '📚', keywords: ['lecture', 'livre', 'roman', 'lire', 'bouquin'] },
-  { id: 'jeu', title: 'Jeu de société', price: 32, emoji: '🎲', keywords: ['jeu', 'soiree', 'amis', 'plateau'] },
-  { id: 'dessin', title: 'Kit peinture ou carnet de croquis', price: 26, emoji: '🎨', keywords: ['dessin', 'peinture', 'art', 'creatif', 'creative'] },
-  { id: 'rando', title: 'Accessoire de randonnée', price: 35, emoji: '🥾', keywords: ['rando', 'marche', 'exterieur', 'montagne'] },
-  { id: 'bienetre', title: 'Bon cadeau bien-être / massage', price: 60, emoji: '🧖', keywords: ['bien-etre', 'bien etre', 'relax', 'spa', 'stress', 'yoga'] },
-  { id: 'photo', title: 'Appareil photo instantané', price: 65, emoji: '📸', keywords: ['photo', 'souvenir', 'image'] },
-  { id: 'velo', title: 'Accessoire vélo', price: 40, emoji: '🚲', keywords: ['velo', 'cyclisme', 'pedale'] },
-  { id: 'cuisine', title: 'Beau tablier ou ustensile de cuisine', price: 27, emoji: '🍳', keywords: ['cuisine', 'cuisiner', 'recette', 'pâtisserie', 'patisserie'] },
-  { id: 'cinema', title: 'Places de cinéma ou abonnement streaming', price: 30, emoji: '🎬', keywords: ['film', 'cinema', 'serie', 'streaming'] },
-  { id: 'jardinage', title: 'Petit kit de jardinage', price: 23, emoji: '🌱', keywords: ['jardin', 'jardinage', 'potager'] },
-  { id: 'animaux', title: 'Accessoire pour son animal', price: 25, emoji: '🐾', keywords: ['chat', 'chien', 'animal', 'chaton', 'chiot'] },
+  { id: 'dripper', title: 'Dripper à café en céramique', price: 34, emoji: '☕', interests: ['cuisine'], trait: 'practical' },
+  { id: 'moulin', title: 'Moulin à café manuel', price: 58, emoji: '⚙️', interests: ['cuisine'], trait: 'curious' },
+  { id: 'carnet', title: 'Carnet en cuir recyclé', price: 22, emoji: '📓', interests: ['lecture'], trait: 'sentimental' },
+  { id: 'stylo', title: 'Beau stylo plume', price: 28, emoji: '🖋️', interests: ['lecture'], trait: 'sentimental' },
+  { id: 'vinyle', title: "Bon d'achat chez un disquaire", price: 20, emoji: '🎵', interests: ['musique', 'collection'], trait: 'curious' },
+  { id: 'casque', title: 'Casque audio', price: 79, emoji: '🎧', interests: ['musique', 'tech'], trait: 'practical' },
+  { id: 'friperie', title: "Bon d'achat friperie / vintage", price: 30, emoji: '👕', interests: ['mode'], trait: 'curious' },
+  { id: 'tasses', title: 'Set de tasses en grès fait main', price: 45, emoji: '🏺', interests: ['maison'], trait: 'sentimental' },
+  { id: 'escalade', title: "Chaussons d'escalade", price: 75, emoji: '🧗', interests: ['sport'], trait: 'experience' },
+  { id: 'podcast', title: 'Abonnement podcast premium', price: 12, emoji: '🎧', interests: ['musique'], trait: 'curious' },
+  { id: 'plante', title: "Plante d'intérieur facile d'entretien", price: 25, emoji: '🪴', interests: ['nature', 'maison'], trait: 'practical' },
+  { id: 'the', title: 'Coffret de thés premium', price: 24, emoji: '🍵', interests: ['cuisine'], trait: 'sentimental' },
+  { id: 'chocolat', title: 'Coffret dégustation chocolat', price: 29, emoji: '🍫', interests: ['cuisine'], trait: 'sentimental' },
+  { id: 'livre', title: 'Carte cadeau librairie', price: 20, emoji: '📚', interests: ['lecture'], trait: 'sentimental' },
+  { id: 'jeu', title: 'Jeu de société', price: 32, emoji: '🎲', interests: ['gaming'], trait: 'social' },
+  { id: 'dessin', title: 'Kit peinture ou carnet de croquis', price: 26, emoji: '🎨', interests: ['collection'], trait: 'curious' },
+  { id: 'rando', title: 'Accessoire de randonnée', price: 35, emoji: '🥾', interests: ['sport', 'nature'], trait: 'experience' },
+  { id: 'bienetre', title: 'Bon cadeau bien-être / massage', price: 60, emoji: '🧖', interests: ['maison'], trait: 'experience' },
+  { id: 'photo', title: 'Appareil photo instantané', price: 65, emoji: '📸', interests: ['tech', 'voyage'], trait: 'sentimental' },
+  { id: 'velo', title: 'Accessoire vélo', price: 40, emoji: '🚲', interests: ['sport', 'auto'], trait: 'practical' },
+  { id: 'cuisine', title: 'Beau tablier ou ustensile de cuisine', price: 27, emoji: '🍳', interests: ['cuisine'], trait: 'practical' },
+  { id: 'cinema', title: 'Places de cinéma ou abonnement streaming', price: 30, emoji: '🎬', interests: ['gaming'], trait: 'practical' },
+  { id: 'jardinage', title: 'Petit kit de jardinage', price: 23, emoji: '🌱', interests: ['nature', 'maison'], trait: 'practical' },
+  { id: 'animaux', title: 'Accessoire pour son animal', price: 25, emoji: '🐾', interests: ['maison', 'nature'], trait: 'sentimental' },
+  { id: 'valise', title: 'Accessoire de voyage malin', price: 32, emoji: '🧳', interests: ['voyage'], trait: 'practical' },
+  { id: 'sac', title: 'Sac ou pochette tendance', price: 38, emoji: '👜', interests: ['mode'], trait: 'curious' },
+  { id: 'manette', title: 'Accessoire gaming', price: 45, emoji: '🎮', interests: ['gaming', 'tech'], trait: 'curious' },
+  { id: 'auto-access', title: 'Accessoire auto', price: 30, emoji: '🚗', interests: ['auto'], trait: 'practical' },
 ];
 
-/** Petite sélection "valeur sûre" quand aucun mot-clé ne matche — mieux qu'un écran vide. */
+/** Petite sélection "valeur sûre" quand on n'a encore aucune donnée exploitable. */
 const FALLBACK: GiftIdea[] = [
   { id: 'fallback-livre', title: 'Carte cadeau librairie', price: 20, emoji: '📚', why: 'Une valeur sûre, peu importe ses goûts précis.' },
   { id: 'fallback-chocolat', title: 'Coffret gourmand', price: 25, emoji: '🍫', why: 'Difficile de se tromper avec une jolie boîte de douceurs.' },
   { id: 'fallback-plante', title: "Plante d'intérieur facile", price: 22, emoji: '🪴', why: 'Un cadeau simple qui fait toujours plaisir.' },
 ];
 
-function truncate(s: string, max = 90) {
-  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+/** Catégories d'intérêt suggérées à partir du profil — affichées sur l'écran de résultat du quiz. */
+export function suggestedCategories(contact: Contact): { key: InterestTag; label: string }[] {
+  if (!isQuizComplete(contact.quiz)) return [];
+  const traits = computeTraits(contact.quiz.answers);
+  const topTrait = sortedTraits(traits)[0]?.key;
+  const scored = new Map<InterestTag, number>();
+  for (const item of CATALOG) {
+    if (contact.quiz.avoid.includes(item.interests[0])) continue;
+    let score = 0;
+    for (const tag of item.interests) if (contact.quiz.interests.includes(tag)) score += 2;
+    if (item.trait === topTrait) score += 1;
+    if (score > 0) for (const tag of item.interests) scored.set(tag, (scored.get(tag) ?? 0) + score);
+  }
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([key]) => ({ key, label: INTEREST_LABELS[key] }));
 }
+
+const INTEREST_LABELS: Record<InterestTag, string> = {
+  tech: 'Tech',
+  musique: 'Musique',
+  gaming: 'Gaming',
+  sport: 'Sport',
+  cuisine: 'Cuisine',
+  mode: 'Mode',
+  voyage: 'Voyage',
+  lecture: 'Lecture',
+  collection: 'Collection',
+  maison: 'Maison',
+  auto: 'Auto',
+  nature: 'Nature',
+};
 
 /**
- * Génère des idées cadeaux à partir des 3 réponses au quizz : simple recherche de mots-clés,
- * pas d'IA — mais assez pour illustrer le principe, et un point d'extension clair (voir README).
+ * Génère des idées cadeaux à partir du profil de personnalité (centres d'intérêt, traits, ce
+ * qu'il faut éviter, budget) — plus fiable qu'une recherche de mots-clés dans du texte libre.
  */
-/** Un mot-clé d'un seul mot doit matcher un mot entier (évite que "vert" matche dans "vert sapin"
- *  pour la catégorie plantes) ; un mot-clé à plusieurs mots ("true crime") reste une recherche de
- *  sous-chaîne, sinon il ne matcherait jamais. */
-function keywordMatches(keyword: string, normalizedText: string, words: Set<string>) {
-  if (keyword.includes(' ')) return normalizedText.includes(keyword);
-  return words.has(keyword) || words.has(`${keyword}s`) || words.has(`${keyword}x`);
-}
-
 export function generateGiftIdeas(contact: Contact): GiftIdea[] {
-  const questions: { text: string; norm: string; words: Set<string> }[] = [contact.q1, contact.q2, contact.q3]
-    .filter(Boolean)
-    .map((text) => {
-      const norm = normalizeName(text);
-      return { text, norm, words: new Set(norm.split(/[^a-z]+/).filter(Boolean)) };
-    });
+  if (!isQuizComplete(contact.quiz)) return [];
+  const { interests, avoid, budget } = contact.quiz;
+  const traits = computeTraits(contact.quiz.answers);
+  const ranked = sortedTraits(traits);
+  const topTrait = ranked[0]?.key;
+  const secondTrait = ranked[1]?.key;
+  const maxPrice = budget ? BUDGET_MAX[budget] : Infinity;
 
-  if (questions.length === 0) return [];
-
-  const scored: { item: CatalogItem; score: number; why: string }[] = [];
+  const scored: { item: CatalogItem; score: number; matchedInterest: InterestTag | null }[] = [];
 
   for (const item of CATALOG) {
+    if (item.interests.some((tag) => avoid.includes(tag))) continue;
+    if (item.price > maxPrice) continue;
+
     let score = 0;
-    let matchedText: string | null = null;
-    for (const keyword of item.keywords) {
-      for (const q of questions) {
-        if (keywordMatches(keyword, q.norm, q.words)) {
-          score += 1;
-          if (!matchedText) matchedText = q.text;
-        }
+    let matchedInterest: InterestTag | null = null;
+    for (const tag of item.interests) {
+      if (interests.includes(tag)) {
+        score += 3;
+        if (!matchedInterest) matchedInterest = tag;
       }
     }
-    if (score > 0) {
-      scored.push({ item, score, why: `Ça rejoint ce qu'il/elle a dit : « ${truncate(matchedText!)} »` });
-    }
+    if (item.trait === topTrait) score += 2;
+    else if (item.trait === secondTrait) score += 1;
+
+    if (score > 0) scored.push({ item, score, matchedInterest });
   }
 
   if (scored.length === 0) return FALLBACK;
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 6).map(({ item, why }) => ({
+  return scored.slice(0, 6).map(({ item, matchedInterest }) => ({
     id: item.id,
     title: item.title,
     price: item.price,
     emoji: item.emoji,
-    why,
+    why: matchedInterest
+      ? `Ça correspond à son intérêt pour ${INTEREST_LABELS[matchedInterest].toLowerCase()}.`
+      : `Ça colle bien avec ce que le quiz a révélé sur lui/elle.`,
   }));
 }
+
+const BUDGET_MAX: Record<string, number> = { '0-20': 20, '20-50': 50, '50-100': 100, '100+': Infinity };

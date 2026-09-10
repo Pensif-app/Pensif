@@ -12,4 +12,5 @@ export type RootStackParamList = {
   Fiche: { contactId?: string } | undefined;
   Message: { contactId: string };
   Reglages: undefined;
+  Quiz: { contactId: string };
 };

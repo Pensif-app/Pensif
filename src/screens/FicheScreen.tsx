@@ -11,11 +11,27 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
+import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
-import { Contact } from '../data/types';
+import { Contact, FamilyRole, Genre } from '../data/types';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
 const RELATIONS = ['Amie', 'Ami', 'Famille', 'Collègue', 'Autre'];
+const FAMILY_ROLES: FamilyRole[] = [
+  'Père',
+  'Mère',
+  'Frère',
+  'Sœur',
+  'Fils',
+  'Fille',
+  'Grand-père',
+  'Grand-mère',
+  'Oncle',
+  'Tante',
+  'Cousin',
+  'Cousine',
+  'Autre',
+];
 
 function isoToday() {
   const d = new Date();
@@ -35,9 +51,8 @@ export function FicheScreen() {
   const [tel, setTel] = useState(existing?.tel ?? '');
   const [date, setDate] = useState(existing?.date ?? '');
   const [relation, setRelation] = useState(existing?.relation ?? RELATIONS[0]);
-  const [q1, setQ1] = useState(existing?.q1 ?? '');
-  const [q2, setQ2] = useState(existing?.q2 ?? '');
-  const [q3, setQ3] = useState(existing?.q3 ?? '');
+  const [familyRole, setFamilyRole] = useState<FamilyRole | null>(existing?.familyRole ?? null);
+  const [genre, setGenre] = useState<Genre | null>(existing?.genre ?? null);
   const [favorite, setFavorite] = useState(existing?.favorite ?? false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -51,7 +66,7 @@ export function FicheScreen() {
           accessibilityLabel={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
           style={styles.favoriteBtn}
         >
-          <Ionicons name={favorite ? 'star' : 'star-outline'} size={22} color={favorite ? theme.accentStrong : theme.inkSoft} />
+          <Ionicons name={favorite ? 'star' : 'star-outline'} size={22} color={favorite ? theme.plum : theme.inkSoft} />
         </Pressable>
       ),
     });
@@ -113,11 +128,11 @@ export function FicheScreen() {
       tel: tel.trim(),
       date,
       relation,
+      familyRole: relation === 'Famille' ? familyRole : null,
+      genre,
       initials: existing?.initials ?? `${prenom[0] ?? ''}${nom[0] ?? ''}`.toUpperCase(),
       color: existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length],
-      q1: q1.trim(),
-      q2: q2.trim(),
-      q3: q3.trim(),
+      quiz: existing?.quiz ?? null,
       giftSent: existing?.giftSent ?? false,
       favorite,
     };
@@ -146,16 +161,36 @@ export function FicheScreen() {
         </Field>
       </View>
 
-      <Field label="Téléphone" theme={theme}>
-        <TextInput
-          value={tel}
-          onChangeText={setTel}
-          placeholder="06 00 00 00 00"
-          placeholderTextColor={theme.inkSoft}
-          keyboardType="phone-pad"
-          style={[styles.input, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
-        />
-      </Field>
+      <View style={styles.twoCol}>
+        <Field label="Téléphone" theme={theme}>
+          <TextInput
+            value={tel}
+            onChangeText={setTel}
+            placeholder="06 00 00 00 00"
+            placeholderTextColor={theme.inkSoft}
+            keyboardType="phone-pad"
+            style={[styles.input, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
+          />
+        </Field>
+        <Field label="Genre" theme={theme}>
+          <View style={styles.chipRow}>
+            {(['homme', 'femme'] as Genre[]).map((g) => (
+              <Pressable
+                key={g}
+                onPress={() => setGenre((prev) => (prev === g ? null : g))}
+                style={[
+                  styles.chip,
+                  { borderColor: genre === g ? theme.accent : theme.line, backgroundColor: genre === g ? theme.accentTint : theme.card },
+                ]}
+              >
+                <Text style={{ color: genre === g ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>
+                  {g === 'homme' ? 'Homme' : 'Femme'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Field>
+      </View>
 
       <View style={styles.twoCol}>
         <Field label="Anniversaire" theme={theme}>
@@ -170,10 +205,36 @@ export function FicheScreen() {
         </Field>
         <Field label="Relation" theme={theme}>
           <View style={[styles.input, { borderColor: theme.line, backgroundColor: theme.card, padding: 0 }]}>
-            <RelationPicker value={relation} onChange={setRelation} theme={theme} />
+            <RelationPicker
+              value={relation}
+              onChange={(v) => {
+                setRelation(v);
+                if (v !== 'Famille') setFamilyRole(null);
+              }}
+              theme={theme}
+            />
           </View>
         </Field>
       </View>
+
+      {relation === 'Famille' && (
+        <Field label="Lien précis" theme={theme}>
+          <View style={styles.chipRow}>
+            {FAMILY_ROLES.map((r) => (
+              <Pressable
+                key={r}
+                onPress={() => setFamilyRole(r)}
+                style={[
+                  styles.chip,
+                  { borderColor: familyRole === r ? theme.accent : theme.line, backgroundColor: familyRole === r ? theme.accentTint : theme.card },
+                ]}
+              >
+                <Text style={{ color: familyRole === r ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>{r}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Field>
+      )}
 
       {showDatePicker && (
         <DateTimePicker
@@ -192,10 +253,12 @@ export function FicheScreen() {
         />
       )}
 
-      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>LE PETIT QUIZZ</Text>
-      <QuizField question="Qu'est-ce qu'elle/il aime faire de son temps libre ?" value={q1} onChangeText={setQ1} theme={theme} />
-      <QuizField question="Un style ou une couleur qu'elle/il porte souvent ?" value={q2} onChangeText={setQ2} theme={theme} />
-      <QuizField question="Un truc dont elle/il a envie depuis un moment ?" value={q3} onChangeText={setQ3} theme={theme} />
+      {existing && (
+        <>
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>LE PETIT QUIZZ</Text>
+          <QuizSummaryCard contact={existing} theme={theme} onPress={() => navigation.navigate('Quiz', { contactId: existing.id })} />
+        </>
+      )}
 
       <View style={{ marginTop: 8 }}>
         <PrimaryButton label="Enregistrer la fiche" onPress={save} />
@@ -203,8 +266,8 @@ export function FicheScreen() {
 
       {existing && (
         <Pressable onPress={remove} style={styles.deleteBtn}>
-          <Ionicons name="trash-outline" size={15} color={theme.civil} />
-          <Text style={[styles.deleteText, { color: theme.civil }]}>Supprimer ce contact</Text>
+          <Ionicons name="trash-outline" size={15} color={theme.danger} />
+          <Text style={[styles.deleteText, { color: theme.danger }]}>Supprimer ce contact</Text>
         </Pressable>
       )}
     </Screen>
@@ -220,19 +283,30 @@ function Field({ label, theme, children }: { label: string; theme: any; children
   );
 }
 
-function QuizField({ question, value, onChangeText, theme }: { question: string; value: string; onChangeText: (t: string) => void; theme: any }) {
+function QuizSummaryCard({ contact, theme, onPress }: { contact: Contact; theme: any; onPress: () => void }) {
+  const done = isQuizComplete(contact.quiz);
+  const archetype = done ? archetypeFor(computeTraits(contact.quiz!.answers)) : null;
   return (
-    <View style={[styles.quizCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-      <Text style={[styles.quizQ, { color: theme.plum }]}>{question}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder="Pas encore répondu — à compléter"
-        placeholderTextColor={theme.inkSoft}
-        multiline
-        style={[styles.quizInput, { color: theme.ink }]}
-      />
-    </View>
+    <Pressable onPress={onPress} style={[styles.quizCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+      <View style={{ flex: 1 }}>
+        {done ? (
+          <>
+            <Text style={[styles.quizQ, { color: theme.ink }]}>{archetype!.title}</Text>
+            <Text style={{ color: theme.inkSoft, fontSize: 12, marginTop: 2 }}>Voir le profil et les idées cadeaux</Text>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.quizQ, { color: theme.ink }]}>
+              Tu connais {contact.prenom} par <Ionicons name="heart" size={14} color={theme.plum} /> ?
+            </Text>
+            <Text style={{ color: theme.inkSoft, fontSize: 11, fontStyle: 'italic', marginTop: 2 }}>
+              Quelques choix suffisent à mieux cerner ce qui lui ferait vraiment plaisir.
+            </Text>
+          </>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={theme.inkSoft} />
+    </Pressable>
   );
 }
 
@@ -272,7 +346,8 @@ const styles = StyleSheet.create({
   relationList: { borderWidth: 1, borderRadius: 10, marginTop: 4, overflow: 'hidden' },
   relationItem: { paddingHorizontal: 12, paddingVertical: 10 },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 8, marginBottom: 8 },
-  quizCard: { borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 10 },
-  quizQ: { fontWeight: '700', fontSize: 13, marginBottom: 6 },
-  quizInput: { fontSize: 14, minHeight: 44, textAlignVertical: 'top' },
+  quizCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  quizQ: { fontWeight: '700', fontSize: 14 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
 });

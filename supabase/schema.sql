@@ -6,6 +6,11 @@
 -- plutôt cette ligne une fois dans l'éditeur SQL pour la mettre à jour :
 --   alter table contacts add column if not exists favorite boolean default false;
 --   alter table pensees add column if not exists custom_offset_minutes integer;
+--   alter table contacts add column if not exists quiz jsonb;
+--   alter table contacts drop column if exists q1, drop column if exists q2, drop column if exists q3;
+--   alter table contacts add column if not exists family_role text;
+--   alter table contacts add column if not exists genre text;
+--   alter table pensees add column if not exists end_date date;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -15,9 +20,13 @@ create table if not exists contacts (
   tel text default '',
   date_naissance date not null,
   relation text default '',
-  q1 text default '',
-  q2 text default '',
-  q3 text default '',
+  -- Précision du lien familial (Père, Mère, Grand-mère…) quand relation = 'Famille'.
+  family_role text,
+  -- 'homme' | 'femme' | null — sert à accorder les questions du quiz (il/elle).
+  genre text,
+  -- Profil du Petit Quiz (réponses A/B, centres d'intérêt, à éviter, souhait libre, budget) —
+  -- remplace les 3 anciennes colonnes q1/q2/q3 en texte libre.
+  quiz jsonb,
   gift_sent boolean default false,
   favorite boolean default false,
   created_at timestamptz default now()
@@ -28,6 +37,8 @@ create table if not exists pensees (
   user_id uuid not null references auth.users(id) on delete cascade,
   contact_id uuid references contacts(id) on delete set null,
   date_evenement date not null,
+  -- Renseigné uniquement pour une pensée de période (surlignage type "Vacances en Italie").
+  end_date date,
   texte text not null,
   remind_offset text not null default '3',
   custom_offset_minutes integer,

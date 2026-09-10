@@ -8,6 +8,8 @@ import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { daysUntilNext } from '../data/calendar';
 import { generateGiftIdeas } from '../data/giftEngine';
+import { INTEREST_OPTIONS } from '../data/quiz';
+import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList, TabParamList } from '../navigation/types';
 
 export function GiftsScreen() {
@@ -20,7 +22,7 @@ export function GiftsScreen() {
   const contact = useMemo(() => {
     if (route.params?.contactId) return contacts.find((c) => c.id === route.params?.contactId);
     const withIdeas = contacts
-      .filter((c) => c.q1 && c.q2 && c.q3)
+      .filter((c) => isQuizComplete(c.quiz))
       .map((c) => ({ c, days: daysUntilNext(c.date, today) }))
       .sort((a, b) => a.days - b.days);
     return withIdeas[0]?.c;
@@ -56,13 +58,16 @@ export function GiftsScreen() {
       </Text>
 
       <View style={styles.tagRow}>
-        {[contact.q1, contact.q2, contact.q3].filter(Boolean).map((q, i) => (
-          <View key={i} style={[styles.tag, { backgroundColor: theme.plumTint }]}>
-            <Text style={{ color: theme.plum, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
-              {q}
-            </Text>
-          </View>
-        ))}
+        {contact.quiz?.interests.map((tag) => {
+          const opt = INTEREST_OPTIONS.find((o) => o.key === tag);
+          return (
+            <View key={tag} style={[styles.tag, { backgroundColor: theme.plumTint }]}>
+              <Text style={{ color: theme.plum, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
+                {opt?.emoji} {opt?.label}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       <View style={[styles.budgetBox, { backgroundColor: theme.card, borderColor: theme.line }]}>

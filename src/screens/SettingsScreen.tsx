@@ -131,8 +131,8 @@ export function SettingsScreen() {
 
       {!isSupabaseConfigured && (
         <Pressable onPress={confirmReset} style={styles.dangerBtn}>
-          <Ionicons name="refresh-outline" size={15} color={theme.civil} />
-          <Text style={[styles.dangerText, { color: theme.civil }]}>Réinitialiser les données de démo</Text>
+          <Ionicons name="refresh-outline" size={15} color={theme.danger} />
+          <Text style={[styles.dangerText, { color: theme.danger }]}>Réinitialiser les données de démo</Text>
         </Pressable>
       )}
 

@@ -10,6 +10,7 @@ import { CalendarScreen } from '../screens/CalendarScreen';
 import { FicheScreen } from '../screens/FicheScreen';
 import { MessageScreen } from '../screens/MessageScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { QuizScreen } from '../screens/QuizScreen';
 import { FloatingTabBar } from './TabBar';
 import { HeaderBackButton } from '../components/HeaderBackButton';
 import { RootStackParamList, TabParamList } from './types';
@@ -72,6 +73,8 @@ export function RootNavigator() {
         <Stack.Screen name="Fiche" component={FicheScreen} options={{ title: 'Fiche contact' }} />
         <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
         <Stack.Screen name="Reglages" component={SettingsScreen} options={{ title: 'Réglages' }} />
+        {/* Écran plein temps propre (barre de progression + retour maison), sans le header natif. */}
+        <Stack.Screen name="Quiz" component={QuizScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

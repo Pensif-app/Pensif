@@ -9,6 +9,7 @@ import { Pill } from '../components/Pill';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { daysUntilNext } from '../data/calendar';
+import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
 
 const weekdayFull = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
@@ -52,14 +53,14 @@ export function HomeScreen() {
             <Pressable
               key={contact.id}
               onPress={() => navigation.navigate('Message', { contactId: contact.id })}
-              style={[styles.todayCard, { backgroundColor: theme.accentTint, borderColor: theme.accent }]}
+              style={[styles.todayCard, { backgroundColor: theme.plumTint, borderColor: theme.plum }]}
             >
               <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={50} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.name, { color: theme.ink }]}>{contact.prenom}</Text>
                 <Text style={[styles.meta, { color: theme.inkSoft }]}>C'est le grand jour 🎂</Text>
               </View>
-              <Pill label="Aujourd'hui" tone="accent" theme={theme} />
+              <Pill label="Aujourd'hui" tone="plum" theme={theme} />
             </Pressable>
           ))}
         </>
@@ -71,7 +72,7 @@ export function HomeScreen() {
           <Text style={[styles.empty, { color: theme.inkSoft }]}>Aucun anniversaire dans les prochains mois.</Text>
         )}
         {upcoming.map(({ contact, daysUntil }, idx) => {
-          const hasQuiz = Boolean(contact.q1 && contact.q2 && contact.q3);
+          const hasQuiz = isQuizComplete(contact.quiz);
           return (
             <Pressable
               key={contact.id}
@@ -122,7 +123,7 @@ export function HomeScreen() {
                   style={{ padding: 4 }}
                   accessibilityLabel="Supprimer"
                 >
-                  <Ionicons name="trash-outline" size={16} color={theme.inkSoft} />
+                  <Ionicons name="trash-outline" size={16} color={theme.danger} />
                 </Pressable>
               </View>
             ))}

@@ -2,17 +2,39 @@ import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { useTheme } from '../theme';
 
-export function PrimaryButton({ label, onPress, ghost = false }: { label: string; onPress: () => void; ghost?: boolean }) {
+// Les 4 familles de la charte Pensif : primaire (action principale, violet plein), secondaire
+// (contour violet, priorité moindre), attention (corail — interactions émotionnelles ponctuelles,
+// jamais pour un bouton standard), destructif (rouge classique, réservé à "Supprimer").
+export type ButtonVariant = 'primary' | 'secondary' | 'attention' | 'destructive';
+
+export function PrimaryButton({
+  label,
+  onPress,
+  variant = 'primary',
+}: {
+  label: string;
+  onPress: () => void;
+  variant?: ButtonVariant;
+}) {
   const theme = useTheme();
+  const styleFor: Record<ButtonVariant, { bg: string; fg: string; borderColor?: string }> = {
+    primary: { bg: theme.accent, fg: '#FFFFFF' },
+    secondary: { bg: 'transparent', fg: theme.accent, borderColor: theme.accent },
+    attention: { bg: theme.plum, fg: '#FFFFFF' },
+    destructive: { bg: theme.danger, fg: '#FFFFFF' },
+  };
+  const s = styleFor[variant];
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.btn,
-        { backgroundColor: ghost ? theme.paperDim : theme.accentStrong, opacity: pressed ? 0.85 : 1 },
+        { backgroundColor: s.bg, borderColor: s.borderColor ?? 'transparent', borderWidth: s.borderColor ? 1.5 : 0 },
+        pressed && { opacity: 0.85 },
       ]}
     >
-      <Text style={[styles.label, { color: ghost ? theme.ink : '#fff' }]}>{label}</Text>
+      <Text style={[styles.label, { color: s.fg }]}>{label}</Text>
     </Pressable>
   );
 }

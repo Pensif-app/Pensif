@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar';
 import { Pill } from '../components/Pill';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
+import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
 
 export function ContactsScreen() {
@@ -40,7 +41,7 @@ export function ContactsScreen() {
 
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
         {sorted.map((c, idx) => {
-          const hasQuiz = Boolean(c.q1 && c.q2 && c.q3);
+          const hasQuiz = isQuizComplete(c.quiz);
           return (
             <Pressable
               key={c.id}
@@ -50,7 +51,7 @@ export function ContactsScreen() {
               <Avatar initials={c.initials} colorKey={c.color} theme={theme} />
               <View style={{ flex: 1 }}>
                 <View style={styles.nameRow}>
-                  {c.favorite && <Ionicons name="star" size={13} color={theme.accentStrong} />}
+                  {c.favorite && <Ionicons name="star" size={13} color={theme.plum} />}
                   <Text style={[styles.name, { color: theme.ink }]}>{`${c.prenom} ${c.nom}`.trim()}</Text>
                 </View>
                 <Text style={[styles.meta, { color: theme.inkSoft }]}>

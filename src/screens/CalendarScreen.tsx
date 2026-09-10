@@ -1,8 +1,21 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Screen } from '../components/Screen';
@@ -23,16 +36,20 @@ import {
   mondayOffset,
   monthAbbrev,
   monthFull,
+  periodsInMonth,
   sameDate,
   weekdayFull,
   weekdayLabels,
 } from '../data/calendar';
 import { RootStackParamList } from '../navigation/types';
+import { Palette } from '../theme/colors';
 
 export function CalendarScreen() {
   const theme = useTheme();
+  const systemScheme = useColorScheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { contacts, pensees, addPensee, deletePensee, today, userName } = useStore();
+  const { contacts, pensees, addPensee, deletePensee, today, userName, themePref } = useStore();
+  const isDark = (themePref === 'system' ? systemScheme : themePref) === 'dark';
 
   const [mode, setMode] = useState<'month' | 'week'>('month');
   const [view, setView] = useState({ year: today.getFullYear(), month: today.getMonth() });
@@ -40,6 +57,15 @@ export function CalendarScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [texte, setTexte] = useState('');
   const [linkedContact, setLinkedContact] = useState<string | null>(null);
+
+  // Mode "Surligner" (feutre) : glisser du doigt sur la grille du mois pour sélectionner une
+  // période (vacances, déplacement…) plutôt que de créer une pensée par jour.
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [dragRange, setDragRange] = useState<{ start: number; end: number } | null>(null);
+  const [periodModal, setPeriodModal] = useState<{ start: number; end: number } | null>(null);
+  const [periodText, setPeriodText] = useState('');
+  const [gridWidth, setGridWidth] = useState(0);
+  const periods = useMemo(() => periodsInMonth(pensees, view.year, view.month), [pensees, view]);
   const [customDuration, setCustomDuration] = useState({ weeks: 0, days: 1, hours: 0, minutes: 0 });
   const customOffsetMinutes =
     (customDuration.weeks * 7 + customDuration.days) * 24 * 60 + customDuration.hours * 60 + customDuration.minutes;
@@ -219,6 +245,135 @@ export function CalendarScreen() {
     return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   }, [selected]);
 
+  function beginDrag(day: number) {
+    setDragRange({ start: day, end: day });
+  }
+  function updateDrag(day: number) {
+    setDragRange((prev) => (prev ? { start: prev.start, end: day } : { start: day, end: day }));
+  }
+  function finalizeDrag() {
+    setDragRange((prev) => {
+      if (prev) {
+        const start = Math.min(prev.start, prev.end);
+        const end = Math.max(prev.start, prev.end);
+        // Laisse le geste de glissement (sur la grille) relâcher complètement la zone tactile
+        // avant d'ouvrir la fenêtre — sans ce court délai, le premier tap sur "Enregistrer" ne
+        // s'enregistrait pas (il fallait taper deux fois).
+        setTimeout(() => setPeriodModal({ start, end }), 80);
+      }
+      return null;
+    });
+    setHighlightMode(false);
+  }
+
+  // Mémorise la dernière case survolée pour ne mettre à jour la sélection qu'au changement de
+  // jour (pas à chaque micro-mouvement du doigt) — un glissement qui semble plus posé, moins
+  // "nerveux", et beaucoup moins d'allers-retours avec le thread JS.
+  const lastDragDay = useSharedValue<number | null>(null);
+
+  // Glisser le doigt sur la grille (en mode Surligner) sélectionne une plage de jours plutôt que
+  // de changer de mois — attachée à la place de `swipeGesture` uniquement quand highlightMode est
+  // actif (voir le GestureDetector de la grille plus bas).
+  const highlightGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin((e) => {
+          'worklet';
+          if (gridWidth === 0) return;
+          const cellW = gridWidth / 7;
+          const col = Math.max(0, Math.min(6, Math.floor(e.x / cellW)));
+          const row = Math.max(0, Math.min(weeks.length - 1, Math.floor(e.y / CELL_HEIGHT)));
+          const day = weeks[row]?.[col];
+          if (day != null) {
+            lastDragDay.value = day;
+            runOnJS(beginDrag)(day);
+          }
+        })
+        .onUpdate((e) => {
+          'worklet';
+          if (gridWidth === 0) return;
+          const cellW = gridWidth / 7;
+          const col = Math.max(0, Math.min(6, Math.floor(e.x / cellW)));
+          const row = Math.max(0, Math.min(weeks.length - 1, Math.floor(e.y / CELL_HEIGHT)));
+          const day = weeks[row]?.[col];
+          if (day != null && day !== lastDragDay.value) {
+            lastDragDay.value = day;
+            runOnJS(updateDrag)(day);
+          }
+        })
+        .onFinalize(() => {
+          'worklet';
+          lastDragDay.value = null;
+          runOnJS(finalizeDrag)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gridWidth, weeks],
+  );
+
+  // Chaque période a sa propre couleur (dans l'ordre où elles commencent) pour qu'on puisse
+  // distinguer deux périodes qui se chevauchent, plutôt que de toutes les fondre dans la même
+  // teinte.
+  const PERIOD_PALETTE: { bg: keyof Palette; fg: keyof Palette }[] = [
+    { bg: 'plumTint', fg: 'plum' },
+    { bg: 'accentTint', fg: 'accent' },
+    { bg: 'sageTint', fg: 'sage' },
+    { bg: 'civilTint', fg: 'civil' },
+  ];
+  const sortedPeriods = useMemo(() => [...periods].sort((a, b) => a.date.localeCompare(b.date)), [periods]);
+
+  function periodsForDay(day: number) {
+    const iso = isoOf(view.year, view.month, day);
+    return sortedPeriods.filter((p) => iso >= p.date && iso <= p.endDate!);
+  }
+
+  function highlightForDay(day: number): { key: string; label: string; bg: string; fg: string; overlap: number } | null {
+    if (highlightMode && dragRange) {
+      const a = Math.min(dragRange.start, dragRange.end);
+      const b = Math.max(dragRange.start, dragRange.end);
+      if (day >= a && day <= b) return { key: 'drag', label: '', bg: theme.plumTint, fg: theme.plum, overlap: 0 };
+    }
+    const covering = periodsForDay(day);
+    if (covering.length === 0) return null;
+    const idx = sortedPeriods.findIndex((p) => p.id === covering[0].id);
+    const tone = PERIOD_PALETTE[idx % PERIOD_PALETTE.length];
+    return { key: covering[0].id, label: covering[0].texte, bg: theme[tone.bg], fg: theme[tone.fg], overlap: covering.length - 1 };
+  }
+
+  function rowSegments(week: (number | null)[]) {
+    const row = week.map((day) => (day !== null ? highlightForDay(day) : null));
+    const segs: { startCol: number; endCol: number; label: string; bg: string; fg: string }[] = [];
+    let i = 0;
+    while (i < row.length) {
+      if (!row[i]) {
+        i++;
+        continue;
+      }
+      const key = row[i]!.key;
+      let j = i;
+      while (j + 1 < row.length && row[j + 1]?.key === key) j++;
+      segs.push({ startCol: i, endCol: j, label: row[i]!.label, bg: row[i]!.bg, fg: row[i]!.fg });
+      i = j + 1;
+    }
+    return segs;
+  }
+
+  function savePeriod() {
+    if (!periodModal || !periodText.trim()) {
+      Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
+      return;
+    }
+    addPensee({
+      date: isoOf(view.year, view.month, periodModal.start),
+      endDate: periodModal.start === periodModal.end ? null : isoOf(view.year, view.month, periodModal.end),
+      texte: periodText.trim(),
+      remind: '0',
+      contactId: null,
+    });
+    setPeriodText('');
+    setPeriodModal(null);
+  }
+
   const selectedEvents = getDayEvents(selected.year, selected.month, selected.day, contacts, pensees, today, userName);
   const weekLabel =
     mode === 'week'
@@ -228,6 +383,8 @@ export function CalendarScreen() {
   function dotsFor(y: number, m: number, d: number) {
     const seen = new Set<string>();
     return getDayEvents(y, m, d, contacts, pensees, today, userName).filter((ev) => {
+      // Les pensées de période sont montrées via la bande colorée, pas un point par jour.
+      if (ev.isPeriod) return false;
       if (seen.has(ev.type)) return false;
       seen.add(ev.type);
       return true;
@@ -261,6 +418,21 @@ export function CalendarScreen() {
       <View style={styles.monthRow}>
         <Text style={[styles.monthName, { color: theme.ink }]}>{weekLabel}</Text>
         <View style={styles.navBtns}>
+          {mode === 'month' && (
+            <Pressable
+              onPress={() => {
+                setHighlightMode((v) => !v);
+                setDragRange(null);
+              }}
+              style={[
+                styles.navBtn,
+                { borderColor: highlightMode ? theme.plum : theme.line, backgroundColor: highlightMode ? theme.plumTint : theme.card },
+              ]}
+              accessibilityLabel="Surligner une période"
+            >
+              <Ionicons name="brush" size={15} color={highlightMode ? theme.plum : theme.inkSoft} />
+            </Pressable>
+          )}
           <Pressable onPress={prev} style={[styles.navBtn, { borderColor: theme.line, backgroundColor: theme.card }]}>
             <Ionicons name="chevron-back" size={16} color={theme.inkSoft} />
           </Pressable>
@@ -269,6 +441,9 @@ export function CalendarScreen() {
           </Pressable>
         </View>
       </View>
+      {highlightMode && (
+        <Text style={[styles.highlightHint, { color: theme.plum }]}>Glisse le doigt sur la grille pour sélectionner une période</Text>
+      )}
 
       <View style={[styles.toggle, { backgroundColor: theme.paperDim }]}>
         <Pressable
@@ -286,26 +461,48 @@ export function CalendarScreen() {
       </View>
 
       {mode === 'month' ? (
-        <GestureDetector gesture={swipeGesture}>
+        <GestureDetector gesture={highlightMode ? highlightGesture : swipeGesture}>
           <Animated.View style={transitionStyle}>
           <View style={styles.weekdayRow}>
             {weekdayLabels.map((w, i) => (
               <Text key={i} style={[styles.weekdayLabel, { color: theme.inkSoft }]}>{w}</Text>
             ))}
           </View>
-          <View>
-            {weeks.map((week, wIdx) => (
+          <View onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+            {weeks.map((week, wIdx) => {
+              const segments = rowSegments(week);
+              return (
               <View key={wIdx} style={styles.gridRow}>
+                {segments.map((seg, i) => (
+                  <View
+                    key={i}
+                    pointerEvents="none"
+                    style={[
+                      styles.highlightBand,
+                      {
+                        left: `${(seg.startCol / 7) * 100}%`,
+                        width: `${((seg.endCol - seg.startCol + 1) / 7) * 100}%`,
+                        backgroundColor: seg.bg,
+                      },
+                    ]}
+                  />
+                ))}
                 {week.map((day, idx) => {
                   if (day === null) return <View key={idx} style={styles.cell} />;
                   const isToday = sameDate(new Date(view.year, view.month, day), today);
                   const isSelected = selected.year === view.year && selected.month === view.month && selected.day === day;
                   const past = isPastDate(view.year, view.month, day, today);
                   const events = dotsFor(view.year, view.month, day);
+                  // Plusieurs pensées (période ou non) ce jour-là — un seul point/bande ne suffit
+                  // pas à le montrer, ce petit repère en haut à droite le signale ; le détail
+                  // complet reste visible en tapant le jour, dans l'agenda du dessous.
+                  const hasMultiplePensees =
+                    getDayEvents(view.year, view.month, day, contacts, pensees, today, userName).filter((ev) => ev.type === 'pensee')
+                      .length > 1;
                   return (
                     <Pressable
                       key={idx}
-                      onPress={() => selectDate(view.year, view.month, day)}
+                      onPress={highlightMode ? undefined : () => selectDate(view.year, view.month, day)}
                       style={[
                         styles.cell,
                         styles.cellInner,
@@ -314,6 +511,7 @@ export function CalendarScreen() {
                         past && { opacity: 0.4 },
                       ]}
                     >
+                      {hasMultiplePensees && <View style={[styles.overlapDot, { backgroundColor: theme.plum }]} />}
                       <Text style={{ color: theme.ink, fontWeight: '600', fontSize: 13 }}>{day}</Text>
                       <View style={styles.dotsRow}>
                         {events.map((ev, i) => (
@@ -323,8 +521,39 @@ export function CalendarScreen() {
                     </Pressable>
                   );
                 })}
+                {/* Rendu APRÈS les cases (donc par-dessus les chiffres) : c'est ce qui permet au
+                    flou de réellement flouter les chiffres derrière le texte, plutôt que de
+                    passer dessous sans effet. */}
+                {segments.map(
+                  (seg, i) =>
+                    seg.endCol - seg.startCol + 1 >= 3 &&
+                    seg.label && (
+                      // Ce conteneur couvre tout le segment juste pour centrer la bulle floutée —
+                      // lui n'a ni fond ni flou, donc les chiffres restent visibles partout SAUF
+                      // juste sous la petite bulle (dimensionnée au texte, pas à la largeur du
+                      // segment entier).
+                      <View
+                        key={i}
+                        pointerEvents="none"
+                        style={[
+                          styles.highlightLabelSlot,
+                          {
+                            left: `${(seg.startCol / 7) * 100}%`,
+                            width: `${((seg.endCol - seg.startCol + 1) / 7) * 100}%`,
+                          },
+                        ]}
+                      >
+                        <BlurView intensity={30} tint={isDark ? 'dark' : 'light'} style={styles.highlightLabelBlur}>
+                          <Text numberOfLines={1} style={[styles.highlightLabel, { color: seg.fg }]}>
+                            {seg.label}
+                          </Text>
+                        </BlurView>
+                      </View>
+                    ),
+                )}
               </View>
-            ))}
+              );
+            })}
           </View>
           </Animated.View>
         </GestureDetector>
@@ -518,6 +747,59 @@ export function CalendarScreen() {
           </View>
         </GestureHandlerRootView>
       </Modal>
+
+      <Modal
+        visible={!!periodModal}
+        transparent
+        animationType="none"
+        onRequestClose={() => {
+          setPeriodModal(null);
+          setPeriodText('');
+        }}
+      >
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+          >
+            <Pressable
+              style={styles.periodScrim}
+              onPress={() => {
+                setPeriodModal(null);
+                setPeriodText('');
+              }}
+            >
+              <Pressable style={[styles.periodCard, { backgroundColor: theme.card, borderColor: theme.line }]} onPress={() => {}}>
+                <Text style={[styles.periodTitle, { color: theme.ink }]}>
+                  {periodModal &&
+                    (periodModal.start === periodModal.end
+                      ? `${periodModal.start} ${monthFull[view.month]}`
+                      : `${periodModal.start} — ${periodModal.end} ${monthFull[view.month]}`)}
+                </Text>
+                <TextInput
+                  value={periodText}
+                  onChangeText={setPeriodText}
+                  placeholder="Ajouter une pensée…"
+                  placeholderTextColor={theme.inkSoft}
+                  style={[styles.periodInput, { borderColor: theme.line, color: theme.ink }]}
+                />
+                {/* onPressIn (pas onPress) : le champ est encore focus juste avant, donc ce tap
+                    fait redescendre le clavier — avec KeyboardAvoidingView, la fenêtre redescend
+                    AVEC lui pendant le tap, et le bouton se dérobe sous le doigt avant le
+                    relâchement. Déclencher dès le contact (avant que tout ça ne bouge) évite le
+                    besoin de taper deux fois. */}
+                <Pressable
+                  onPressIn={savePeriod}
+                  style={({ pressed }) => [styles.periodSaveBtn, { backgroundColor: theme.accent }, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={styles.periodSaveLabel}>Enregistrer</Text>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </GestureHandlerRootView>
+      </Modal>
     </Screen>
     </GestureDetector>
   );
@@ -533,6 +815,7 @@ function LegendItem({ type, label, theme }: { type: any; label: string; theme: a
 }
 
 const CELL_SIZE = '13.5%';
+const CELL_HEIGHT = 42;
 
 const styles = StyleSheet.create({
   h1: { fontSize: 22, fontWeight: '700' },
@@ -545,9 +828,18 @@ const styles = StyleSheet.create({
   toggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center' },
   weekdayRow: { flexDirection: 'row', marginBottom: 4 },
   weekdayLabel: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '700' },
-  gridRow: { flexDirection: 'row' },
-  cell: { flex: 1, height: 42, padding: 2 },
-  cellInner: { borderRadius: 10, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', gap: 3 },
+  gridRow: { flexDirection: 'row', position: 'relative' },
+  highlightBand: { position: 'absolute', top: 4, bottom: 4, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  // Couvre tout le segment juste pour centrer la bulle floutée dedans (lui n'a pas de fond).
+  highlightLabelSlot: { position: 'absolute', top: 25, height: 13, alignItems: 'center', justifyContent: 'center' },
+  // La bulle elle-même : dimensionnée au texte (pas au segment entier), pour ne flouter que les
+  // quelques chiffres qu'elle recouvre réellement, et laisser les autres bien visibles.
+  highlightLabelBlur: { borderRadius: 7, paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden' },
+  highlightLabel: { fontSize: 10, fontWeight: '700' },
+  overlapDot: { position: 'absolute', top: 3, right: 3, width: 6, height: 6, borderRadius: 3 },
+  highlightHint: { fontSize: 11, fontWeight: '600', marginTop: -6, marginBottom: 10 },
+  cell: { flex: 1, height: CELL_HEIGHT, padding: 2 },
+  cellInner: { position: 'relative', borderRadius: 10, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', gap: 3 },
   dotsRow: { flexDirection: 'row', gap: 2, height: 6 },
   weekStrip: { flexDirection: 'row', gap: 6 },
   weekDay: { flex: 1, borderWidth: 1, borderColor: 'transparent', borderRadius: 14, alignItems: 'center', paddingVertical: 10, gap: 5 },
@@ -564,4 +856,10 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 },
   textarea: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 60, textAlignVertical: 'top', fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, marginRight: 6 },
+  periodScrim: { flex: 1, backgroundColor: 'rgba(20,24,28,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  periodCard: { width: '100%', borderWidth: 1, borderRadius: 18, padding: 20 },
+  periodTitle: { fontWeight: '700', fontSize: 15, marginBottom: 12, textAlign: 'center' },
+  periodInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 14, marginBottom: 16 },
+  periodSaveBtn: { width: '100%', paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
+  periodSaveLabel: { fontWeight: '700', fontSize: 15, color: '#FFFFFF' },
 });

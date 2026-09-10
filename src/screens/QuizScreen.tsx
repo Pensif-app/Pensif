@@ -1,0 +1,579 @@
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+  useColorScheme,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { PrimaryButton } from '../components/PrimaryButton';
+import { useStore } from '../data/store';
+import { useTheme } from '../theme';
+import {
+  archetypeFor,
+  BUDGET_OPTIONS,
+  computeTraits,
+  formatQuizText,
+  INTEREST_OPTIONS,
+  QUIZ_QUESTIONS,
+  sortedTraits,
+  TRAIT_LABELS,
+} from '../data/quiz';
+import { BudgetBand, Contact, InterestTag, QuizAnswer } from '../data/types';
+import { RootStackParamList } from '../navigation/types';
+
+const ANSWER_FILL_MS = 520;
+const STEP_QUESTIONS = QUIZ_QUESTIONS.length; // 0..6
+const STEP_INTERESTS = STEP_QUESTIONS; // 7
+const STEP_AVOID = STEP_QUESTIONS + 1; // 8
+const STEP_WISH = STEP_QUESTIONS + 2; // 9
+const STEP_BUDGET = STEP_QUESTIONS + 3; // 10
+const STEP_RESULTS = STEP_QUESTIONS + 4; // 11
+const TOTAL_STEPS = STEP_QUESTIONS + 4;
+
+export function QuizScreen() {
+  const theme = useTheme();
+  const systemScheme = useColorScheme();
+  const { themePref } = useStore();
+  const isDark = (themePref === 'system' ? systemScheme : themePref) === 'dark';
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Quiz'>>();
+  const { contacts, upsertContact } = useStore();
+  const contact = contacts.find((c) => c.id === route.params.contactId);
+
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState<QuizAnswer[]>(contact?.quiz?.answers ?? []);
+  const [interests, setInterests] = useState<InterestTag[]>(contact?.quiz?.interests ?? []);
+  const [avoid, setAvoid] = useState<InterestTag[]>(contact?.quiz?.avoid ?? []);
+  const [wish, setWish] = useState(contact?.quiz?.wish ?? '');
+  const [budget, setBudget] = useState<BudgetBand | null>(contact?.quiz?.budget ?? null);
+  const [flash, setFlash] = useState<'A' | 'B' | null>(null);
+
+  if (!contact) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.paper }]}>
+        <Text style={{ color: theme.inkSoft }}>Contact introuvable.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  function goNext() {
+    setStep((s) => Math.min(TOTAL_STEPS, s + 1));
+  }
+  function goBack() {
+    if (step === 0) navigation.goBack();
+    else setStep((s) => s - 1);
+  }
+
+  function answerQuestion(choice: QuizAnswer) {
+    if (flash) return; // déjà en cours de transition, ignore un second tap
+    setFlash(choice);
+    const next = [...answers.slice(0, step), choice];
+    // Laisse le temps à ChoiceCard de finir son animation de remplissage (voir ANSWER_FILL_MS)
+    // avant de basculer sur la question suivante.
+    setTimeout(() => {
+      setFlash(null);
+      setAnswers(next);
+      goNext();
+    }, ANSWER_FILL_MS);
+  }
+
+  function toggleTag(list: InterestTag[], setList: (v: InterestTag[]) => void, tag: InterestTag) {
+    setList(list.includes(tag) ? list.filter((t) => t !== tag) : [...list, tag]);
+  }
+
+  const finish = () => {
+    upsertContact({
+      ...contact,
+      quiz: { answers, interests, avoid, wish: wish.trim(), budget, completedAt: new Date().toISOString() },
+    });
+    goNext();
+  };
+
+  const progress = Math.min(step, TOTAL_STEPS) / TOTAL_STEPS;
+
+  return (
+    <View style={styles.flexFull}>
+      <QuizAura theme={theme} isDark={isDark} />
+      <SafeAreaView style={styles.flexFull}>
+        {step < STEP_RESULTS ? (
+          <KeyboardAvoidingView
+            style={styles.flexFull}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+          >
+            <View style={styles.header}>
+              <Pressable onPress={goBack} hitSlop={10} style={[styles.backBtn, { backgroundColor: theme.card, borderColor: theme.line }]}>
+                <Ionicons name="chevron-back" size={18} color={theme.ink} />
+              </Pressable>
+              <Text style={[styles.headerLabel, { color: theme.inkSoft }]}>
+                LE PETIT QUIZ · {step + 1}/{TOTAL_STEPS}
+              </Text>
+              <View style={{ width: 34 }} />
+            </View>
+            <View style={styles.progressTrackWrap}>
+              <View style={[styles.progressTrack, { backgroundColor: theme.paperDim }]}>
+                <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${progress * 100}%` }]} />
+              </View>
+            </View>
+
+            {/* Tap en dehors du champ de texte = ferme le clavier, comme sur la plupart des apps
+                (pas de bouton dédié sur le clavier iOS pour ça sinon). */}
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <StepFade step={step} style={styles.body}>
+              {step < STEP_QUESTIONS && (
+                <QuestionStep question={QUIZ_QUESTIONS[step]} contact={contact} theme={theme} flash={flash} onAnswer={answerQuestion} onSkip={goNext} />
+              )}
+              {step === STEP_INTERESTS && (
+                <TagStep
+                  title={formatQuizText('Qu’est-ce qui ressemble à {prenom} ?', contact)}
+                  subtitle="Choisis-en autant que tu veux."
+                  theme={theme}
+                  selected={interests}
+                  onToggle={(t) => toggleTag(interests, setInterests, t)}
+                  onContinue={goNext}
+                />
+              )}
+              {step === STEP_AVOID && (
+                <TagStep
+                  title={formatQuizText('Et ce qu’{il} apprécie moins ?', contact)}
+                  subtitle="Facultatif — pour éviter les impairs."
+                  theme={theme}
+                  selected={avoid}
+                  onToggle={(t) => toggleTag(avoid, setAvoid, t)}
+                  onContinue={goNext}
+                />
+              )}
+              {step === STEP_WISH && (
+                <View style={styles.centeredBlock}>
+                  <Text style={[styles.prompt, { color: theme.ink }]}>
+                    {formatQuizText('Une chose que {prenom} aimerait avoir en ce moment ?', contact)}
+                  </Text>
+                  <Text style={[styles.subtitle, { color: theme.inkSoft }]}>Facultatif.</Text>
+                  <TextInput
+                    value={wish}
+                    onChangeText={setWish}
+                    multiline
+                    style={[styles.wishInput, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
+                  />
+                  <View style={{ marginTop: 20, width: '100%' }}>
+                    <PrimaryButton label="Continuer" onPress={goNext} />
+                  </View>
+                </View>
+              )}
+              {step === STEP_BUDGET && (
+                <View style={styles.centeredBlock}>
+                  <Text style={[styles.prompt, { color: theme.ink }]}>Budget cadeau habituel pour {contact.prenom} ?</Text>
+                  <View style={{ gap: 10, marginTop: 20, width: '100%' }}>
+                    {BUDGET_OPTIONS.map((opt) => (
+                      <Pressable
+                        key={opt.key}
+                        onPress={() => setBudget(opt.key)}
+                        style={[
+                          styles.budgetRow,
+                          { borderColor: budget === opt.key ? theme.accent : theme.line, backgroundColor: theme.card },
+                        ]}
+                      >
+                        <Text style={{ color: theme.ink, fontWeight: '600' }}>{opt.label}</Text>
+                        {budget === opt.key && <Ionicons name="checkmark-circle" size={20} color={theme.accent} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={{ marginTop: 20, width: '100%' }}>
+                    <PrimaryButton label="Voir le profil" onPress={finish} />
+                  </View>
+                </View>
+              )}
+              </StepFade>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+        ) : (
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ResultsStep contact={contact} answers={answers} interests={interests} theme={theme} navigation={navigation} />
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </View>
+  );
+}
+
+/** Fond animé "qui respire" pendant le quiz : dégradé calme + deux halos flous en violet/corail qui
+ * pulsent lentement, pour un rendu apaisant plutôt qu'un simple fond uni. */
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+function QuizAura({ theme, isDark }: { theme: any; isDark: boolean }) {
+  // Chaque halo respire (échelle/opacité) ET dérive lentement dans l'espace (translation), pour un
+  // vrai mouvement organique plutôt qu'un simple pulse sur place.
+  const pulseA = useSharedValue(0);
+  const pulseB = useSharedValue(0);
+  const driftA = useSharedValue(0);
+  const driftB = useSharedValue(0);
+  useEffect(() => {
+    pulseA.value = withRepeat(withTiming(1, { duration: 3400, easing: Easing.inOut(Easing.sin) }), -1, true);
+    pulseB.value = withDelay(600, withRepeat(withTiming(1, { duration: 3800, easing: Easing.inOut(Easing.sin) }), -1, true));
+    driftA.value = withRepeat(withTiming(1, { duration: 9000, easing: Easing.inOut(Easing.sin) }), -1, true);
+    driftB.value = withDelay(
+      1200,
+      withRepeat(withTiming(1, { duration: 11000, easing: Easing.inOut(Easing.sin) }), -1, true),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const orbAStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(driftA.value, [0, 1], [-40, 50]) },
+      { translateY: interpolate(driftA.value, [0, 1], [-20, 60]) },
+      { scale: 1 + pulseA.value * 0.3 },
+    ],
+    opacity: 0.4 + pulseA.value * 0.3,
+  }));
+  const orbBStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(driftB.value, [0, 1], [40, -50]) },
+      { translateY: interpolate(driftB.value, [0, 1], [30, -50]) },
+      { scale: 1.15 - pulseB.value * 0.25 },
+    ],
+    opacity: 0.32 + pulseB.value * 0.26,
+  }));
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <LinearGradient colors={[theme.paper, theme.paperDim]} style={StyleSheet.absoluteFill} />
+      <Animated.View style={[styles.orb, styles.orbA, { backgroundColor: theme.accent }, orbAStyle]} />
+      <Animated.View style={[styles.orb, styles.orbB, { backgroundColor: theme.plum }, orbBStyle]} />
+      <BlurView intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+      {/* Un flou aussi fort que celui des halos "efface" carrément des points aussi petits —
+          elles restent donc au-dessus, mais adoucies directement via une lueur (shadow), pas de
+          BlurView dessus. */}
+      <Particles theme={theme} />
+    </View>
+  );
+}
+
+const PARTICLE_COUNT = 16;
+
+function Particles({ theme }: { theme: any }) {
+  const particles = useMemo(
+    () =>
+      Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
+        id: i,
+        x: Math.random() * SCREEN_W,
+        size: 3 + Math.random() * 5,
+        delay: Math.random() * 8000,
+        duration: 18000 + Math.random() * 14000,
+        drift: 12 + Math.random() * 20,
+        color: i % 3 === 0 ? theme.plum : theme.accent,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  return (
+    <>
+      {particles.map((p) => (
+        <Particle key={p.id} {...p} />
+      ))}
+    </>
+  );
+}
+
+function Particle({
+  x,
+  size,
+  delay,
+  duration,
+  drift,
+  color,
+}: {
+  x: number;
+  size: number;
+  delay: number;
+  duration: number;
+  drift: number;
+  color: string;
+}) {
+  const t = useSharedValue(0);
+  useEffect(() => {
+    t.value = withDelay(delay, withRepeat(withTiming(1, { duration, easing: Easing.linear }), -1, false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: interpolate(t.value, [0, 1], [SCREEN_H + 20, -20]) },
+      { translateX: Math.sin(t.value * Math.PI * 2) * drift },
+    ],
+    opacity: interpolate(t.value, [0, 0.15, 0.85, 1], [0, 0.55, 0.55, 0]),
+  }));
+  // Pas de BlurView ici (un flou assez fort pour les halos effacerait un point de quelques
+  // pixels) — la lueur douce vient d'une ombre large et diffuse autour d'un cœur minuscule.
+  return (
+    <Animated.View
+      style={[
+        styles.particle,
+        {
+          left: x,
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color,
+          shadowColor: color,
+          shadowOpacity: 0.9,
+          shadowRadius: size * 3,
+          shadowOffset: { width: 0, height: 0 },
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/** Fondu + léger glissement vers le haut à chaque changement d'étape du quiz. */
+function StepFade({ step, style, children }: { step: number; style?: any; children: React.ReactNode }) {
+  const entry = useSharedValue(0);
+  useEffect(() => {
+    entry.value = 0;
+    entry.value = withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) });
+  }, [step, entry]);
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: entry.value,
+    transform: [{ translateY: (1 - entry.value) * 14 }],
+  }));
+  return <Animated.View style={[style, animStyle]}>{children}</Animated.View>;
+}
+
+function QuestionStep({
+  question,
+  contact,
+  theme,
+  flash,
+  onAnswer,
+  onSkip,
+}: {
+  question: (typeof QUIZ_QUESTIONS)[number];
+  contact: Pick<Contact, 'prenom' | 'genre'>;
+  theme: any;
+  flash: 'A' | 'B' | null;
+  onAnswer: (choice: QuizAnswer) => void;
+  onSkip: () => void;
+}) {
+  return (
+    <View style={styles.centeredBlock}>
+      <Text style={[styles.prompt, { color: theme.ink }]}>{formatQuizText(question.prompt, contact)}</Text>
+      <View style={{ gap: 14, marginTop: 24, width: '100%' }}>
+        <ChoiceCard label={formatQuizText(question.a.label, contact)} theme={theme} active={flash === 'A'} onPress={() => onAnswer('A')} />
+        <Text style={[styles.or, { color: theme.inkSoft }]}>OU</Text>
+        <ChoiceCard label={formatQuizText(question.b.label, contact)} theme={theme} active={flash === 'B'} onPress={() => onAnswer('B')} />
+      </View>
+      <Pressable onPress={onSkip} style={{ marginTop: 24, alignItems: 'center' }}>
+        <Text style={{ color: theme.inkSoft, fontSize: 13 }}>Passer cette question</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ChoiceCard({ label, theme, active, onPress }: { label: string; theme: any; active: boolean; onPress: () => void }) {
+  // Se remplit en douceur (couleur) et "gonfle" comme une bulle qu'on touche (ressort avec
+  // rebond) au lieu de basculer d'un coup — c'est cette réaction qui sert de "chargement" avant
+  // de passer à la question suivante.
+  const fill = useSharedValue(0);
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    fill.value = withTiming(active ? 1 : 0, { duration: active ? ANSWER_FILL_MS - 60 : 160, easing: Easing.out(Easing.cubic) });
+    if (active) scale.value = withSpring(1.08, { damping: 7, stiffness: 260, mass: 0.6 });
+  }, [active, fill, scale]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(fill.value, [0, 1], [theme.card, theme.accentTint]),
+    borderColor: interpolateColor(fill.value, [0, 1], [theme.line, theme.accent]),
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => {
+        if (!active) scale.value = withSpring(0.96, { damping: 14, stiffness: 300 });
+      }}
+      onPressOut={() => {
+        if (!active) scale.value = withSpring(1, { damping: 14, stiffness: 300 });
+      }}
+    >
+      <Animated.View style={[styles.choiceCard, animStyle]}>
+        <Text style={[styles.choiceLabel, { color: theme.ink }]}>{label}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function TagStep({
+  title,
+  subtitle,
+  theme,
+  selected,
+  onToggle,
+  onContinue,
+}: {
+  title: string;
+  subtitle: string;
+  theme: any;
+  selected: InterestTag[];
+  onToggle: (tag: InterestTag) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <View style={styles.centeredBlock}>
+      <Text style={[styles.prompt, { color: theme.ink }]}>{title}</Text>
+      <Text style={[styles.subtitle, { color: theme.inkSoft }]}>{subtitle}</Text>
+      <View style={[styles.tagGrid, { justifyContent: 'center' }]}>
+        {INTEREST_OPTIONS.map((opt) => {
+          const active = selected.includes(opt.key);
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => onToggle(opt.key)}
+              style={[
+                styles.tagChip,
+                { borderColor: active ? theme.accent : theme.line, backgroundColor: active ? theme.accentTint : theme.card },
+              ]}
+            >
+              <Text style={{ fontSize: 13 }}>{opt.emoji}</Text>
+              <Text style={{ color: active ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>{opt.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={{ marginTop: 20, width: '100%' }}>
+        <PrimaryButton label="Continuer" onPress={onContinue} />
+      </View>
+    </View>
+  );
+}
+
+function ResultsStep({
+  contact,
+  answers,
+  interests,
+  theme,
+  navigation,
+}: {
+  contact: Contact;
+  answers: QuizAnswer[];
+  interests: InterestTag[];
+  theme: any;
+  navigation: NativeStackNavigationProp<RootStackParamList>;
+}) {
+  const traits = computeTraits(answers);
+  const archetype = archetypeFor(traits, contact);
+  const ranked = sortedTraits(traits).slice(0, 4);
+
+  return (
+    <View style={styles.resultsWrap}>
+      <Ionicons name="heart" size={32} color={theme.plum} style={{ marginBottom: 10 }} />
+      <Text style={[styles.resultsTitle, { color: theme.ink }]}>Profil terminé</Text>
+      <Text style={[styles.resultsSub, { color: theme.inkSoft }]}>Pensif connaît maintenant un peu mieux {contact.prenom}.</Text>
+
+      <Text style={[styles.archetype, { color: theme.accent }]}>{archetype.title.toUpperCase()}</Text>
+      <Text style={[styles.archetypeDesc, { color: theme.inkSoft }]}>{archetype.description}</Text>
+
+      <View style={{ width: '100%', marginTop: 24, gap: 12 }}>
+        {ranked.map(({ key, value }) => (
+          <View key={key}>
+            <View style={styles.traitLabelRow}>
+              <Text style={{ color: theme.ink, fontWeight: '600', fontSize: 13 }}>{TRAIT_LABELS[key]}</Text>
+              <Text style={{ color: theme.inkSoft, fontSize: 12 }}>{Math.round(value * 100)}%</Text>
+            </View>
+            <View style={[styles.traitTrack, { backgroundColor: theme.paperDim }]}>
+              <View style={[styles.traitFill, { backgroundColor: theme.accent, width: `${Math.round(value * 100)}%` }]} />
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {interests.length > 0 && (
+        <View style={{ width: '100%', marginTop: 24 }}>
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>SES UNIVERS</Text>
+          <View style={styles.tagGrid}>
+            {interests.map((tag) => {
+              const opt = INTEREST_OPTIONS.find((o) => o.key === tag)!;
+              return (
+                <View key={tag} style={[styles.tagChip, { borderColor: theme.line, backgroundColor: theme.card }]}>
+                  <Text style={{ fontSize: 13 }}>{opt.emoji}</Text>
+                  <Text style={{ color: theme.ink, fontWeight: '600', fontSize: 13 }}>{opt.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      <View style={{ width: '100%', marginTop: 28 }}>
+        <PrimaryButton
+          label="Voir ses idées cadeaux"
+          onPress={() => navigation.navigate('Tabs', { screen: 'Cadeaux', params: { contactId: contact.id } })}
+        />
+        <Pressable onPress={() => navigation.goBack()} style={{ marginTop: 12, alignItems: 'center' }}>
+          <Text style={{ color: theme.inkSoft }}>Retour à la fiche</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, padding: 20 },
+  flexFull: { flex: 1 },
+  scrollContent: { padding: 24, paddingBottom: 48 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 6 },
+  backBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  headerLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
+  progressTrackWrap: { paddingHorizontal: 20, marginTop: 14 },
+  progressTrack: { height: 4, borderRadius: 999, overflow: 'hidden' },
+  progressFill: { height: 4, borderRadius: 999 },
+  body: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+  centeredBlock: { alignItems: 'center' },
+  prompt: { fontSize: 21, fontWeight: '700', lineHeight: 28, textAlign: 'center' },
+  subtitle: { fontSize: 13, marginTop: 4, textAlign: 'center' },
+  or: { textAlign: 'center', fontSize: 12, fontWeight: '700' },
+  choiceCard: { borderWidth: 1.5, borderRadius: 18, paddingVertical: 26, paddingHorizontal: 18, alignItems: 'center' },
+  choiceLabel: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 20 },
+  tagChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9 },
+  wishInput: { borderWidth: 1, borderRadius: 12, padding: 14, minHeight: 90, textAlignVertical: 'top', fontSize: 14, marginTop: 20, width: '100%' },
+  budgetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderRadius: 14, padding: 16 },
+  resultsWrap: { alignItems: 'center', paddingTop: 30 },
+  resultsTitle: { fontSize: 20, fontWeight: '700' },
+  resultsSub: { fontSize: 13, textAlign: 'center', marginTop: 4 },
+  archetype: { fontSize: 15, fontWeight: '800', letterSpacing: 0.6, marginTop: 24 },
+  archetypeDesc: { fontSize: 13, textAlign: 'center', lineHeight: 19, marginTop: 8 },
+  traitLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  traitTrack: { height: 8, borderRadius: 999, overflow: 'hidden' },
+  traitFill: { height: 8, borderRadius: 999 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 4 },
+  orb: { position: 'absolute', width: 420, height: 420, borderRadius: 210 },
+  orbA: { top: -140, left: -100 },
+  orbB: { bottom: -160, right: -120 },
+  particle: { position: 'absolute', top: 0 },
+});

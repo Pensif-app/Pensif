@@ -16,6 +16,10 @@ export const light = {
   sageTint: '#DFF5EA',
   civil: '#A8524A',
   civilTint: '#F3E1DE',
+  // Rouge "classique", volontairement différent du corail (plum) : le corail = attention envers
+  // une personne, le danger = action destructive (supprimer). Les deux ne doivent jamais se
+  // confondre, sinon "cœur Pensif" se lirait inconsciemment comme une erreur.
+  danger: '#C62F2F',
   line: '#E7E4F0',
   tabBarTint: 'rgba(255,255,255,0.55)',
 };
@@ -35,6 +39,7 @@ export const dark = {
   sageTint: '#1E3A2C',
   civil: '#E08A80',
   civilTint: '#3A211E',
+  danger: '#F0453D',
   line: '#2B2B47',
   tabBarTint: 'rgba(33,33,58,0.6)',
 };

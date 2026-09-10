@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Contact, Pensee } from '../data/types';
 import { namedayTable, normalizeName, reminderLabels } from '../data/calendar';
+import { isQuizComplete } from '../data/quiz';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -72,8 +73,7 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
     const bday = nextOccurrence(c.date, today);
     await scheduleAt(bday, `🎂 Anniversaire de ${c.prenom}`, "C'est aujourd'hui — un petit message lui ferait plaisir.");
 
-    const hasQuiz = Boolean(c.q1 && c.q2 && c.q3);
-    if (hasQuiz) {
+    if (isQuizComplete(c.quiz)) {
       const reminder = new Date(bday);
       reminder.setDate(reminder.getDate() - 14);
       await scheduleAt(

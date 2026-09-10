@@ -35,7 +35,7 @@ export function EventRow({
       </View>
       {onDelete && (
         <Pressable onPress={onDelete} hitSlop={10} style={styles.deleteBtn} accessibilityLabel="Supprimer">
-          <Ionicons name="trash-outline" size={16} color={theme.inkSoft} />
+          <Ionicons name="trash-outline" size={16} color={theme.danger} />
         </Pressable>
       )}
     </Wrapper>
