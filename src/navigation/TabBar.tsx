@@ -2,11 +2,19 @@ import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import React, { useEffect, useMemo, useState } from 'react';
-import { LayoutChangeEvent, Platform, Pressable, StyleSheet, useColorScheme, View } from 'react-native';
+import { LayoutChangeEvent, Platform, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, SharedValue } from 'react-native-reanimated';
+import Animated, {
+  interpolateColor,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
+import { tabBarHidden } from './tabBarVisibility';
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Accueil: 'home',
@@ -15,23 +23,27 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Calendrier: 'calendar',
 };
 
-const BTN_SIZE = 46;
-// Marge verticale (contrôle la hauteur de la barre) et marge horizontale (contrôle l'espace
-// entre le premier/dernier bouton et le bord de la barre) séparées : la bulle est plus large que
-// haute, donc il lui faut plus de marge horizontale que verticale pour ne pas toucher le trait de
-// contour de la barre quand elle est posée sur le premier ou le dernier onglet.
-const BAR_PADDING_V = 12;
-const BAR_PADDING_H = 18;
-const BAR_RADIUS = 999;
-const BUBBLE_HEIGHT = 58;
-const BUBBLE_WIDTH = BUBBLE_HEIGHT + 20;
-const BUBBLE_RADIUS = 20;
-const BUBBLE_INSET = (BUBBLE_WIDTH - BTN_SIZE) / 2;
-// Au-delà du premier/dernier onglet, on tolère un léger dépassement pendant qu'on glisse (avant
-// de coller pile sur le bord) — c'est ce qui donne l'effet "flaque qui s'écrase contre le coin".
-const EDGE_OVERSHOOT = 16;
-const SPRING = { damping: 16, stiffness: 220, mass: 0.6 };
-const PRESS_SPRING = { damping: 9, stiffness: 280 };
+const SPRING = { damping: 18, stiffness: 260, mass: 0.7 };
+const SNAP_SPRING = { damping: 15, stiffness: 220, mass: 0.8 };
+// Doivent correspondre aux valeurs du style `bar` ci-dessous — utilisées pour calculer la hauteur
+// totale réelle de la barre (row + padding + bordure) à partir de la seule hauteur mesurée de la
+// rangée de boutons.
+const BAR_PADDING_V = 10;
+const BAR_PADDING_H = 10;
+const BAR_BORDER = 1;
+// Au repos : la bulle occupe quasiment toute la hauteur de la barre (juste quelques pixels de
+// marge en haut/bas, comme sur l'App Store). Ce n'est qu'en appui maintenu / glisser qu'elle
+// grossit encore et déborde par-dessus le contour.
+const REST_PAD_H = 6;
+const REST_MARGIN_V = 4;
+const PRESS_PAD_H = 22;
+const PRESS_OVERFLOW_V = 16;
+// En glissant jusqu'au bord, la bulle ne doit dépasser que de quelques pixels du contour de la
+// barre — jamais flotter complètement détachée à côté.
+const EDGE_OVERFLOW_MAX = 10;
+
+type Layout = { x: number; width: number };
+type RowOrigin = { x: number; y: number; height: number };
 
 export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
   const theme = useTheme();
@@ -39,197 +51,252 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
   const { themePref } = useStore();
   const isDark = (themePref === 'system' ? systemScheme : themePref) === 'dark';
 
-  // Position réelle de chaque bouton (mesurée, plutôt que déduite de space-around) pour que
-  // la bulle glisse exactement sous les icônes. Recopiée dans une shared value : un ref React
-  // classique ne se lit pas de façon fiable depuis un worklet (thread UI de Reanimated).
-  const [buttonX, setButtonX] = useState<number[]>([]);
-  const buttonXShared = useSharedValue<number[]>([]);
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const layoutsShared = useSharedValue<Layout[]>([]);
   useEffect(() => {
-    buttonXShared.value = buttonX;
-  }, [buttonX, buttonXShared]);
+    layoutsShared.value = layouts;
+  }, [layouts, layoutsShared]);
+  const ready = layouts.length === state.routes.length && layouts.every(Boolean);
 
-  const onButtonLayout = (index: number) => (e: LayoutChangeEvent) => {
-    const x = e.nativeEvent.layout.x;
-    setButtonX((prev) => {
-      if (prev[index] === x) return prev;
+  const [barWidth, setBarWidth] = useState(0);
+  // Position/hauteur de la rangée de boutons à l'intérieur de la barre : sert à placer la bulle
+  // (qui est un sibling en dehors du BlurView, pour pouvoir déborder par-dessus le contour flouté
+  // sans être rognée par son `overflow: hidden`).
+  const [rowOrigin, setRowOrigin] = useState<RowOrigin>({ x: 0, y: 0, height: 0 });
+  const onRowLayout = (e: LayoutChangeEvent) => {
+    const { x, y, width, height } = e.nativeEvent.layout;
+    setBarWidth(width);
+    setRowOrigin((prev) => (prev.x === x && prev.y === y && prev.height === height ? prev : { x, y, height }));
+  };
+
+  // Les 4 dimensions de la bulle sont animées indépendamment (et non via un simple `scale`) pour
+  // pouvoir avoir une taille de repos strictement plus petite que le contour de la barre, et une
+  // taille de pression qui, elle, déborde par-dessus ce contour.
+  const pillLeft = useSharedValue(0);
+  const pillTop = useSharedValue(0);
+  const pillW = useSharedValue(0);
+  const pillH = useSharedValue(0);
+  const isPressing = useSharedValue(0);
+  // -1 = personne ; sinon l'onglet actuellement sous le doigt pendant un appui/glisser.
+  const hoverIndex = useSharedValue(-1);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!ready || isPressing.value) return;
+    const active = layouts[state.index];
+    const barTop = rowOrigin.y - (BAR_PADDING_V + BAR_BORDER);
+    const barHeight = rowOrigin.height + 2 * (BAR_PADDING_V + BAR_BORDER);
+    const w = active.width + REST_PAD_H;
+    const h = barHeight - REST_MARGIN_V * 2;
+    pillW.value = withSpring(w, SNAP_SPRING);
+    pillH.value = withSpring(h, SNAP_SPRING);
+    pillLeft.value = withSpring(rowOrigin.x + active.x + active.width / 2 - w / 2, SNAP_SPRING);
+    pillTop.value = withSpring(barTop + REST_MARGIN_V, SNAP_SPRING);
+  }, [state.index, ready, layouts, rowOrigin, pillLeft, pillTop, pillW, pillH, isPressing]);
+
+  const pillStyle = useAnimatedStyle(() => ({
+    left: pillLeft.value,
+    top: pillTop.value,
+    width: pillW.value,
+    height: pillH.value,
+  }));
+
+  const barShiftStyle = useAnimatedStyle(() => ({
+    opacity: 1 - tabBarHidden.value * 0.75,
+    transform: [{ translateY: tabBarHidden.value * 20 }],
+  }));
+
+  const onTabLayout = (index: number) => (e: LayoutChangeEvent) => {
+    const { x, width } = e.nativeEvent.layout;
+    setLayouts((prev) => {
+      if (prev[index]?.x === x && prev[index]?.width === width) return prev;
       const next = [...prev];
-      next[index] = x;
+      next[index] = { x, width };
       return next;
     });
   };
-  const bubbleReady = buttonX.length === state.routes.length && buttonX.every((x) => x !== undefined);
-
-  const bubbleX = useSharedValue(0);
-  const bubbleScale = useSharedValue(1);
-  const edgeSquashX = useSharedValue(1);
-  const isDragging = useSharedValue(0);
-  // -1 = personne ; sinon l'index de l'onglet actuellement "survolé" (pressé, ou sous la bulle
-  // pendant un glisser) — c'est ce qui déclenche le petit zoom sur l'icône.
-  const hoverIndex = useSharedValue(-1);
-
-  // La bulle retombe pile centrée sur l'onglet actif à chaque changement — tap, swipe terminé ou
-  // glisser relâché, peu importe la cause.
-  useEffect(() => {
-    if (!bubbleReady || isDragging.value) return;
-    bubbleX.value = withSpring((buttonX[state.index] ?? 0) - BUBBLE_INSET, SPRING);
-  }, [state.index, bubbleReady, buttonX, bubbleX, isDragging]);
-
-  const bubbleStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: bubbleX.value },
-      { scale: bubbleScale.value },
-      { scaleX: edgeSquashX.value },
-    ],
-  }));
 
   const activeIndex = state.index;
   const navigateTo = (index: number) => {
     navigation.navigate(state.routes[index].name as never);
   };
+  const rowX = rowOrigin.x;
+  const rowY = rowOrigin.y;
+  const rowH = rowOrigin.height;
+  const barTotalWidth = barWidth + 2 * (BAR_PADDING_H + BAR_BORDER);
 
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .minDistance(6)
-        .onBegin(() => {
-          // Se déclenche dès l'appui, drag ou pas — c'est ce qui fait "grossir" la bulle sur un
-          // simple appui maintenu, indépendamment du glisser.
-          isDragging.value = 1;
-          hoverIndex.value = activeIndex;
-          bubbleScale.value = withSpring(1.3, SPRING);
-        })
-        .onUpdate((e) => {
-          const xs = buttonXShared.value;
-          const minX = xs[0] ?? 0;
-          const maxX = xs[xs.length - 1] ?? 0;
-          const base = xs[activeIndex] ?? 0;
-          const raw = base + e.translationX;
-          const overshoot = raw < minX ? minX - raw : raw > maxX ? raw - maxX : 0;
-          const clamped = Math.max(minX - EDGE_OVERSHOOT, Math.min(maxX + EDGE_OVERSHOOT, raw));
-
-          bubbleX.value = clamped - BUBBLE_INSET;
-          edgeSquashX.value = 1 + Math.min(overshoot, EDGE_OVERSHOOT) / EDGE_OVERSHOOT * 0.4;
-
-          let nearest = activeIndex;
-          let best = Infinity;
-          for (let i = 0; i < xs.length; i++) {
-            const d = Math.abs(xs[i] - clamped);
-            if (d < best) {
-              best = d;
-              nearest = i;
-            }
+  const gesture = useMemo(() => {
+    const pan = Gesture.Pan()
+      .minDistance(0)
+      .onBegin((e) => {
+        'worklet';
+        // Dès que le doigt se pose (pas d'attente, pas de seuil de distance) : on détermine tout
+        // de suite l'onglet sous le doigt et on grossit la bulle dessus, pour un démarrage
+        // immédiat et fluide du glisser.
+        isPressing.value = 1;
+        const xs = layoutsShared.value;
+        let nearest = activeIndex;
+        let best = Infinity;
+        for (let i = 0; i < xs.length; i++) {
+          const center = xs[i].x + xs[i].width / 2;
+          const d = Math.abs(center - e.x);
+          if (d < best) {
+            best = d;
+            nearest = i;
           }
+        }
+        hoverIndex.value = nearest;
+        const target = xs[nearest];
+        if (!target) return;
+        const w = target.width + PRESS_PAD_H;
+        const h = rowH + PRESS_OVERFLOW_V * 2;
+        const rawLeft = rowX + target.x + target.width / 2 - w / 2;
+        const left = Math.max(-EDGE_OVERFLOW_MAX, Math.min(barTotalWidth - w + EDGE_OVERFLOW_MAX, rawLeft));
+        pillW.value = withSpring(w, SPRING);
+        pillH.value = withSpring(h, SPRING);
+        pillLeft.value = withSpring(left, SPRING);
+        pillTop.value = withSpring(rowY - PRESS_OVERFLOW_V, SPRING);
+        runOnJS(setDragIndex)(nearest);
+      })
+      .onUpdate((e) => {
+        'worklet';
+        const xs = layoutsShared.value;
+        if (xs.length === 0) return;
+        const clampedX = Math.max(0, Math.min(barWidth, e.x));
+        let nearest = 0;
+        let best = Infinity;
+        for (let i = 0; i < xs.length; i++) {
+          const center = xs[i].x + xs[i].width / 2;
+          const d = Math.abs(center - clampedX);
+          if (d < best) {
+            best = d;
+            nearest = i;
+          }
+        }
+        // La bulle suit le doigt en continu pendant le glisser (pas de ressort ici, pour un
+        // suivi 1:1), seule sa largeur s'anime en douceur quand elle change d'onglet survolé.
+        // On borne sa position pour qu'elle ne déborde que légèrement du contour de la barre aux
+        // extrémités, plutôt que de flotter complètement détachée à côté.
+        const rawLeft = rowX + clampedX - pillW.value / 2;
+        pillLeft.value = Math.max(-EDGE_OVERFLOW_MAX, Math.min(barTotalWidth - pillW.value + EDGE_OVERFLOW_MAX, rawLeft));
+        if (nearest !== hoverIndex.value) {
           hoverIndex.value = nearest;
-        })
-        .onFinalize(() => {
-          // Toujours exécuté — même si le geste est annulé (doigt sorti de la barre côté bord),
-          // ce qui évite que la bulle reste figée à mi-chemin. On la recentre nous-mêmes ici,
-          // plutôt que de compter sur le changement d'onglet pour le faire : si l'onglet le plus
-          // proche est déjà l'onglet actif, `state.index` ne changera pas, et rien d'autre ne la
-          // ramènerait au centre.
-          bubbleScale.value = withSpring(1, SPRING);
-          edgeSquashX.value = withSpring(1, SPRING);
-          isDragging.value = 0;
-          const nearest = hoverIndex.value;
-          hoverIndex.value = -1;
-          const xs = buttonXShared.value;
-          bubbleX.value = withSpring((xs[nearest] ?? xs[activeIndex] ?? 0) - BUBBLE_INSET, SPRING);
-          if (nearest !== -1 && nearest !== activeIndex) runOnJS(navigateTo)(nearest);
-        }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeIndex],
-  );
+          pillW.value = withSpring(xs[nearest].width + PRESS_PAD_H, SPRING);
+          runOnJS(setDragIndex)(nearest);
+        }
+      })
+      .onFinalize(() => {
+        'worklet';
+        const xs = layoutsShared.value;
+        const nearest = hoverIndex.value === -1 ? activeIndex : hoverIndex.value;
+        const target = xs[nearest] ?? xs[activeIndex];
+        if (target) {
+          const barTop = rowY - (BAR_PADDING_V + BAR_BORDER);
+          const barHeight = rowH + 2 * (BAR_PADDING_V + BAR_BORDER);
+          const w = target.width + REST_PAD_H;
+          const h = barHeight - REST_MARGIN_V * 2;
+          pillW.value = withSpring(w, SNAP_SPRING);
+          pillH.value = withSpring(h, SNAP_SPRING);
+          pillLeft.value = withSpring(rowX + target.x + target.width / 2 - w / 2, SNAP_SPRING);
+          pillTop.value = withSpring(barTop + REST_MARGIN_V, SNAP_SPRING);
+        }
+        isPressing.value = 0;
+        hoverIndex.value = -1;
+        runOnJS(setDragIndex)(null);
+        if (nearest !== activeIndex) runOnJS(navigateTo)(nearest);
+      });
 
-  const bubbleGlass = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.5)';
-  const bubbleEdge = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.9)';
+    return pan;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, barWidth, rowX, rowY, rowH]);
+
+  const pillTint = isDark ? 'rgba(240,188,127,0.22)' : 'rgba(184,112,31,0.14)';
+  const pillBorder = isDark ? 'rgba(240,188,127,0.55)' : 'rgba(184,112,31,0.4)';
 
   return (
-    <View style={styles.wrap} pointerEvents="box-none">
-      <BlurView
-        intensity={60}
-        tint={isDark ? 'dark' : 'light'}
-        style={[styles.bar, { borderColor: theme.line }]}
-      >
-        {bubbleReady && (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.bubble, { backgroundColor: bubbleGlass, borderColor: bubbleEdge }, bubbleStyle]}
-          />
-        )}
-        {state.routes.map((route, index) => {
-          const focused = state.index === index;
-          const onPress = () => {
-            if (!focused) navigation.navigate(route.name as never);
-          };
-          const button = (
-            <TabBarButton
-              key={route.key}
-              index={index}
-              hoverIndex={hoverIndex}
-              onPress={onPress}
-              onLayout={onButtonLayout(index)}
-              iconName={ICONS[route.name] ?? 'ellipse'}
-              color={focused ? theme.accentStrong : theme.inkSoft}
-              focused={focused}
-              label={route.name}
-            />
-          );
-          return focused ? (
-            <GestureDetector key={route.key} gesture={panGesture}>
-              {button}
-            </GestureDetector>
-          ) : (
-            button
-          );
-        })}
+    <Animated.View style={[styles.wrap, barShiftStyle]} pointerEvents="box-none">
+      <BlurView intensity={70} tint={isDark ? 'dark' : 'light'} style={[styles.bar, { borderColor: theme.line }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBarTint }]} />
+        <GestureDetector gesture={gesture}>
+          <View style={styles.row} onLayout={onRowLayout}>
+            {state.routes.map((route, index) => {
+              const focused = state.index === index;
+              const hovered = dragIndex !== null ? dragIndex === index : focused;
+              return (
+                <TabBarButton
+                  key={route.key}
+                  onLayout={onTabLayout(index)}
+                  iconName={ICONS[route.name] ?? 'ellipse'}
+                  hovered={hovered}
+                  inactiveColor={theme.inkSoft}
+                  activeColor={theme.accentStrong}
+                  label={route.name}
+                />
+              );
+            })}
+          </View>
+        </GestureDetector>
       </BlurView>
-    </View>
+      {/* Sibling du BlurView (pas un enfant) : peut ainsi déborder par-dessus le contour de la
+          barre sans être rogné par son `overflow: hidden`, comme la bulle "Liquid Glass". */}
+      {ready && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.pill, { backgroundColor: pillTint, borderColor: pillBorder }, pillStyle]}
+        />
+      )}
+    </Animated.View>
   );
 }
 
 function TabBarButton({
-  index,
-  hoverIndex,
-  onPress,
   onLayout,
   iconName,
-  color,
-  focused,
+  hovered,
+  activeColor,
+  inactiveColor,
   label,
 }: {
-  index: number;
-  hoverIndex: SharedValue<number>;
-  onPress: () => void;
   onLayout: (e: LayoutChangeEvent) => void;
   iconName: keyof typeof Ionicons.glyphMap;
-  color: string;
-  focused: boolean;
+  hovered: boolean;
+  activeColor: string;
+  inactiveColor: string;
   label: string;
 }) {
-  const iconStyle = useAnimatedStyle(() => {
-    const hovered = hoverIndex.value === index;
-    const target = hovered ? 1.35 : focused ? 1.08 : 1;
-    return { transform: [{ scale: withSpring(target, PRESS_SPRING) }] };
-  });
+  const scale = useSharedValue(1);
+  // 0 → couleur inactive, 1 → couleur active : on transitionne cette valeur en douceur plutôt que
+  // de changer la couleur d'un coup, pour que l'icône "s'allume" progressivement sous la bulle.
+  const hoverAmt = useSharedValue(0);
+  useEffect(() => {
+    scale.value = withSpring(hovered ? 1.22 : 1, SPRING);
+    hoverAmt.value = withTiming(hovered ? 1 : 0, { duration: 220 });
+  }, [hovered, scale, hoverAmt]);
+
+  const contentStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  // Ionicons est un composant composite (police d'icônes), pas un vrai noeud natif animable —
+  // lui passer une couleur via useAnimatedProps plante à l'exécution. On simule donc la
+  // transition de couleur avec un fondu croisé entre deux icônes superposées (technique sûre,
+  // ne touche que `opacity`, une prop de style standard).
+  const activeIconStyle = useAnimatedStyle(() => ({ opacity: hoverAmt.value }));
+  const labelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(hoverAmt.value, [0, 1], [inactiveColor, activeColor]),
+  }));
 
   return (
-    <Pressable
-      onPress={onPress}
-      onLayout={onLayout}
-      onPressIn={() => {
-        hoverIndex.value = index;
-      }}
-      onPressOut={() => {
-        if (hoverIndex.value === index) hoverIndex.value = -1;
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={styles.btn}
-    >
-      <Animated.View style={iconStyle}>
-        <Ionicons name={iconName} size={21} color={color} />
+    <View onLayout={onLayout} style={styles.tab} accessibilityRole="button" accessibilityLabel={label}>
+      <Animated.View style={[styles.tabContent, contentStyle]}>
+        <View>
+          <Ionicons name={iconName} size={22} color={inactiveColor} />
+          <Animated.View style={[StyleSheet.absoluteFill, activeIconStyle]}>
+            <Ionicons name={iconName} size={22} color={activeColor} />
+          </Animated.View>
+        </View>
+        <Animated.Text style={[styles.label, labelStyle]} numberOfLines={1}>
+          {label}
+        </Animated.Text>
       </Animated.View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -242,30 +309,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
     width: '100%',
-    paddingVertical: BAR_PADDING_V,
-    paddingHorizontal: BAR_PADDING_H,
-    borderRadius: BAR_RADIUS,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 26,
     borderWidth: 1,
     overflow: 'hidden',
   },
-  btn: {
-    width: BTN_SIZE,
-    height: BTN_SIZE,
-    borderRadius: BTN_SIZE / 2,
+  row: {
+    flexDirection: 'row',
+  },
+  pill: {
+    position: 'absolute',
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  tab: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 4,
   },
-  bubble: {
-    position: 'absolute',
-    left: 0,
-    top: (BTN_SIZE - BUBBLE_HEIGHT) / 2 + BAR_PADDING_V,
-    width: BUBBLE_WIDTH,
-    height: BUBBLE_HEIGHT,
-    borderRadius: BUBBLE_RADIUS,
-    borderWidth: 1,
+  tabContent: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '600',
   },
 });

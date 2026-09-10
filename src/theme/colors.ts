@@ -14,6 +14,7 @@ export const light = {
   civil: '#A8524A',
   civilTint: '#F3E1DE',
   line: '#E4DFD6',
+  tabBarTint: 'rgba(255,255,255,0.55)',
 };
 
 export const dark = {
@@ -32,6 +33,7 @@ export const dark = {
   civil: '#E08A80',
   civilTint: '#3A211E',
   line: '#2A3138',
+  tabBarTint: 'rgba(32,38,45,0.55)',
 };
 
 export type Palette = typeof light;
