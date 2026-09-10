@@ -72,21 +72,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (t === 'light' || t === 'dark' || t === 'system') setThemePrefState(t);
         if (n === '0') setNotificationsEnabledState(false);
 
+        // Lu AVANT toute décision Supabase : sert de secours hors-ligne, mais surtout de filet de
+        // sécurité — si un ajout précédent n'a jamais fini par atteindre le serveur (requête
+        // perdue, colonne manquante, coupure réseau juste après la création…), il ne doit pas
+        // disparaître silencieusement au prochain lancement simplement parce que le serveur ne le
+        // connaît pas encore.
+        const [cachedContactsRaw, cachedPenseesRaw] = await Promise.all([
+          AsyncStorage.getItem(KEYS.contacts),
+          AsyncStorage.getItem(KEYS.pensees),
+        ]);
+        const cachedContacts: Contact[] = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
+        const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw) : [];
+
         if (isSupabaseConfigured) {
           const uid = await ensureAnonSession();
           if (uid) {
             setUserId(uid);
             const remote = await loadRemoteData(uid);
-            setContacts(remote.contacts);
-            setPensees(remote.pensees);
+
+            const remoteContactIds = new Set(remote.contacts.map((c) => c.id));
+            const pendingContacts = cachedContacts.filter((c) => !remoteContactIds.has(c.id));
+            const remotePenseeIds = new Set(remote.pensees.map((p) => p.id));
+            const pendingPensees = cachedPensees.filter((p) => !remotePenseeIds.has(p.id));
+
+            setContacts([...remote.contacts, ...pendingContacts]);
+            setPensees([...remote.pensees, ...pendingPensees]);
+
+            // Retente l'envoi de ce qui n'était jamais arrivé côté serveur, plutôt que de laisser
+            // l'échec silencieux d'origine se reproduire indéfiniment.
+            pendingContacts.forEach((c) => {
+              const { initials, color, ...rest } = c;
+              insertContactRemote(uid, rest).catch((e) => console.warn('[Pensif] nouvelle tentative de synchro du contact échouée', e));
+            });
+            pendingPensees.forEach((p) => {
+              insertPenseeRemote(uid, p).catch((e) => console.warn('[Pensif] nouvelle tentative de synchro de la pensée échouée', e));
+            });
             return;
           }
         }
 
-        // Pas de Supabase configuré (ou échec de connexion) : on reste en local.
-        const [c, p] = await Promise.all([AsyncStorage.getItem(KEYS.contacts), AsyncStorage.getItem(KEYS.pensees)]);
-        if (c) setContacts(JSON.parse(c));
-        if (p) setPensees(JSON.parse(p));
+        // Pas de Supabase configuré (ou échec de connexion) : on reste sur le cache local lu plus haut.
+        if (cachedContactsRaw) setContacts(cachedContacts);
+        if (cachedPenseesRaw) setPensees(cachedPensees);
       } catch {
         // stockage/réseau indisponible — on continue avec les données de démo en mémoire
       } finally {
@@ -139,7 +166,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             const { initials, color, ...rest } = contact;
             insertContactRemote(userId, rest)
               .then((created) => setContacts((prev) => prev.map((c) => (c.id === contact.id ? created : c))))
-              .catch(() => {});
+              .catch((e) => {
+                // Ne PAS retirer le contact localement : il reste dans `contacts` et dans le cache
+                // AsyncStorage (voir l'effet de persistance ci-dessus), et sera retenté au prochain
+                // lancement de l'app (voir la logique de fusion dans le useEffect d'init).
+                console.warn('[Pensif] échec de synchronisation du contact, retenté au prochain lancement', e);
+              });
           } else {
             updateContactRemote(contact).catch(() => {});
           }
@@ -160,7 +192,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (isSupabaseConfigured && userId) {
           insertPenseeRemote(userId, withId)
             .then((created) => setPensees((prev) => prev.map((p) => (p.id === withId.id ? created : p))))
-            .catch(() => {});
+            .catch((e) => {
+              console.warn('[Pensif] échec de synchronisation de la pensée, retentée au prochain lancement', e);
+            });
         }
       },
       deletePensee: (penseeId: string) => {

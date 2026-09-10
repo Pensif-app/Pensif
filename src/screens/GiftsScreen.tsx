@@ -2,13 +2,14 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { daysUntilNext } from '../data/calendar';
 import { generateGiftIdeas } from '../data/giftEngine';
+import { amazonImageUrl, amazonUrl, COVERED_THEMES, CuratedGift, curatedGiftsForThemes } from '../data/giftCatalog';
 import { INTEREST_OPTIONS } from '../data/quiz';
 import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList, TabParamList } from '../navigation/types';
@@ -31,7 +32,16 @@ export function GiftsScreen() {
 
   // Doit rester avant tout `return` anticipé : les hooks doivent s'exécuter dans le même ordre
   // à chaque rendu, sinon React perd le fil (ex. dès que le dernier contact éligible est supprimé).
-  const allIdeas = useMemo(() => (contact ? generateGiftIdeas(contact) : []), [contact]);
+  const interests = contact?.quiz?.interests ?? [];
+  const curated = useMemo(() => curatedGiftsForThemes(interests), [interests]);
+  // Le catalogue générique (giftEngine) ne sert plus que pour les thèmes pas encore couverts par
+  // de vrais produits affiliés, pour ne pas afficher côte à côte un objet réel cliquable et un
+  // objet inventé sur le même thème.
+  const uncoveredInterests = useMemo(() => interests.filter((t) => !COVERED_THEMES.includes(t)), [interests]);
+  const allIdeas = useMemo(() => {
+    if (!contact || !contact.quiz) return [];
+    return generateGiftIdeas({ ...contact, quiz: { ...contact.quiz, interests: uncoveredInterests } });
+  }, [contact, uncoveredInterests]);
 
   if (!contact) {
     return (
@@ -86,38 +96,66 @@ export function GiftsScreen() {
         })}
       </View>
 
-      <View style={[styles.budgetBox, { backgroundColor: theme.card, borderColor: theme.line }]}>
-        <View style={styles.budgetRow}>
-          <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '700' }}>BUDGET MAX</Text>
-          <Text style={{ color: theme.accentStrong, fontWeight: '700', fontSize: 16 }}>{maxBudget} €</Text>
-        </View>
-        <Slider
-          minimumValue={15}
-          maximumValue={100}
-          step={1}
-          value={maxBudget}
-          onValueChange={setMaxBudget}
-          minimumTrackTintColor={theme.accentStrong}
-          maximumTrackTintColor={theme.line}
-          thumbTintColor={theme.accentStrong}
-        />
-        <Text style={{ color: theme.inkSoft, fontSize: 12 }}>
-          {ideas.length} {ideas.length === 1 ? 'idée jusqu’à' : 'idées jusqu’à'} {maxBudget} €
-        </Text>
-      </View>
+      {curated.length > 0 && (
+        <>
+          <Text style={[styles.disclosure, { color: theme.inkSoft }]}>
+            Sélection de vrais produits Amazon, du moins cher au plus cadeau — en tant que partenaire Amazon, Pensif
+            touche une petite commission sur les achats, sans surcoût pour toi.
+          </Text>
+          {COVERED_THEMES.filter((t) => interests.includes(t)).map((themeKey) => {
+            const opt = INTEREST_OPTIONS.find((o) => o.key === themeKey);
+            const items = curated.filter((g) => g.theme === themeKey).sort((a, b) => a.price - b.price);
+            return (
+              <View key={themeKey} style={{ marginBottom: 18 }}>
+                <Text style={[styles.themeLabel, { color: theme.ink }]}>
+                  {opt?.emoji} {opt?.label}
+                </Text>
+                {items.map((g) => (
+                  <CuratedGiftCard key={g.id} gift={g} theme={theme} />
+                ))}
+              </View>
+            );
+          })}
+        </>
+      )}
 
-      {ideas.map((g) => (
-        <View key={g.id} style={[styles.giftCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-          <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-            <Text style={{ fontSize: 22 }}>{g.emoji}</Text>
+      {uncoveredInterests.length > 0 && allIdeas.length > 0 && (
+        <>
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUTRES IDÉES</Text>
+          <View style={[styles.budgetBox, { backgroundColor: theme.card, borderColor: theme.line }]}>
+            <View style={styles.budgetRow}>
+              <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '700' }}>BUDGET MAX</Text>
+              <Text style={{ color: theme.accentStrong, fontWeight: '700', fontSize: 16 }}>{maxBudget} €</Text>
+            </View>
+            <Slider
+              minimumValue={15}
+              maximumValue={100}
+              step={1}
+              value={maxBudget}
+              onValueChange={setMaxBudget}
+              minimumTrackTintColor={theme.accentStrong}
+              maximumTrackTintColor={theme.line}
+              thumbTintColor={theme.accentStrong}
+            />
+            <Text style={{ color: theme.inkSoft, fontSize: 12 }}>
+              {ideas.length} {ideas.length === 1 ? 'idée jusqu’à' : 'idées jusqu’à'} {maxBudget} €
+            </Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.giftTitle, { color: theme.ink }]}>{g.title}</Text>
-            <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{g.why}</Text>
-            <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{g.price} €</Text>
-          </View>
-        </View>
-      ))}
+
+          {ideas.map((g) => (
+            <View key={g.id} style={[styles.giftCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+              <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
+                <Text style={{ fontSize: 22 }}>{g.emoji}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.giftTitle, { color: theme.ink }]}>{g.title}</Text>
+                <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{g.why}</Text>
+                <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{g.price} €</Text>
+              </View>
+            </View>
+          ))}
+        </>
+      )}
 
       <Pressable
         onPress={() => toggleGiftSent(contact.id)}
@@ -130,6 +168,39 @@ export function GiftsScreen() {
   );
 }
 
+/** Carte produit réelle, cliquable vers Amazon. Tente de charger la vraie photo produit ; si
+ *  l'image ne se charge pas (fiche retirée, format d'URL non servi pour cet ASIN…), on retombe
+ *  sur l'emoji plutôt que de laisser une case cassée. */
+function CuratedGiftCard({ gift, theme }: { gift: CuratedGift; theme: any }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  return (
+    <Pressable
+      onPress={() => Linking.openURL(amazonUrl(gift.asin))}
+      style={[styles.giftCard, { backgroundColor: theme.card, borderColor: theme.line }]}
+    >
+      <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
+        {imageFailed ? (
+          <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
+        ) : (
+          <Image
+            source={{ uri: amazonImageUrl(gift.asin) }}
+            style={styles.thumbImage}
+            resizeMode="contain"
+            onError={() => setImageFailed(true)}
+          />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
+          {gift.title}
+        </Text>
+        <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>à partir de {gift.price} €</Text>
+      </View>
+      <Ionicons name="open-outline" size={18} color={theme.inkSoft} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   h1: { fontSize: 22, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2, marginBottom: 12 },
@@ -138,10 +209,13 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
   tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, maxWidth: 260 },
+  disclosure: { fontSize: 11, lineHeight: 15, marginBottom: 14 },
+  themeLabel: { fontWeight: '700', fontSize: 14, marginBottom: 8 },
   budgetBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 },
   budgetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  giftCard: { flexDirection: 'row', gap: 12, padding: 12, borderWidth: 1, borderRadius: 16, marginBottom: 10 },
-  thumb: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  giftCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1, borderRadius: 16, marginBottom: 10 },
+  thumb: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  thumbImage: { width: '100%', height: '100%' },
   giftTitle: { fontWeight: '700', fontSize: 14 },
   giftWhy: { fontSize: 12, marginTop: 2, lineHeight: 16 },
   giftPrice: { fontWeight: '700', fontSize: 14, marginTop: 6 },

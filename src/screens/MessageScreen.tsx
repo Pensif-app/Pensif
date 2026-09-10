@@ -6,7 +6,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
-import { messageTemplates } from '../data/seed';
+import { messageTemplates } from '../data/messages';
 import { RootStackParamList } from '../navigation/types';
 
 const TONES = [
@@ -24,7 +24,7 @@ export function MessageScreen() {
 
   if (!contact) return null;
 
-  const message = messageTemplates[tone](contact.prenom);
+  const message = messageTemplates[tone](contact);
   const sent = giftSentIds.includes(contact.id);
 
   async function sendSms() {

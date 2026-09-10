@@ -106,11 +106,3 @@ export const seedPensees: Pensee[] = [
     contactId: 'sofia',
   },
 ];
-
-export const messageTemplates = {
-  chaleureux: (prenom: string) =>
-    `Joyeux anniversaire ${prenom} ! J'espère que cette nouvelle année t'apporte plein de belles surprises. Gros bisous 🎂❤️`,
-  complice: (prenom: string) =>
-    `Bon alors officiellement t'as un an de plus aujourd'hui 😄 Joyeux anniv ${prenom}, profite bien de ta journée !`,
-  court: (prenom: string) => `Joyeux anniversaire ${prenom} 🎉 Grosse pensée pour toi aujourd'hui !`,
-};
