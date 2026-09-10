@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import React from 'react';
 import { useColorScheme } from 'react-native';
+import { withTiming } from 'react-native-reanimated';
+import { tabBarHidden } from './tabBarVisibility';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ContactsScreen } from '../screens/ContactsScreen';
 import { GiftsScreen } from '../screens/GiftsScreen';
@@ -60,7 +62,18 @@ export function RootNavigator() {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      theme={navTheme}
+      // tabBarHidden est une shared value globale (persiste tant que l'app tourne) mise à 1 quand
+      // on scrolle vers le bas dans un écran (voir Screen.tsx). Comme Fiche/Quiz/Réglages sont
+      // poussés par-dessus Tabs dans la pile plutôt que remonter dedans, revenir dessus (par
+      // n'importe quel chemin : bouton retour, "Voir ses idées cadeaux" en fin de quizz, etc.)
+      // sans avoir rescrollé jusqu'en haut la laissait parfois bloquée à 1 → barre assombrie en
+      // permanence. On la remet donc à 0 à chaque changement de navigation, où qu'il ait lieu.
+      onStateChange={() => {
+        tabBarHidden.value = withTiming(0, { duration: 150 });
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerTintColor: palette.ink,

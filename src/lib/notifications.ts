@@ -71,15 +71,19 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
     if (!c.date) continue;
 
     const bday = nextOccurrence(c.date, today);
+    // Alerte du jour J : toujours envoyée, que l'utilisateur ait réglé un rappel en amont ou non.
     await scheduleAt(bday, `🎂 Anniversaire de ${c.prenom}`, "C'est aujourd'hui — un petit message lui ferait plaisir.");
 
-    if (isQuizComplete(c.quiz)) {
+    if (c.birthdayReminderDays) {
       const reminder = new Date(bday);
-      reminder.setDate(reminder.getDate() - 14);
+      reminder.setDate(reminder.getDate() - c.birthdayReminderDays);
+      const label = c.birthdayReminderDays === 1 ? 'Demain' : `Dans ${c.birthdayReminderDays} jours`;
       await scheduleAt(
         reminder,
-        `🎁 Dans 14 jours, l'anniversaire de ${c.prenom}`,
-        'Des idées cadeaux adaptées à son budget t’attendent dans Pensif.',
+        `🎁 ${label}, l'anniversaire de ${c.prenom}`,
+        isQuizComplete(c.quiz)
+          ? 'Des idées cadeaux adaptées à son budget t’attendent dans Pensif.'
+          : 'Un petit quizz suffit pour débloquer des idées cadeaux adaptées.',
       );
     }
 

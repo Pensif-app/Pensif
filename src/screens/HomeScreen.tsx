@@ -8,12 +8,18 @@ import { Avatar } from '../components/Avatar';
 import { Pill } from '../components/Pill';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
-import { daysUntilNext } from '../data/calendar';
+import { ageTurning, daysUntilNext } from '../data/calendar';
 import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
 
 const weekdayFull = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const monthFull = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+/** null si l'année saisie n'est manifestement pas une vraie année de naissance (peu fiable). */
+function plausibleAge(dateStr: string, today: Date): number | null {
+  const age = ageTurning(dateStr, today);
+  return age > 0 && age < 130 ? age : null;
+}
 
 export function HomeScreen() {
   const theme = useTheme();
@@ -49,20 +55,25 @@ export function HomeScreen() {
       {todays.length > 0 && (
         <>
           <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
-          {todays.map(({ contact }) => (
-            <Pressable
-              key={contact.id}
-              onPress={() => navigation.navigate('Message', { contactId: contact.id })}
-              style={[styles.todayCard, { backgroundColor: theme.plumTint, borderColor: theme.plum }]}
-            >
-              <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={50} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.name, { color: theme.ink }]}>{contact.prenom}</Text>
-                <Text style={[styles.meta, { color: theme.inkSoft }]}>C'est le grand jour 🎂</Text>
-              </View>
-              <Pill label="Aujourd'hui" tone="plum" theme={theme} />
-            </Pressable>
-          ))}
+          {todays.map(({ contact }) => {
+            const age = plausibleAge(contact.date, today);
+            return (
+              <Pressable
+                key={contact.id}
+                onPress={() => navigation.navigate('Message', { contactId: contact.id })}
+                style={[styles.todayCard, { backgroundColor: theme.plumTint, borderColor: theme.plum }]}
+              >
+                <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={50} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.name, { color: theme.ink }]}>{contact.prenom}</Text>
+                  <Text style={[styles.meta, { color: theme.inkSoft }]}>
+                    {age ? `Fête ses ${age} ans aujourd'hui 🎂` : "C'est le grand jour 🎂"}
+                  </Text>
+                </View>
+                <Pill label="Aujourd'hui" tone="plum" theme={theme} />
+              </Pressable>
+            );
+          })}
         </>
       )}
 
@@ -73,25 +84,37 @@ export function HomeScreen() {
         )}
         {upcoming.map(({ contact, daysUntil }, idx) => {
           const hasQuiz = isQuizComplete(contact.quiz);
+          const age = plausibleAge(contact.date, today);
           return (
             <Pressable
               key={contact.id}
-              onPress={() => navigation.navigate('Fiche', { contactId: contact.id })}
+              onPress={() => {
+                // Toucher un contact déclenche la prochaine action à faire pour lui plutôt que
+                // toujours ouvrir sa fiche : le quizz s'il manque, sinon les idées (cadeau/message)
+                // s'il n'a rien reçu, sinon sa fiche pour régler l'alerte ou vérifier les infos.
+                if (!hasQuiz) navigation.navigate('Quiz', { contactId: contact.id });
+                else if (!contact.giftSent) navigation.navigate('Tabs', { screen: 'Cadeaux', params: { contactId: contact.id } });
+                else navigation.navigate('Fiche', { contactId: contact.id });
+              }}
               style={[styles.row, idx < upcoming.length - 1 && { borderBottomColor: theme.line, borderBottomWidth: 1 }]}
             >
               <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.name, { color: theme.ink, fontSize: 14 }]}>{`${contact.prenom} ${contact.nom}`.trim()}</Text>
-                <Text style={[styles.meta, { color: theme.inkSoft }]}>{contact.relation}</Text>
+                <Text style={[styles.meta, { color: theme.inkSoft }]}>
+                  {age ? `Fête ses ${age} ans dans ${daysUntil} j` : `${contact.familyRole ?? contact.relation} · J-${daysUntil}`}
+                </Text>
               </View>
               <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                <Text style={[styles.countdown, { color: theme.inkSoft }]}>J-{daysUntil}</Text>
-                {daysUntil <= 14 && hasQuiz ? (
-                  <Pill label="Idées dispo" tone="accent" theme={theme} />
-                ) : hasQuiz ? (
-                  <Pill label="Pas de cadeau" tone="plum" theme={theme} />
-                ) : (
+                {contact.favorite && <Ionicons name="star" size={14} color={theme.plum} />}
+                {!hasQuiz ? (
                   <Pill label="Quizz à faire" tone="muted" theme={theme} />
+                ) : !contact.giftSent ? (
+                  <Pill label="Idées dispo" tone="accent" theme={theme} />
+                ) : contact.birthdayReminderDays == null ? (
+                  <Pill label="Alerte à régler" tone="plum" theme={theme} />
+                ) : (
+                  <Pill label="Tout est prêt" tone="sage" theme={theme} />
                 )}
               </View>
             </Pressable>
@@ -145,6 +168,5 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, marginTop: 2 },
   card: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  countdown: { fontSize: 12, fontWeight: '700' },
   empty: { paddingVertical: 16, fontSize: 13, textAlign: 'center' },
 });

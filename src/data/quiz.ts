@@ -96,6 +96,14 @@ export const INTEREST_OPTIONS: { key: InterestTag; label: string; emoji: string 
   { key: 'maison', label: 'Maison', emoji: '🏠' },
   { key: 'auto', label: 'Auto', emoji: '🚗' },
   { key: 'nature', label: 'Nature', emoji: '🌿' },
+  { key: 'cinema', label: 'Cinéma & séries', emoji: '🎬' },
+  { key: 'art', label: 'Art & créatif', emoji: '🎨' },
+  { key: 'bienetre', label: 'Bien-être', emoji: '🧘' },
+  { key: 'animaux', label: 'Animaux', emoji: '🐾' },
+  { key: 'photo', label: 'Photo', emoji: '📸' },
+  { key: 'jardinage', label: 'Jardinage', emoji: '🌱' },
+  { key: 'bricolage', label: 'Bricolage', emoji: '🔧' },
+  { key: 'danse', label: 'Danse', emoji: '💃' },
 ];
 
 export const BUDGET_OPTIONS: { key: BudgetBand; label: string; max: number }[] = [
@@ -175,6 +183,9 @@ export function sortedTraits(traits: Record<TraitKey, number>): { key: TraitKey;
     .sort((a, b) => b.value - a.value);
 }
 
+/** Le quiz est "fait" dès qu'on est arrivé au bout (completedAt posé par finish() dans
+ *  QuizScreen) — pas besoin d'avoir répondu à toutes les questions A/B, "Passer cette question"
+ *  est une option volontaire et ne doit pas empêcher le quiz d'être considéré comme terminé. */
 export function isQuizComplete(quiz: QuizProfile | null | undefined): quiz is QuizProfile {
-  return Boolean(quiz && quiz.answers.length === QUIZ_QUESTIONS.length);
+  return Boolean(quiz && quiz.completedAt);
 }

@@ -55,7 +55,7 @@ export function ContactsScreen() {
                   <Text style={[styles.name, { color: theme.ink }]}>{`${c.prenom} ${c.nom}`.trim()}</Text>
                 </View>
                 <Text style={[styles.meta, { color: theme.inkSoft }]}>
-                  {c.relation} · {c.date.split('-').reverse().join('/')}
+                  {c.familyRole ?? c.relation} · {c.date.split('-').reverse().join('/')}
                 </Text>
               </View>
               <Pill label={hasQuiz ? 'Quizz ✓' : 'Quizz à faire'} tone={hasQuiz ? 'sage' : 'muted'} theme={theme} />

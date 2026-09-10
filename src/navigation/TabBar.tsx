@@ -2,7 +2,7 @@ import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import React, { useEffect, useMemo, useState } from 'react';
-import { LayoutChangeEvent, Platform, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Image, LayoutChangeEvent, Platform, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolateColor,
@@ -19,9 +19,17 @@ import { tabBarHidden } from './tabBarVisibility';
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Accueil: 'home',
   Contacts: 'person',
-  Cadeaux: 'gift',
   Calendrier: 'calendar',
 };
+
+// Pas d'icône Ionicons dédiée pour "Pensée" — on utilise le "P" du logo Pensif (silhouette
+// blanche avec le coeur en trou, voir assets/logo-mark.png généré depuis assets/icon.png), recoloré
+// via `tintColor` exactement comme les icônes de police des autres onglets.
+const LOGO_ROUTES = new Set(['Cadeaux']);
+
+// Libellé affiché dans la barre — distinct du nom de route ('Cadeaux' reste le nom technique de
+// l'écran/onglet dans la navigation, pour ne pas avoir à toucher tous les endroits qui y naviguent).
+const LABELS: Record<string, string> = { Cadeaux: 'Pensée' };
 
 const SPRING = { damping: 18, stiffness: 260, mass: 0.7 };
 const SNAP_SPRING = { damping: 15, stiffness: 220, mass: 0.8 };
@@ -230,10 +238,11 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
                   key={route.key}
                   onLayout={onTabLayout(index)}
                   iconName={ICONS[route.name] ?? 'ellipse'}
+                  useLogo={LOGO_ROUTES.has(route.name)}
                   hovered={hovered}
                   inactiveColor={theme.inkSoft}
                   activeColor={activeColor}
-                  label={route.name}
+                  label={LABELS[route.name] ?? route.name}
                 />
               );
             })}
@@ -255,6 +264,7 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
 function TabBarButton({
   onLayout,
   iconName,
+  useLogo,
   hovered,
   activeColor,
   inactiveColor,
@@ -262,6 +272,7 @@ function TabBarButton({
 }: {
   onLayout: (e: LayoutChangeEvent) => void;
   iconName: keyof typeof Ionicons.glyphMap;
+  useLogo?: boolean;
   hovered: boolean;
   activeColor: string;
   inactiveColor: string;
@@ -289,12 +300,23 @@ function TabBarButton({
   return (
     <View onLayout={onLayout} style={styles.tab} accessibilityRole="button" accessibilityLabel={label}>
       <Animated.View style={[styles.tabContent, contentStyle]}>
-        <View>
-          <Ionicons name={iconName} size={22} color={inactiveColor} />
-          <Animated.View style={[StyleSheet.absoluteFill, activeIconStyle]}>
-            <Ionicons name={iconName} size={22} color={activeColor} />
-          </Animated.View>
-        </View>
+        {useLogo ? (
+          // Silhouette recolorée via tintColor (même principe que le fondu croisé Ionicons
+          // ci-dessous, mais tintColor n'étant pas animable, on croise deux images teintées).
+          <View>
+            <Image source={require('../../assets/logo-mark.png')} style={[styles.logoIcon, { tintColor: inactiveColor }]} resizeMode="contain" />
+            <Animated.View style={[StyleSheet.absoluteFill, activeIconStyle]}>
+              <Image source={require('../../assets/logo-mark.png')} style={[styles.logoIcon, { tintColor: activeColor }]} resizeMode="contain" />
+            </Animated.View>
+          </View>
+        ) : (
+          <View>
+            <Ionicons name={iconName} size={22} color={inactiveColor} />
+            <Animated.View style={[StyleSheet.absoluteFill, activeIconStyle]}>
+              <Ionicons name={iconName} size={22} color={activeColor} />
+            </Animated.View>
+          </View>
+        )}
         <Animated.Text style={[styles.label, labelStyle]} numberOfLines={1}>
           {label}
         </Animated.Text>
@@ -336,6 +358,10 @@ const styles = StyleSheet.create({
   tabContent: {
     alignItems: 'center',
     gap: 2,
+  },
+  logoIcon: {
+    width: 22,
+    height: 22,
   },
   label: {
     fontSize: 10,

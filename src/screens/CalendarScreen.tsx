@@ -433,12 +433,6 @@ export function CalendarScreen() {
               <Ionicons name="brush" size={15} color={highlightMode ? theme.plum : theme.inkSoft} />
             </Pressable>
           )}
-          <Pressable onPress={prev} style={[styles.navBtn, { borderColor: theme.line, backgroundColor: theme.card }]}>
-            <Ionicons name="chevron-back" size={16} color={theme.inkSoft} />
-          </Pressable>
-          <Pressable onPress={next} style={[styles.navBtn, { borderColor: theme.line, backgroundColor: theme.card }]}>
-            <Ionicons name="chevron-forward" size={16} color={theme.inkSoft} />
-          </Pressable>
         </View>
       </View>
       {highlightMode && (

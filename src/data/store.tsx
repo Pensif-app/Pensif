@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Contact, Pensee } from './types';
 import { seedContacts, seedPensees } from './seed';
+import { generateId } from '../lib/id';
 import { rescheduleAllReminders, cancelAllReminders } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
@@ -135,7 +136,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setContacts((prev) => (isNew ? [...prev, contact] : prev.map((c) => (c.id === contact.id ? contact : c))));
         if (isSupabaseConfigured && userId) {
           if (isNew) {
-            const { id, initials, color, ...rest } = contact;
+            const { initials, color, ...rest } = contact;
             insertContactRemote(userId, rest)
               .then((created) => setContacts((prev) => prev.map((c) => (c.id === contact.id ? created : c))))
               .catch(() => {});
@@ -154,11 +155,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       },
       addPensee: (pensee: Omit<Pensee, 'id'>) => {
-        const tempId = `p${Date.now()}`;
-        setPensees((prev) => [...prev, { ...pensee, id: tempId }]);
+        const withId: Pensee = { ...pensee, id: generateId() };
+        setPensees((prev) => [...prev, withId]);
         if (isSupabaseConfigured && userId) {
-          insertPenseeRemote(userId, pensee)
-            .then((created) => setPensees((prev) => prev.map((p) => (p.id === tempId ? created : p))))
+          insertPenseeRemote(userId, withId)
+            .then((created) => setPensees((prev) => prev.map((p) => (p.id === withId.id ? created : p))))
             .catch(() => {});
         }
       },

@@ -16,13 +16,16 @@ import {
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   interpolate,
   interpolateColor,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -47,6 +50,8 @@ import { BudgetBand, Contact, InterestTag, QuizAnswer } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
 
 const ANSWER_FILL_MS = 520;
+// Doit correspondre au paddingHorizontal de styles.progressTrackWrap.
+const TRACK_PADDING_H = 20;
 const STEP_QUESTIONS = QUIZ_QUESTIONS.length; // 0..6
 const STEP_INTERESTS = STEP_QUESTIONS; // 7
 const STEP_AVOID = STEP_QUESTIONS + 1; // 8
@@ -72,6 +77,49 @@ export function QuizScreen() {
   const [wish, setWish] = useState(contact?.quiz?.wish ?? '');
   const [budget, setBudget] = useState<BudgetBand | null>(contact?.quiz?.budget ?? null);
   const [flash, setFlash] = useState<'A' | 'B' | null>(null);
+
+  // Brouillon auto-enregistré pour ne pas perdre les réponses si le quiz est fermé avant la fin
+  // (ex : swipe pour revenir en arrière) — indépendant de contact.quiz, qui lui n'est écrit qu'à
+  // la fin (finish()) pour ne pas déclencher isQuizComplete() prématurément.
+  const draftKey = contact ? `quiz-draft-${contact.id}` : null;
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!draftKey) return;
+    let cancelled = false;
+    AsyncStorage.getItem(draftKey)
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        try {
+          const draft = JSON.parse(raw);
+          if (typeof draft.step === 'number') setStep(draft.step);
+          if (Array.isArray(draft.answers)) setAnswers(draft.answers);
+          if (Array.isArray(draft.interests)) setInterests(draft.interests);
+          if (Array.isArray(draft.avoid)) setAvoid(draft.avoid);
+          if (typeof draft.wish === 'string') setWish(draft.wish);
+          if (draft.budget !== undefined) setBudget(draft.budget);
+        } catch {
+          // brouillon corrompu, ignoré
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDraftLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey || !draftLoaded) return;
+    const isEmpty = step === 0 && answers.length === 0 && interests.length === 0 && avoid.length === 0 && !wish && !budget;
+    if (isEmpty) {
+      AsyncStorage.removeItem(draftKey).catch(() => {});
+      return;
+    }
+    AsyncStorage.setItem(draftKey, JSON.stringify({ step, answers, interests, avoid, wish, budget })).catch(() => {});
+  }, [draftKey, draftLoaded, step, answers, interests, avoid, wish, budget]);
 
   if (!contact) {
     return (
@@ -111,10 +159,45 @@ export function QuizScreen() {
       ...contact,
       quiz: { answers, interests, avoid, wish: wish.trim(), budget, completedAt: new Date().toISOString() },
     });
+    if (draftKey) AsyncStorage.removeItem(draftKey).catch(() => {});
     goNext();
   };
 
   const progress = Math.min(step, TOTAL_STEPS) / TOTAL_STEPS;
+
+  // Glisser le doigt sur la barre de progression change directement de question — utile pour
+  // revenir vite en arrière (ou avancer) sans réappuyer plusieurs fois sur la flèche retour.
+  const [trackWidth, setTrackWidth] = useState(0);
+  const lastScrubStep = useSharedValue(-1);
+  const scrubGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin((e) => {
+          'worklet';
+          if (trackWidth === 0) return;
+          // e.x est relatif au conteneur (plus grand que la barre visuelle) — TRACK_PADDING_H
+          // compense son padding horizontal pour retrouver la position sur la barre elle-même.
+          const ratio = Math.max(0, Math.min(1, (e.x - TRACK_PADDING_H) / trackWidth));
+          const target = Math.min(TOTAL_STEPS - 1, Math.round(ratio * TOTAL_STEPS));
+          if (target !== lastScrubStep.value) {
+            lastScrubStep.value = target;
+            runOnJS(setStep)(target);
+          }
+        })
+        .onUpdate((e) => {
+          'worklet';
+          if (trackWidth === 0) return;
+          const ratio = Math.max(0, Math.min(1, (e.x - TRACK_PADDING_H) / trackWidth));
+          const target = Math.min(TOTAL_STEPS - 1, Math.round(ratio * TOTAL_STEPS));
+          if (target !== lastScrubStep.value) {
+            lastScrubStep.value = target;
+            runOnJS(setStep)(target);
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trackWidth],
+  );
 
   return (
     <View style={styles.flexFull}>
@@ -135,11 +218,20 @@ export function QuizScreen() {
               </Text>
               <View style={{ width: 34 }} />
             </View>
-            <View style={styles.progressTrackWrap}>
-              <View style={[styles.progressTrack, { backgroundColor: theme.paperDim }]}>
-                <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${progress * 100}%` }]} />
+            <GestureDetector gesture={scrubGesture}>
+              {/* Zone tactile plus haute que la barre visuelle elle-même (4px, trop fin pour un
+                  doigt) — le geste est sur ce conteneur plus grand, mais mesure la largeur de la
+                  barre elle-même (onLayout ci-dessous) pour convertir la position du doigt en
+                  numéro de question. */}
+              <View style={styles.progressTrackWrap}>
+                <View
+                  style={[styles.progressTrack, { backgroundColor: theme.paperDim }]}
+                  onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+                >
+                  <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${progress * 100}%` }]} />
+                </View>
               </View>
-            </View>
+            </GestureDetector>
 
             {/* Tap en dehors du champ de texte = ferme le clavier, comme sur la plupart des apps
                 (pas de bouton dédié sur le clavier iOS pour ça sinon). */}
@@ -549,7 +641,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 6 },
   backBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   headerLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
-  progressTrackWrap: { paddingHorizontal: 20, marginTop: 14 },
+  progressTrackWrap: { paddingHorizontal: 20, paddingVertical: 12, marginTop: 6 },
   progressTrack: { height: 4, borderRadius: 999, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 999 },
   body: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },

@@ -4,38 +4,64 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 // L'API "par défaut" d'expo-contacts a basculé vers une nouvelle API à base de classes en SDK 57 ;
 // presentContactPickerAsync (fonction) n'existe que dans l'ancienne API, exposée via ce sous-chemin.
 import * as Contacts from 'expo-contacts/legacy';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
+import { Avatar } from '../components/Avatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
-import { Contact, FamilyRole, Genre } from '../data/types';
+import { Contact, Genre } from '../data/types';
+import { generateId } from '../lib/id';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
-const RELATIONS = ['Amie', 'Ami', 'Famille', 'Collègue', 'Autre'];
-const FAMILY_ROLES: FamilyRole[] = [
-  'Père',
-  'Mère',
-  'Frère',
-  'Sœur',
-  'Fils',
-  'Fille',
-  'Grand-père',
-  'Grand-mère',
-  'Oncle',
-  'Tante',
-  'Cousin',
-  'Cousine',
-  'Autre',
+const RELATIONS = ['Ami', 'Famille', 'Autres'];
+// Liens de famille genrés : tant que le genre n'est pas choisi, les deux formes sont proposées ;
+// une fois choisi, seule la forme qui correspond s'affiche (ex. Genre = Femme → "Sœur", pas "Frère").
+const FAMILY_ROLE_PAIRS: { m: string; f: string }[] = [
+  { m: 'Père', f: 'Mère' },
+  { m: 'Frère', f: 'Sœur' },
+  { m: 'Fils', f: 'Fille' },
+  { m: 'Grand-père', f: 'Grand-mère' },
+  { m: 'Oncle', f: 'Tante' },
+  { m: 'Cousin', f: 'Cousine' },
+];
+function familyRoleOptions(genre: Genre | null): string[] {
+  if (genre === 'homme') return [...FAMILY_ROLE_PAIRS.map((p) => p.m), 'Autre'];
+  if (genre === 'femme') return [...FAMILY_ROLE_PAIRS.map((p) => p.f), 'Autre'];
+  return [...FAMILY_ROLE_PAIRS.flatMap((p) => [p.m, p.f]), 'Autre'];
+}
+/** Bascule un lien de famille genré vers la forme qui correspond au nouveau genre (Frère → Sœur…). */
+function swapFamilyRoleGender(role: string | null, genre: Genre | null): string | null {
+  if (!role || !genre) return role;
+  const pair = FAMILY_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
+  if (!pair) return role;
+  return genre === 'homme' ? pair.m : pair.f;
+}
+// Options de "lien précis", propres à chaque catégorie de relation (Famille dépend du genre —
+// voir familyRoleOptions).
+const LIEN_OPTIONS_STATIC: Record<string, string[]> = {
+  Ami: ['Meilleur', 'Proche', 'Ami'],
+  Autres: ['Collègue', 'Connaissance', 'Autres'],
+};
+
+const BIRTHDAY_REMINDER_OPTIONS: { days: number; label: string }[] = [
+  { days: 1, label: 'La veille' },
+  { days: 3, label: 'J-3' },
+  { days: 7, label: 'J-7' },
+  { days: 14, label: 'J-14' },
 ];
 
-function isoToday() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// Anciennes valeurs enregistrées avant cette réorganisation — on les ramène à leur forme actuelle
+// à l'ouverture d'une fiche existante. Toujours une des clés de RELATIONS en sortie (jamais une
+// valeur inconnue), sinon le rendu du "Lien précis" plante.
+function normalizeRelation(r?: string | null): string {
+  if (r === 'Amie') return 'Ami';
+  if (r === 'Collègue' || r === 'Autre') return 'Autres';
+  return r && RELATIONS.includes(r) ? r : RELATIONS[0];
 }
 
 export function FicheScreen() {
@@ -46,15 +72,23 @@ export function FicheScreen() {
   const { contacts, upsertContact, deleteContact } = useStore();
   const existing = contacts.find((c) => c.id === contactId);
 
+  const initialRelation = normalizeRelation(existing?.relation);
   const [prenom, setPrenom] = useState(existing?.prenom ?? '');
   const [nom, setNom] = useState(existing?.nom ?? '');
   const [tel, setTel] = useState(existing?.tel ?? '');
   const [date, setDate] = useState(existing?.date ?? '');
-  const [relation, setRelation] = useState(existing?.relation ?? RELATIONS[0]);
-  const [familyRole, setFamilyRole] = useState<FamilyRole | null>(existing?.familyRole ?? null);
+  const [relation, setRelation] = useState(initialRelation);
+  const [familyRole, setFamilyRole] = useState<string | null>(existing?.familyRole ?? null);
   const [genre, setGenre] = useState<Genre | null>(existing?.genre ?? null);
   const [favorite, setFavorite] = useState(existing?.favorite ?? false);
+  const [birthdayReminderDays, setBirthdayReminderDays] = useState<number | null>(existing?.birthdayReminderDays ?? null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const avatarColor = existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length];
+  const previewInitials = useMemo(() => {
+    const i = `${prenom.trim()[0] ?? ''}${nom.trim()[0] ?? ''}`.toUpperCase();
+    return i || '?';
+  }, [prenom, nom]);
 
   useEffect(() => {
     navigation.setOptions({
@@ -122,19 +156,20 @@ export function FicheScreen() {
       return;
     }
     const contact: Contact = {
-      id: existing?.id ?? `c${Date.now()}`,
+      id: existing?.id ?? generateId(),
       prenom: prenom.trim(),
       nom: nom.trim(),
       tel: tel.trim(),
       date,
       relation,
-      familyRole: relation === 'Famille' ? familyRole : null,
+      familyRole,
       genre,
-      initials: existing?.initials ?? `${prenom[0] ?? ''}${nom[0] ?? ''}`.toUpperCase(),
-      color: existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length],
+      initials: previewInitials === '?' ? existing?.initials ?? '?' : previewInitials,
+      color: avatarColor,
       quiz: existing?.quiz ?? null,
       giftSent: existing?.giftSent ?? false,
       favorite,
+      birthdayReminderDays,
     };
     upsertContact(contact);
     navigation.goBack();
@@ -152,6 +187,11 @@ export function FicheScreen() {
         </Pressable>
       )}
 
+      <View style={styles.avatarRow}>
+        <Avatar initials={previewInitials} colorKey={avatarColor} theme={theme} size={64} />
+      </View>
+
+      <SectionLabel theme={theme}>INFORMATIONS</SectionLabel>
       <View style={styles.twoCol}>
         <Field label="Prénom" theme={theme}>
           <TextInput value={prenom} onChangeText={setPrenom} placeholder="Prénom" placeholderTextColor={theme.inkSoft} style={[styles.input, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]} />
@@ -172,27 +212,6 @@ export function FicheScreen() {
             style={[styles.input, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
           />
         </Field>
-        <Field label="Genre" theme={theme}>
-          <View style={styles.chipRow}>
-            {(['homme', 'femme'] as Genre[]).map((g) => (
-              <Pressable
-                key={g}
-                onPress={() => setGenre((prev) => (prev === g ? null : g))}
-                style={[
-                  styles.chip,
-                  { borderColor: genre === g ? theme.accent : theme.line, backgroundColor: genre === g ? theme.accentTint : theme.card },
-                ]}
-              >
-                <Text style={{ color: genre === g ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>
-                  {g === 'homme' ? 'Homme' : 'Femme'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Field>
-      </View>
-
-      <View style={styles.twoCol}>
         <Field label="Anniversaire" theme={theme}>
           <Pressable
             onPress={() => setShowDatePicker(true)}
@@ -203,42 +222,13 @@ export function FicheScreen() {
             </Text>
           </Pressable>
         </Field>
-        <Field label="Relation" theme={theme}>
-          <View style={[styles.input, { borderColor: theme.line, backgroundColor: theme.card, padding: 0 }]}>
-            <RelationPicker
-              value={relation}
-              onChange={(v) => {
-                setRelation(v);
-                if (v !== 'Famille') setFamilyRole(null);
-              }}
-              theme={theme}
-            />
-          </View>
-        </Field>
       </View>
-
-      {relation === 'Famille' && (
-        <Field label="Lien précis" theme={theme}>
-          <View style={styles.chipRow}>
-            {FAMILY_ROLES.map((r) => (
-              <Pressable
-                key={r}
-                onPress={() => setFamilyRole(r)}
-                style={[
-                  styles.chip,
-                  { borderColor: familyRole === r ? theme.accent : theme.line, backgroundColor: familyRole === r ? theme.accentTint : theme.card },
-                ]}
-              >
-                <Text style={{ color: familyRole === r ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>{r}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </Field>
-      )}
 
       {showDatePicker && (
         <DateTimePicker
-          value={date ? new Date(date) : new Date(isoToday())}
+          // Par défaut sur l'an 2000 plutôt que la date du jour — une naissance est bien plus
+          // souvent proche de cette année-là, ça évite de faire défiler la molette très loin.
+          value={date ? new Date(date) : new Date(2000, 0, 1)}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={(_, selected) => {
@@ -253,14 +243,79 @@ export function FicheScreen() {
         />
       )}
 
+      <Field label="Genre" theme={theme}>
+        <ChipRow>
+          {(['homme', 'femme'] as Genre[]).map((g) => (
+            <Chip
+              key={g}
+              label={g === 'homme' ? 'Homme' : 'Femme'}
+              active={genre === g}
+              theme={theme}
+              onPress={() => {
+                const next = genre === g ? null : g;
+                setGenre(next);
+                // "Frère" choisi puis passage à Femme → bascule tout seul sur "Sœur", plutôt que
+                // de garder un lien qui ne correspond plus au genre affiché.
+                setFamilyRole((prev) => swapFamilyRoleGender(prev, next));
+              }}
+            />
+          ))}
+        </ChipRow>
+      </Field>
+
+      <SectionLabel theme={theme}>RELATION</SectionLabel>
+      <View style={{ marginBottom: 13 }}>
+        <ChipRow>
+          {RELATIONS.map((r) => (
+            <Chip
+              key={r}
+              label={r}
+              active={relation === r}
+              theme={theme}
+              onPress={() => {
+                setRelation(r);
+                setFamilyRole(null);
+              }}
+            />
+          ))}
+        </ChipRow>
+      </View>
+
+      <Field label="Lien précis" theme={theme}>
+        <ChipRow>
+          {(relation === 'Famille' ? familyRoleOptions(genre) : LIEN_OPTIONS_STATIC[relation] ?? []).map((r) => (
+            <Chip key={r} label={r} active={familyRole === r} theme={theme} onPress={() => setFamilyRole(r)} />
+          ))}
+        </ChipRow>
+      </Field>
+
+      <SectionLabel theme={theme}>RAPPEL ANNIVERSAIRE</SectionLabel>
+      <Text style={[styles.reminderHint, { color: theme.inkSoft }]}>
+        Une alerte le jour J est toujours envoyée. Tu peux en ajouter une avant, pour avoir le temps de préparer
+        quelque chose.
+      </Text>
+      <View style={{ marginBottom: 13 }}>
+        <ChipRow>
+          {BIRTHDAY_REMINDER_OPTIONS.map((opt) => (
+            <Chip
+              key={String(opt.days)}
+              label={opt.label}
+              active={birthdayReminderDays === opt.days}
+              theme={theme}
+              onPress={() => setBirthdayReminderDays((prev) => (prev === opt.days ? null : opt.days))}
+            />
+          ))}
+        </ChipRow>
+      </View>
+
       {existing && (
         <>
-          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>LE PETIT QUIZZ</Text>
+          <SectionLabel theme={theme}>LE PETIT QUIZZ</SectionLabel>
           <QuizSummaryCard contact={existing} theme={theme} onPress={() => navigation.navigate('Quiz', { contactId: existing.id })} />
         </>
       )}
 
-      <View style={{ marginTop: 8 }}>
+      <View style={{ marginTop: 12 }}>
         <PrimaryButton label="Enregistrer la fiche" onPress={save} />
       </View>
 
@@ -274,6 +329,10 @@ export function FicheScreen() {
   );
 }
 
+function SectionLabel({ theme, children }: { theme: any; children: React.ReactNode }) {
+  return <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>{children}</Text>;
+}
+
 function Field({ label, theme, children }: { label: string; theme: any; children: React.ReactNode }) {
   return (
     <View style={styles.field}>
@@ -283,9 +342,24 @@ function Field({ label, theme, children }: { label: string; theme: any; children
   );
 }
 
+function ChipRow({ children }: { children: React.ReactNode }) {
+  return <View style={styles.chipRow}>{children}</View>;
+}
+
+function Chip({ label, active, theme, onPress }: { label: string; active: boolean; theme: any; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, { borderColor: active ? theme.accent : theme.line, backgroundColor: active ? theme.accentTint : theme.card }]}
+    >
+      <Text style={{ color: active ? theme.accent : theme.ink, fontWeight: '600', fontSize: 13 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function QuizSummaryCard({ contact, theme, onPress }: { contact: Contact; theme: any; onPress: () => void }) {
   const done = isQuizComplete(contact.quiz);
-  const archetype = done ? archetypeFor(computeTraits(contact.quiz!.answers)) : null;
+  const archetype = done ? archetypeFor(computeTraits(contact.quiz!.answers), contact) : null;
   return (
     <Pressable onPress={onPress} style={[styles.quizCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
       <View style={{ flex: 1 }}>
@@ -310,42 +384,20 @@ function QuizSummaryCard({ contact, theme, onPress }: { contact: Contact; theme:
   );
 }
 
-function RelationPicker({ value, onChange, theme }: { value: string; onChange: (v: string) => void; theme: any }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <View>
-      <Pressable onPress={() => setOpen((o) => !o)} style={styles.relationTrigger}>
-        <Text style={{ color: theme.ink }}>{value}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={theme.inkSoft} />
-      </Pressable>
-      {open && (
-        <View style={[styles.relationList, { backgroundColor: theme.card, borderColor: theme.line }]}>
-          {RELATIONS.map((r) => (
-            <Pressable key={r} onPress={() => { onChange(r); setOpen(false); }} style={styles.relationItem}>
-              <Text style={{ color: theme.ink }}>{r}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   favoriteBtn: { padding: 6, marginRight: 4 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 16 },
   deleteText: { fontWeight: '700', fontSize: 13 },
   importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12, marginBottom: 16 },
   importText: { fontWeight: '700', fontSize: 13 },
+  avatarRow: { alignItems: 'center', marginBottom: 18 },
   twoCol: { flexDirection: 'row', gap: 10 },
   field: { flex: 1, marginBottom: 13 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 5 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   dateBtn: { justifyContent: 'center' },
-  relationTrigger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10 },
-  relationList: { borderWidth: 1, borderRadius: 10, marginTop: 4, overflow: 'hidden' },
-  relationItem: { paddingHorizontal: 12, paddingVertical: 10 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 8, marginBottom: 8 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 6, marginBottom: 10 },
+  reminderHint: { fontSize: 12, lineHeight: 17, marginBottom: 10, marginTop: -4 },
   quizCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   quizQ: { fontWeight: '700', fontSize: 14 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

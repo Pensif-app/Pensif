@@ -35,6 +35,7 @@ function rowToContact(row: any): Contact {
     quiz: row.quiz ?? null,
     giftSent: Boolean(row.gift_sent),
     favorite: Boolean(row.favorite),
+    birthdayReminderDays: row.birthday_reminder_days ?? null,
   };
 }
 
@@ -78,6 +79,7 @@ async function seedRemote(userId: string) {
         quiz: c.quiz,
         gift_sent: false,
         favorite: false,
+        birthday_reminder_days: c.birthdayReminderDays,
       })),
     )
     .select();
@@ -120,11 +122,15 @@ export async function loadRemoteData(userId: string) {
   return { contacts: (contactRows ?? []).map(rowToContact), pensees: (penseeRows ?? []).map(rowToPensee) };
 }
 
-export async function insertContactRemote(userId: string, contact: Omit<Contact, 'id' | 'initials' | 'color'>): Promise<Contact> {
+export async function insertContactRemote(userId: string, contact: Omit<Contact, 'initials' | 'color'>): Promise<Contact> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { data, error } = await supabase
     .from('contacts')
     .insert({
+      // Id généré côté client (voir lib/id.ts) et réutilisé tel quel ici : l'id local et l'id
+      // distant sont donc identiques dès la création, pas besoin d'attendre la réponse réseau
+      // pour connaître l'id définitif du contact.
+      id: contact.id,
       user_id: userId,
       prenom: contact.prenom,
       nom: contact.nom,
@@ -136,6 +142,7 @@ export async function insertContactRemote(userId: string, contact: Omit<Contact,
       quiz: contact.quiz,
       gift_sent: contact.giftSent,
       favorite: contact.favorite,
+      birthday_reminder_days: contact.birthdayReminderDays,
     })
     .select()
     .single();
@@ -158,6 +165,7 @@ export async function updateContactRemote(contact: Contact): Promise<void> {
       quiz: contact.quiz,
       gift_sent: contact.giftSent,
       favorite: contact.favorite,
+      birthday_reminder_days: contact.birthdayReminderDays,
     })
     .eq('id', contact.id);
   if (error) throw error;
@@ -181,11 +189,12 @@ export async function deletePenseeRemote(penseeId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function insertPenseeRemote(userId: string, pensee: Omit<Pensee, 'id'>): Promise<Pensee> {
+export async function insertPenseeRemote(userId: string, pensee: Pensee): Promise<Pensee> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { data, error } = await supabase
     .from('pensees')
     .insert({
+      id: pensee.id,
       user_id: userId,
       date_evenement: pensee.date,
       end_date: pensee.endDate ?? null,

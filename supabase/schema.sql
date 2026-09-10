@@ -11,6 +11,7 @@
 --   alter table contacts add column if not exists family_role text;
 --   alter table contacts add column if not exists genre text;
 --   alter table pensees add column if not exists end_date date;
+--   alter table contacts add column if not exists birthday_reminder_days integer;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -29,6 +30,9 @@ create table if not exists contacts (
   quiz jsonb,
   gift_sent boolean default false,
   favorite boolean default false,
+  -- Rappel avant l'anniversaire, en jours (1 = la veille, 7 = J-7…) — null tant que non réglé.
+  -- L'alerte du jour J, elle, est toujours envoyée quel que soit ce réglage (voir notifications.ts).
+  birthday_reminder_days integer,
   created_at timestamptz default now()
 );
 

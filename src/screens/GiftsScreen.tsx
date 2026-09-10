@@ -3,6 +3,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
@@ -35,11 +36,11 @@ export function GiftsScreen() {
   if (!contact) {
     return (
       <Screen>
-        <Text style={[styles.h1, { color: theme.ink }]}>Cadeaux</Text>
+        <Text style={[styles.h1, { color: theme.ink }]}>Pensée</Text>
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
           <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
-            Aucune idée à proposer pour l'instant. Remplis le petit quizz d'un contact pour voir apparaître des
-            suggestions ici à l'approche de son anniversaire.
+            Aucune suggestion pour l'instant. Remplis le petit quizz d'un contact pour voir apparaître des idées
+            cadeaux et des messages ici à l'approche de son anniversaire.
           </Text>
         </View>
       </Screen>
@@ -52,11 +53,26 @@ export function GiftsScreen() {
 
   return (
     <Screen>
-      <Text style={[styles.h1, { color: theme.ink }]}>Idées pour {contact.prenom}</Text>
+      <Text style={[styles.h1, { color: theme.ink }]}>Pensée pour {contact.prenom}</Text>
       <Text style={[styles.sub, { color: theme.inkSoft }]}>
         Anniversaire le {contact.date.split('-').reverse().join('/')} · J-{days}
       </Text>
 
+      <Pressable
+        onPress={() => navigation.navigate('Message', { contactId: contact.id })}
+        style={[styles.messageCard, { backgroundColor: theme.accentTint, borderColor: theme.accent }]}
+      >
+        <View style={[styles.messageIcon, { backgroundColor: theme.accent }]}>
+          <Ionicons name="chatbubble-ellipses" size={18} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 14 }}>Écrire un message</Text>
+          <Text style={{ color: theme.inkSoft, fontSize: 12, marginTop: 2 }}>3 messages prêts à envoyer, personnalisés pour {contact.prenom}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.accent} />
+      </Pressable>
+
+      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>IDÉES CADEAUX</Text>
       <View style={styles.tagRow}>
         {contact.quiz?.interests.map((tag) => {
           const opt = INTEREST_OPTIONS.find((o) => o.key === tag);
@@ -117,6 +133,9 @@ export function GiftsScreen() {
 const styles = StyleSheet.create({
   h1: { fontSize: 22, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2, marginBottom: 12 },
+  messageCard: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderRadius: 16, padding: 14, marginBottom: 18 },
+  messageIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
   tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, maxWidth: 260 },
   budgetBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 },

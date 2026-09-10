@@ -168,6 +168,18 @@ export function daysUntilNext(dateStr: string, today: Date) {
   return Math.round((next.getTime() - todayMid.getTime()) / 86400000);
 }
 
+/** Âge que la personne aura à sa prochaine occurrence d'anniversaire (déduit de l'année de `dateStr`). */
+export function ageTurning(dateStr: string, today: Date): number {
+  const parts = dateStr.split('-');
+  const birthYear = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let next = new Date(today.getFullYear(), month, day);
+  if (next < todayMid) next = new Date(today.getFullYear() + 1, month, day);
+  return next.getFullYear() - birthYear;
+}
+
 /** Pensées de période (surlignage) qui touchent au moins un jour du mois affiché. */
 export function periodsInMonth(pensees: Pensee[], year: number, month: number): Pensee[] {
   const monthStart = isoOf(year, month, 1);

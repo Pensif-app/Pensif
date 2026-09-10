@@ -12,7 +12,15 @@ export type InterestTag =
   | 'collection'
   | 'maison'
   | 'auto'
-  | 'nature';
+  | 'nature'
+  | 'cinema'
+  | 'art'
+  | 'bienetre'
+  | 'animaux'
+  | 'photo'
+  | 'jardinage'
+  | 'bricolage'
+  | 'danse';
 
 export type BudgetBand = '0-20' | '20-50' | '50-100' | '100+';
 
@@ -31,7 +39,6 @@ export type FamilyRole =
   | 'Oncle'
   | 'Tante'
   | 'Cousin'
-  | 'Cousine'
   | 'Autre';
 
 export type QuizAnswer = 'A' | 'B';
@@ -55,14 +62,19 @@ export type Contact = {
   /** Format 'YYYY-MM-DD' */
   date: string;
   relation: string;
-  /** Précision du lien familial quand relation === 'Famille' (Père, Mère, Grand-mère…). */
-  familyRole: FamilyRole | null;
+  /** Lien précis, propre à chaque catégorie de relation (Père/Mère pour Famille, Meilleur/Proche
+   *  pour Ami, Collègue/Connaissance pour Autres…). */
+  familyRole: string | null;
   genre: Genre | null;
   initials: string;
   color: string;
   quiz: QuizProfile | null;
   giftSent: boolean;
   favorite: boolean;
+  /** Rappel avant l'anniversaire, en jours (1 = la veille, 7 = J-7, 14 = J-14…) — null tant que
+   *  l'utilisateur ne l'a pas réglé. L'alerte du jour J elle-même est toujours envoyée, quel que
+   *  soit ce réglage (voir rescheduleAllReminders). */
+  birthdayReminderDays: number | null;
 };
 
 export type ReminderOffset = '0' | '1' | '3' | '7' | '14' | 'custom';
