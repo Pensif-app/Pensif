@@ -1,6 +1,22 @@
 import { BudgetBand, Contact, Genre, InterestTag, QuizAnswer, QuizProfile, TraitKey } from './types';
 
 /**
+ * Comble les champs absents sur un profil de quiz créé avant l'ajout de l'affinage par thème / du
+ * feedback / de l'historique de recommandations — ancien contact ("Papa" et les autres créés plus
+ * tôt) ou données legacy en base. C'est le SEUL endroit du code qui doit connaître l'ancienne
+ * forme : tout le reste lit toujours un QuizProfile complet (même pattern que normalizeRelation
+ * dans FicheScreen.tsx pour les anciennes valeurs de relation).
+ */
+export function normalizeQuizProfile(raw: QuizProfile): QuizProfile {
+  return {
+    ...raw,
+    themeAnswers: raw.themeAnswers ?? {},
+    feedback: raw.feedback ?? [],
+    recommendationHistory: raw.recommendationHistory ?? [],
+  };
+}
+
+/**
  * Remplace les jetons {prenom}/{il}/{Il}/{lui}/{son} d'un gabarit de texte par le prénom et les
  * bons pronoms du contact — {il}/{lui}/{son} valent "il/elle"/"lui/elle"/"son/sa" tant que le
  * genre n'est pas renseigné, pour rester correct dans tous les cas.
@@ -106,11 +122,14 @@ export const INTEREST_OPTIONS: { key: InterestTag; label: string; emoji: string 
   { key: 'danse', label: 'Danse', emoji: '💃' },
 ];
 
+/** Paliers de budget proposés au moment de générer des recommandations (voir GiftsScreen.tsx) —
+ *  ce n'est plus une question du quiz général, le budget appartient à la recherche, pas au profil. */
 export const BUDGET_OPTIONS: { key: BudgetBand; label: string; max: number }[] = [
-  { key: '0-20', label: '< 20 €', max: 20 },
-  { key: '20-50', label: '20 – 50 €', max: 50 },
-  { key: '50-100', label: '50 – 100 €', max: 100 },
-  { key: '100+', label: '100 € +', max: Infinity },
+  { key: '0-20', label: 'Moins de 20 €', max: 20 },
+  { key: '20-40', label: '20 – 40 €', max: 40 },
+  { key: '40-70', label: '40 – 70 €', max: 70 },
+  { key: '70-100', label: '70 – 100 €', max: 100 },
+  { key: '100+', label: '100 € et +', max: Infinity },
 ];
 
 /** 0 → 1 par trait, en fonction du nombre de fois où il a été "voté" sur ses questions concernées. */

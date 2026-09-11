@@ -1,25 +1,47 @@
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
-import React, { useMemo, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
+import { Pill } from '../components/Pill';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { daysUntilNext } from '../data/calendar';
-import { generateGiftIdeas } from '../data/giftEngine';
-import { amazonImageUrl, amazonUrl, COVERED_THEMES, CuratedGift, curatedGiftsForThemes } from '../data/giftCatalog';
-import { INTEREST_OPTIONS } from '../data/quiz';
-import { isQuizComplete } from '../data/quiz';
+import { amazonUrl } from '../data/giftCatalog';
+import { BUDGET_OPTIONS, isQuizComplete, normalizeQuizProfile } from '../data/quiz';
+import {
+  generateCandidates,
+  PRECISION_LABELS,
+  precisionLevel,
+  REJECT_REASON_LABELS,
+  ScoredCandidate,
+  topRecommendations,
+  whyForContact,
+} from '../data/recommendationEngine';
+import { Contact, RejectReason } from '../data/types';
 import { RootStackParamList, TabParamList } from '../navigation/types';
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+const PRECISION_TONES: Record<ReturnType<typeof precisionLevel>, 'muted' | 'accent' | 'sage'> = {
+  faible: 'muted',
+  bonne: 'accent',
+  excellente: 'sage',
+};
+
+// Le curseur va de 20€ à 100€ ; en butée haute il représente "100 € et +" (budget non plafonné).
+const SLIDER_MIN = 20;
+const SLIDER_MAX = 100;
+function clampBudget(v: number): number {
+  return Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, Math.round(v)));
+}
 
 export function GiftsScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<TabParamList, 'Cadeaux'>>();
-  const { contacts, today, giftSentIds, toggleGiftSent } = useStore();
-  const [maxBudget, setMaxBudget] = useState(60);
+  const { contacts, today, giftSentIds, toggleGiftSent, upsertContact } = useStore();
 
   const contact = useMemo(() => {
     if (route.params?.contactId) return contacts.find((c) => c.id === route.params?.contactId);
@@ -30,18 +52,40 @@ export function GiftsScreen() {
     return withIdeas[0]?.c;
   }, [route.params?.contactId, contacts, today]);
 
-  // Doit rester avant tout `return` anticipé : les hooks doivent s'exécuter dans le même ordre
-  // à chaque rendu, sinon React perd le fil (ex. dès que le dernier contact éligible est supprimé).
-  const interests = contact?.quiz?.interests ?? [];
-  const curated = useMemo(() => curatedGiftsForThemes(interests), [interests]);
-  // Le catalogue générique (giftEngine) ne sert plus que pour les thèmes pas encore couverts par
-  // de vrais produits affiliés, pour ne pas afficher côte à côte un objet réel cliquable et un
-  // objet inventé sur le même thème.
-  const uncoveredInterests = useMemo(() => interests.filter((t) => !COVERED_THEMES.includes(t)), [interests]);
-  const allIdeas = useMemo(() => {
-    if (!contact || !contact.quiz) return [];
-    return generateGiftIdeas({ ...contact, quiz: { ...contact.quiz, interests: uncoveredInterests } });
-  }, [contact, uncoveredInterests]);
+  const suggestedMax = useMemo(() => BUDGET_OPTIONS.find((o) => o.key === contact?.quiz?.budget)?.max ?? null, [contact]);
+  const initialSlider = useMemo(() => clampBudget(suggestedMax ?? SLIDER_MIN), [suggestedMax]);
+
+  // Doivent rester avant tout `return` anticipé : les hooks doivent s'exécuter dans le même ordre
+  // à chaque rendu (voir le commentaire équivalent qui existait déjà sur cet écran).
+  const [sliderValue, setSliderValue] = useState(initialSlider);
+  const [budgetMax, setBudgetMax] = useState(initialSlider === SLIDER_MAX ? Infinity : initialSlider);
+  // Accumule tout ce qui a déjà été montré ou rejeté pendant cette visite de l'écran — ne se vide
+  // JAMAIS sur un simple changement de budget, sinon des idées déjà écartées ("Pas convaincu")
+  // pouvaient réapparaître en boucle à chaque réglage du curseur.
+  const [sessionExcluded, setSessionExcluded] = useState<string[]>([]);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const [likedAsins, setLikedAsins] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(false);
+
+  // Changer de contact repart d'un état propre — le budget/les exclusions n'ont pas de sens d'un
+  // contact à l'autre.
+  useEffect(() => {
+    setSliderValue(initialSlider);
+    setBudgetMax(initialSlider === SLIDER_MAX ? Infinity : initialSlider);
+    setSessionExcluded([]);
+    setLikedAsins([]);
+    setShowAll(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact?.id]);
+
+  // Le Top 3 est directement dérivé de candidates (trié par score) plutôt que "figé puis patché" —
+  // rejeter un candidat l'ajoute simplement à sessionExcluded, et le 4e de la liste triée prend
+  // naturellement sa place. Une seule source de vérité, donc pas de désynchronisation possible.
+  const candidates = useMemo<ScoredCandidate[]>(() => {
+    if (!contact) return [];
+    return generateCandidates(contact, { maxEuros: budgetMax }, sessionExcluded);
+  }, [contact, budgetMax, sessionExcluded]);
+  const top = topRecommendations(candidates, 3);
 
   if (!contact) {
     return (
@@ -57,9 +101,49 @@ export function GiftsScreen() {
     );
   }
 
-  const ideas = allIdeas.filter((g) => g.price <= maxBudget);
   const days = daysUntilNext(contact.date, today);
   const sent = giftSentIds.includes(contact.id);
+  const candidateByAsin = new Map(candidates.map((c) => [c.gift.asin, c]));
+  const precision = precisionLevel(contact);
+
+  function commitSlider(value: number) {
+    const v = clampBudget(value);
+    setSliderValue(v);
+    setBudgetMax(v === SLIDER_MAX ? Infinity : v);
+    // Un budget différent ne doit pas faire réapparaître ce qui a déjà été vu/rejeté.
+  }
+
+  function seeMore() {
+    setSessionExcluded((prev) => [...prev, ...top.map((c) => c.gift.asin)]);
+  }
+
+  function handleLike(asin: string) {
+    if (!contact?.quiz) return;
+    const quiz = normalizeQuizProfile(contact.quiz);
+    setLikedAsins((prev) => [...prev, asin]);
+    upsertContact({
+      ...contact,
+      quiz: {
+        ...quiz,
+        recommendationHistory: [...quiz.recommendationHistory, { at: new Date().toISOString(), shownAsins: top.map((c) => c.gift.asin), likedAsins: [asin] }],
+      },
+    });
+  }
+
+  function handleReject(reason: RejectReason) {
+    if (!contact?.quiz || !rejectTarget) return;
+    const quiz = normalizeQuizProfile(contact.quiz);
+    const asin = rejectTarget;
+    const rejectedTheme = candidateByAsin.get(asin)?.gift.theme;
+    upsertContact({
+      ...contact,
+      quiz: { ...quiz, feedback: [...quiz.feedback, { asin, theme: rejectedTheme, reason, at: new Date().toISOString() }] },
+    });
+    // Ajoute juste ce produit aux exclusions — candidates (dérivé) fait automatiquement remonter
+    // le suivant sur la liste triée à cette place, pas besoin de le calculer/patcher à la main.
+    setSessionExcluded((prev) => [...prev, asin]);
+    setRejectTarget(null);
+  }
 
   return (
     <Screen>
@@ -82,78 +166,73 @@ export function GiftsScreen() {
         <Ionicons name="chevron-forward" size={18} color={theme.accent} />
       </Pressable>
 
-      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>IDÉES CADEAUX</Text>
-      <View style={styles.tagRow}>
-        {contact.quiz?.interests.map((tag) => {
-          const opt = INTEREST_OPTIONS.find((o) => o.key === tag);
-          return (
-            <View key={tag} style={[styles.tag, { backgroundColor: theme.plumTint }]}>
-              <Text style={{ color: theme.plum, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
-                {opt?.emoji} {opt?.label}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {curated.length > 0 && (
-        <>
-          <Text style={[styles.disclosure, { color: theme.inkSoft }]}>
-            Sélection de vrais produits Amazon, du moins cher au plus cadeau — en tant que partenaire Amazon, Pensif
-            touche une petite commission sur les achats, sans surcoût pour toi.
+      {!isQuizComplete(contact.quiz) ? (
+        <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+          <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
+            Remplis le petit quizz de {contact.prenom} pour débloquer des idées cadeaux personnalisées.
           </Text>
-          {COVERED_THEMES.filter((t) => interests.includes(t)).map((themeKey) => {
-            const opt = INTEREST_OPTIONS.find((o) => o.key === themeKey);
-            const items = curated.filter((g) => g.theme === themeKey).sort((a, b) => a.price - b.price);
-            return (
-              <View key={themeKey} style={{ marginBottom: 18 }}>
-                <Text style={[styles.themeLabel, { color: theme.ink }]}>
-                  {opt?.emoji} {opt?.label}
-                </Text>
-                {items.map((g) => (
-                  <CuratedGiftCard key={g.id} gift={g} theme={theme} />
-                ))}
-              </View>
-            );
-          })}
-        </>
-      )}
-
-      {uncoveredInterests.length > 0 && allIdeas.length > 0 && (
+        </View>
+      ) : (
         <>
-          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUTRES IDÉES</Text>
+          <View style={styles.precisionRow}>
+            <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>IDÉES CADEAUX</Text>
+            <Pill label={`Précision : ${PRECISION_LABELS[precision]}`} tone={PRECISION_TONES[precision]} theme={theme} />
+          </View>
+
           <View style={[styles.budgetBox, { backgroundColor: theme.card, borderColor: theme.line }]}>
             <View style={styles.budgetRow}>
-              <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '700' }}>BUDGET MAX</Text>
-              <Text style={{ color: theme.accentStrong, fontWeight: '700', fontSize: 16 }}>{maxBudget} €</Text>
+              <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '700' }}>BUDGET</Text>
+              <Text style={{ color: theme.accentStrong, fontWeight: '700', fontSize: 16 }}>
+                {sliderValue >= SLIDER_MAX ? '100 € et +' : `jusqu’à ${sliderValue} €`}
+              </Text>
             </View>
             <Slider
-              minimumValue={15}
-              maximumValue={100}
-              step={1}
-              value={maxBudget}
-              onValueChange={setMaxBudget}
+              minimumValue={SLIDER_MIN}
+              maximumValue={SLIDER_MAX}
+              step={5}
+              value={sliderValue}
+              onValueChange={setSliderValue}
+              onSlidingComplete={commitSlider}
               minimumTrackTintColor={theme.accentStrong}
               maximumTrackTintColor={theme.line}
               thumbTintColor={theme.accentStrong}
             />
-            <Text style={{ color: theme.inkSoft, fontSize: 12 }}>
-              {ideas.length} {ideas.length === 1 ? 'idée jusqu’à' : 'idées jusqu’à'} {maxBudget} €
-            </Text>
           </View>
 
-          {ideas.map((g) => (
-            <View key={g.id} style={[styles.giftCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-              <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-                <Text style={{ fontSize: 22 }}>{g.emoji}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.giftTitle, { color: theme.ink }]}>{g.title}</Text>
-                <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{g.why}</Text>
-                <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{g.price} €</Text>
-              </View>
+          {top.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+              <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
+                Aucune idée dans ce budget pour l'instant. Essaie un budget un peu plus large.
+              </Text>
             </View>
-          ))}
+          ) : (
+            <>
+              {(showAll ? candidates : top).map((c, idx) => (
+                <RecommendationCard
+                  key={c.gift.asin}
+                  candidate={c}
+                  medal={MEDALS[idx] ?? null}
+                  contact={contact}
+                  theme={theme}
+                  liked={likedAsins.includes(c.gift.asin)}
+                  onLike={() => handleLike(c.gift.asin)}
+                  onReject={() => setRejectTarget(c.gift.asin)}
+                />
+              ))}
+              {!showAll && (
+                <Pressable onPress={seeMore} style={[styles.seeMoreBtn, { borderColor: theme.line, backgroundColor: theme.card }]}>
+                  <Text style={{ color: theme.accent, fontWeight: '700' }}>Voir d’autres idées</Text>
+                </Pressable>
+              )}
+              {candidates.length > 3 && (
+                <Pressable onPress={() => setShowAll((v) => !v)} style={{ alignItems: 'center', marginTop: 4, marginBottom: 8 }}>
+                  <Text style={{ color: theme.inkSoft, fontSize: 13, fontWeight: '600' }}>
+                    {showAll ? 'Revenir au Top 3' : `Voir toutes les idées dans ce budget (${candidates.length})`}
+                  </Text>
+                </Pressable>
+              )}
+            </>
+          )}
         </>
       )}
 
@@ -164,40 +243,76 @@ export function GiftsScreen() {
         <View style={[styles.checkbox, sent && { backgroundColor: theme.sage, borderColor: theme.sage }]} />
         <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau déjà envoyé</Text>
       </Pressable>
+
+      <Modal visible={rejectTarget != null} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setRejectTarget(null)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: theme.card }]} onPress={() => {}}>
+            <Text style={[styles.modalTitle, { color: theme.ink }]}>Pourquoi cette idée ne convient pas ?</Text>
+            {(Object.keys(REJECT_REASON_LABELS) as RejectReason[]).map((reason) => (
+              <Pressable key={reason} onPress={() => handleReject(reason)} style={[styles.modalRow, { borderColor: theme.line }]}>
+                <Text style={{ color: theme.ink, fontSize: 14 }}>{REJECT_REASON_LABELS[reason]}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
 
-/** Carte produit réelle, cliquable vers Amazon. Tente de charger la vraie photo produit ; si
- *  l'image ne se charge pas (fiche retirée, format d'URL non servi pour cet ASIN…), on retombe
- *  sur l'emoji plutôt que de laisser une case cassée. */
-function CuratedGiftCard({ gift, theme }: { gift: CuratedGift; theme: any }) {
+/** Carte de recommandation cliquable vers Amazon, avec explication personnalisée et les actions
+ *  ♡ "J'aime cette idée" / ↻ "Pas convaincu". Tente la vraie photo produit, repli sur l'emoji si
+ *  l'image ne charge pas (fiche retirée, format d'URL non servi pour cet ASIN…). */
+function RecommendationCard({
+  candidate,
+  medal,
+  contact,
+  theme,
+  liked,
+  onLike,
+  onReject,
+}: {
+  candidate: ScoredCandidate;
+  medal: string | null;
+  contact: Contact;
+  theme: any;
+  liked: boolean;
+  onLike: () => void;
+  onReject: () => void;
+}) {
   const [imageFailed, setImageFailed] = useState(false);
+  const gift = candidate.gift;
   return (
-    <Pressable
-      onPress={() => Linking.openURL(amazonUrl(gift.asin))}
-      style={[styles.giftCard, { backgroundColor: theme.card, borderColor: theme.line }]}
-    >
-      <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-        {imageFailed ? (
-          <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
-        ) : (
-          <Image
-            source={{ uri: amazonImageUrl(gift.asin) }}
-            style={styles.thumbImage}
-            resizeMode="contain"
-            onError={() => setImageFailed(true)}
-          />
-        )}
+    <View style={[styles.recoCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+      <Pressable onPress={() => Linking.openURL(amazonUrl(gift.asin))} style={styles.recoTop}>
+        <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
+          {imageFailed ? (
+            <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
+          ) : (
+            <Image source={{ uri: gift.imageUrl }} style={styles.thumbImage} resizeMode="contain" onError={() => setImageFailed(true)} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          {medal && <Text style={{ fontSize: 12 }}>{medal}</Text>}
+          <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
+            {gift.title}
+          </Text>
+          <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>
+        </View>
+        <Ionicons name="open-outline" size={18} color={theme.inkSoft} />
+      </Pressable>
+      <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{whyForContact(candidate, contact)}</Text>
+      <View style={styles.recoActions}>
+        <Pressable onPress={onLike} style={[styles.recoActionBtn, { borderColor: theme.line }]}>
+          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={16} color={liked ? theme.plum : theme.inkSoft} />
+          <Text style={{ color: liked ? theme.plum : theme.inkSoft, fontSize: 12, fontWeight: '600' }}>J’aime cette idée</Text>
+        </Pressable>
+        <Pressable onPress={onReject} style={[styles.recoActionBtn, { borderColor: theme.line }]}>
+          <Ionicons name="refresh" size={16} color={theme.inkSoft} />
+          <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Pas convaincu</Text>
+        </Pressable>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
-          {gift.title}
-        </Text>
-        <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>à partir de {gift.price} €</Text>
-      </View>
-      <Ionicons name="open-outline" size={18} color={theme.inkSoft} />
-    </Pressable>
+    </View>
   );
 }
 
@@ -206,20 +321,25 @@ const styles = StyleSheet.create({
   sub: { fontSize: 13, marginTop: 2, marginBottom: 12 },
   messageCard: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderRadius: 16, padding: 14, marginBottom: 18 },
   messageIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
-  tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, maxWidth: 260 },
-  disclosure: { fontSize: 11, lineHeight: 15, marginBottom: 14 },
-  themeLabel: { fontWeight: '700', fontSize: 14, marginBottom: 8 },
+  precisionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
   budgetBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 },
   budgetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  giftCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1, borderRadius: 16, marginBottom: 10 },
+  recoCard: { borderWidth: 1, borderRadius: 16, padding: 12, marginBottom: 12 },
+  recoTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   thumb: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   thumbImage: { width: '100%', height: '100%' },
-  giftTitle: { fontWeight: '700', fontSize: 14 },
-  giftWhy: { fontSize: 12, marginTop: 2, lineHeight: 16 },
-  giftPrice: { fontWeight: '700', fontSize: 14, marginTop: 6 },
+  giftTitle: { fontWeight: '700', fontSize: 14, marginTop: 1 },
+  giftWhy: { fontSize: 12, marginTop: 10, lineHeight: 16 },
+  giftPrice: { fontWeight: '700', fontSize: 14, marginTop: 4 },
+  recoActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  recoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 9 },
+  seeMoreBtn: { borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 2, marginBottom: 6 },
   sentToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#999' },
-  emptyCard: { borderWidth: 1, borderRadius: 16, padding: 24, marginTop: 16 },
+  emptyCard: { borderWidth: 1, borderRadius: 16, padding: 24, marginTop: 8, marginBottom: 8 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 34 },
+  modalTitle: { fontWeight: '700', fontSize: 15, marginBottom: 12 },
+  modalRow: { paddingVertical: 13, borderTopWidth: 1 },
 });

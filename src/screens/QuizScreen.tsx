@@ -34,11 +34,11 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ThemeAffinageQuiz } from '../components/quiz/ThemeAffinage';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import {
   archetypeFor,
-  BUDGET_OPTIONS,
   computeTraits,
   formatQuizText,
   INTEREST_OPTIONS,
@@ -46,7 +46,9 @@ import {
   sortedTraits,
   TRAIT_LABELS,
 } from '../data/quiz';
-import { BudgetBand, Contact, InterestTag, QuizAnswer } from '../data/types';
+import { getThemeQuiz } from '../data/themeQuizzes';
+import { inferAvoidFromText } from '../data/textSignals';
+import { Contact, InterestTag, QuizAnswer } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
 
 const ANSWER_FILL_MS = 520;
@@ -54,9 +56,9 @@ const ANSWER_FILL_MS = 520;
 const TRACK_PADDING_H = 20;
 const STEP_QUESTIONS = QUIZ_QUESTIONS.length; // 0..6
 const STEP_INTERESTS = STEP_QUESTIONS; // 7
-const STEP_AVOID = STEP_QUESTIONS + 1; // 8
-const STEP_WISH = STEP_QUESTIONS + 2; // 9
-const STEP_BUDGET = STEP_QUESTIONS + 3; // 10
+const STEP_AFFINAGE = STEP_QUESTIONS + 1; // 8
+const STEP_AVOID = STEP_QUESTIONS + 2; // 9
+const STEP_WISH = STEP_QUESTIONS + 3; // 10
 const STEP_RESULTS = STEP_QUESTIONS + 4; // 11
 const TOTAL_STEPS = STEP_QUESTIONS + 4;
 
@@ -75,7 +77,10 @@ export function QuizScreen() {
   const [interests, setInterests] = useState<InterestTag[]>(contact?.quiz?.interests ?? []);
   const [avoid, setAvoid] = useState<InterestTag[]>(contact?.quiz?.avoid ?? []);
   const [wish, setWish] = useState(contact?.quiz?.wish ?? '');
-  const [budget, setBudget] = useState<BudgetBand | null>(contact?.quiz?.budget ?? null);
+  const [themeAnswers, setThemeAnswers] = useState<Partial<Record<InterestTag, Record<string, string>>>>(
+    contact?.quiz?.themeAnswers ?? {},
+  );
+  const [activeAffinageTheme, setActiveAffinageTheme] = useState<InterestTag | null>(null);
   const [flash, setFlash] = useState<'A' | 'B' | null>(null);
 
   // Brouillon auto-enregistré pour ne pas perdre les réponses si le quiz est fermé avant la fin
@@ -97,7 +102,7 @@ export function QuizScreen() {
           if (Array.isArray(draft.interests)) setInterests(draft.interests);
           if (Array.isArray(draft.avoid)) setAvoid(draft.avoid);
           if (typeof draft.wish === 'string') setWish(draft.wish);
-          if (draft.budget !== undefined) setBudget(draft.budget);
+          if (draft.themeAnswers && typeof draft.themeAnswers === 'object') setThemeAnswers(draft.themeAnswers);
         } catch {
           // brouillon corrompu, ignoré
         }
@@ -113,13 +118,14 @@ export function QuizScreen() {
 
   useEffect(() => {
     if (!draftKey || !draftLoaded) return;
-    const isEmpty = step === 0 && answers.length === 0 && interests.length === 0 && avoid.length === 0 && !wish && !budget;
+    const isEmpty =
+      step === 0 && answers.length === 0 && interests.length === 0 && avoid.length === 0 && !wish && Object.keys(themeAnswers).length === 0;
     if (isEmpty) {
       AsyncStorage.removeItem(draftKey).catch(() => {});
       return;
     }
-    AsyncStorage.setItem(draftKey, JSON.stringify({ step, answers, interests, avoid, wish, budget })).catch(() => {});
-  }, [draftKey, draftLoaded, step, answers, interests, avoid, wish, budget]);
+    AsyncStorage.setItem(draftKey, JSON.stringify({ step, answers, interests, avoid, wish, themeAnswers })).catch(() => {});
+  }, [draftKey, draftLoaded, step, answers, interests, avoid, wish, themeAnswers]);
 
   if (!contact) {
     return (
@@ -155,9 +161,27 @@ export function QuizScreen() {
   }
 
   const finish = () => {
+    // Filet de sécurité en plus des tags "à éviter" : si {prenom} n'aime explicitement pas un
+    // thème d'après le texte libre du souhait ("il n'aime pas la cuisine"), on l'ajoute aussi aux
+    // exclusions — le sélecteur de tags reste la source la plus fiable, ceci couvre ce qui a été
+    // écrit à la main plutôt que coché.
+    const inferredAvoid = inferAvoidFromText(wish);
+    const mergedAvoid = Array.from(new Set([...avoid, ...inferredAvoid]));
     upsertContact({
       ...contact,
-      quiz: { answers, interests, avoid, wish: wish.trim(), budget, completedAt: new Date().toISOString() },
+      quiz: {
+        answers,
+        interests,
+        avoid: mergedAvoid,
+        wish: wish.trim(),
+        themeAnswers,
+        completedAt: new Date().toISOString(),
+        // Le budget appartient désormais à la recherche de recommandations (voir GiftsScreen), plus
+        // au profil — on conserve juste l'ancien "budget habituel" s'il existe déjà, sans le redemander.
+        budget: contact.quiz?.budget ?? null,
+        feedback: contact.quiz?.feedback ?? [],
+        recommendationHistory: contact.quiz?.recommendationHistory ?? [],
+      },
     });
     if (draftKey) AsyncStorage.removeItem(draftKey).catch(() => {});
     goNext();
@@ -203,7 +227,28 @@ export function QuizScreen() {
     <View style={styles.flexFull}>
       <QuizAura theme={theme} isDark={isDark} />
       <SafeAreaView style={styles.flexFull}>
-        {step < STEP_RESULTS ? (
+        {activeAffinageTheme ? (
+          <KeyboardAvoidingView
+            style={styles.flexFull}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+          >
+            <ThemeAffinageQuiz
+              quizConfig={getThemeQuiz(activeAffinageTheme)}
+              contact={contact}
+              theme={theme}
+              answers={themeAnswers[activeAffinageTheme] ?? {}}
+              onAnswer={(questionId, value) =>
+                setThemeAnswers((prev) => ({
+                  ...prev,
+                  [activeAffinageTheme]: { ...(prev[activeAffinageTheme] ?? {}), [questionId]: value },
+                }))
+              }
+              onFinish={() => setActiveAffinageTheme(null)}
+              onExit={() => setActiveAffinageTheme(null)}
+            />
+          </KeyboardAvoidingView>
+        ) : step < STEP_RESULTS ? (
           <KeyboardAvoidingView
             style={styles.flexFull}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -250,6 +295,16 @@ export function QuizScreen() {
                   onContinue={goNext}
                 />
               )}
+              {step === STEP_AFFINAGE && (
+                <AffinageOverview
+                  interests={interests}
+                  themeAnswers={themeAnswers}
+                  contact={contact}
+                  theme={theme}
+                  onOpenTheme={setActiveAffinageTheme}
+                  onContinue={goNext}
+                />
+              )}
               {step === STEP_AVOID && (
                 <TagStep
                   title={formatQuizText('Et ce qu’{il} apprécie moins ?', contact)}
@@ -272,29 +327,6 @@ export function QuizScreen() {
                     multiline
                     style={[styles.wishInput, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
                   />
-                  <View style={{ marginTop: 20, width: '100%' }}>
-                    <PrimaryButton label="Continuer" onPress={goNext} />
-                  </View>
-                </View>
-              )}
-              {step === STEP_BUDGET && (
-                <View style={styles.centeredBlock}>
-                  <Text style={[styles.prompt, { color: theme.ink }]}>Budget cadeau habituel pour {contact.prenom} ?</Text>
-                  <View style={{ gap: 10, marginTop: 20, width: '100%' }}>
-                    {BUDGET_OPTIONS.map((opt) => (
-                      <Pressable
-                        key={opt.key}
-                        onPress={() => setBudget(opt.key)}
-                        style={[
-                          styles.budgetRow,
-                          { borderColor: budget === opt.key ? theme.accent : theme.line, backgroundColor: theme.card },
-                        ]}
-                      >
-                        <Text style={{ color: theme.ink, fontWeight: '600' }}>{opt.label}</Text>
-                        {budget === opt.key && <Ionicons name="checkmark-circle" size={20} color={theme.accent} />}
-                      </Pressable>
-                    ))}
-                  </View>
                   <View style={{ marginTop: 20, width: '100%' }}>
                     <PrimaryButton label="Voir le profil" onPress={finish} />
                   </View>
@@ -558,6 +590,75 @@ function TagStep({
         })}
       </View>
       <View style={{ marginTop: 20, width: '100%' }}>
+        <PrimaryButton label="Continuer" onPress={onContinue} />
+      </View>
+    </View>
+  );
+}
+
+/** Récapitulatif après le choix des centres d'intérêt : propose d'affiner chaque thème
+ *  individuellement (facultatif, ~30s chacun) plutôt que d'imposer un long parcours — voir le
+ *  principe "rester rapide" du plan de refonte. */
+function AffinageOverview({
+  interests,
+  themeAnswers,
+  contact,
+  theme,
+  onOpenTheme,
+  onContinue,
+}: {
+  interests: InterestTag[];
+  themeAnswers: Partial<Record<InterestTag, Record<string, string>>>;
+  contact: Contact;
+  theme: any;
+  onOpenTheme: (t: InterestTag) => void;
+  onContinue: () => void;
+}) {
+  if (interests.length === 0) {
+    return (
+      <View style={styles.centeredBlock}>
+        <Text style={[styles.prompt, { color: theme.ink }]}>Pas de centre d’intérêt sélectionné pour l’instant.</Text>
+        <Text style={[styles.subtitle, { color: theme.inkSoft }]}>Tu pourras préciser ça plus tard depuis sa fiche.</Text>
+        <View style={{ marginTop: 20, width: '100%' }}>
+          <PrimaryButton label="Continuer" onPress={onContinue} />
+        </View>
+      </View>
+    );
+  }
+  // flex:1 (pas centeredBlock) + ScrollView pour la liste : avec beaucoup de centres d'intérêt
+  // choisis, la liste dépasse facilement la hauteur de l'écran — elle doit défiler plutôt que
+  // rester figée hors champ. Le titre et le bouton "Continuer", eux, restent fixes en haut/bas.
+  return (
+    <View style={{ flex: 1, width: '100%' }}>
+      <Text style={[styles.prompt, { color: theme.ink }]}>
+        {formatQuizText('On peut préciser ce que {prenom} aime précisément', contact)}
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.inkSoft }]}>
+        ~30 secondes par thème, entièrement facultatif — ça rend les idées cadeaux bien plus justes.
+      </Text>
+      <ScrollView style={{ flex: 1, marginTop: 20 }} contentContainerStyle={{ gap: 10, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+        {interests.map((t) => {
+          const opt = INTEREST_OPTIONS.find((o) => o.key === t);
+          const done = Object.keys(themeAnswers[t] ?? {}).length > 0;
+          return (
+            <Pressable
+              key={t}
+              onPress={() => onOpenTheme(t)}
+              style={[styles.budgetRow, { borderColor: done ? theme.sage : theme.line, backgroundColor: theme.card }]}
+            >
+              <Text style={{ color: theme.ink, fontWeight: '600' }}>
+                {opt?.emoji} {opt?.label}
+              </Text>
+              {done ? (
+                <Ionicons name="checkmark-circle" size={20} color={theme.sage} />
+              ) : (
+                <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Affiner</Text>
+              )}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <View style={{ marginTop: 12, width: '100%' }}>
         <PrimaryButton label="Continuer" onPress={onContinue} />
       </View>
     </View>
