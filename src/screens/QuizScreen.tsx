@@ -34,6 +34,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ANSWER_FILL_MS, ChoiceCard } from '../components/quiz/ChoiceCard';
 import { ThemeAffinageQuiz } from '../components/quiz/ThemeAffinage';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
@@ -51,7 +52,6 @@ import { inferAvoidFromText } from '../data/textSignals';
 import { Contact, InterestTag, QuizAnswer } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
 
-const ANSWER_FILL_MS = 520;
 // Doit correspondre au paddingHorizontal de styles.progressTrackWrap.
 const TRACK_PADDING_H = 20;
 const STEP_QUESTIONS = QUIZ_QUESTIONS.length; // 0..6
@@ -518,40 +518,6 @@ function QuestionStep({
   );
 }
 
-function ChoiceCard({ label, theme, active, onPress }: { label: string; theme: any; active: boolean; onPress: () => void }) {
-  // Se remplit en douceur (couleur) et "gonfle" comme une bulle qu'on touche (ressort avec
-  // rebond) au lieu de basculer d'un coup — c'est cette réaction qui sert de "chargement" avant
-  // de passer à la question suivante.
-  const fill = useSharedValue(0);
-  const scale = useSharedValue(1);
-  useEffect(() => {
-    fill.value = withTiming(active ? 1 : 0, { duration: active ? ANSWER_FILL_MS - 60 : 160, easing: Easing.out(Easing.cubic) });
-    if (active) scale.value = withSpring(1.08, { damping: 7, stiffness: 260, mass: 0.6 });
-  }, [active, fill, scale]);
-
-  const animStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(fill.value, [0, 1], [theme.card, theme.accentTint]),
-    borderColor: interpolateColor(fill.value, [0, 1], [theme.line, theme.accent]),
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => {
-        if (!active) scale.value = withSpring(0.96, { damping: 14, stiffness: 300 });
-      }}
-      onPressOut={() => {
-        if (!active) scale.value = withSpring(1, { damping: 14, stiffness: 300 });
-      }}
-    >
-      <Animated.View style={[styles.choiceCard, animStyle]}>
-        <Text style={[styles.choiceLabel, { color: theme.ink }]}>{label}</Text>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
 function TagStep({
   title,
   subtitle,
@@ -750,8 +716,6 @@ const styles = StyleSheet.create({
   prompt: { fontSize: 21, fontWeight: '700', lineHeight: 28, textAlign: 'center' },
   subtitle: { fontSize: 13, marginTop: 4, textAlign: 'center' },
   or: { textAlign: 'center', fontSize: 12, fontWeight: '700' },
-  choiceCard: { borderWidth: 1.5, borderRadius: 18, paddingVertical: 26, paddingHorizontal: 18, alignItems: 'center' },
-  choiceLabel: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
   tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 20 },
   tagChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9 },
   wishInput: { borderWidth: 1, borderRadius: 12, padding: 14, minHeight: 90, textAlignVertical: 'top', fontSize: 14, marginTop: 20, width: '100%' },

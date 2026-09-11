@@ -51,13 +51,20 @@ function rowToPensee(row: any): Pensee {
   };
 }
 
-export async function ensureAnonSession(): Promise<string | null> {
+export type AnonSession = { userId: string; isNewAccount: boolean };
+
+/** `isNewAccount` distingue un compte anonyme tout juste créé (session absente, on vient d'appeler
+ *  signInAnonymously) d'une session existante restaurée (persistSession:true dans supabase.ts) —
+ *  sert à ne peupler les données de démo qu'une seule fois, à la toute première ouverture (voir
+ *  loadRemoteData ci-dessous), plutôt qu'à chaque fois que la table est vide. */
+export async function ensureAnonSession(): Promise<AnonSession | null> {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
-  if (data.session) return data.session.user.id;
+  if (data.session) return { userId: data.session.user.id, isNewAccount: false };
   const { data: signInData, error } = await supabase.auth.signInAnonymously();
   if (error) throw error;
-  return signInData.session?.user.id ?? null;
+  if (!signInData.session) return null;
+  return { userId: signInData.session.user.id, isNewAccount: true };
 }
 
 /** Peuple le compte avec les données de démo la toute première fois (table vide). */
@@ -107,7 +114,7 @@ async function seedRemote(userId: string) {
   return { contacts: contactRows.map(rowToContact), pensees: penseeRows.map(rowToPensee) };
 }
 
-export async function loadRemoteData(userId: string) {
+export async function loadRemoteData(userId: string, isNewAccount: boolean) {
   if (!supabase) return { contacts: [] as Contact[], pensees: [] as Pensee[] };
 
   const [{ data: contactRows, error: cErr }, { data: penseeRows, error: pErr }] = await Promise.all([
@@ -117,7 +124,10 @@ export async function loadRemoteData(userId: string) {
   if (cErr) throw cErr;
   if (pErr) throw pErr;
 
-  if ((contactRows ?? []).length === 0) return seedRemote(userId);
+  // Ne peuple les contacts de démo QUE pour un compte tout juste créé — une table vide parce que
+  // l'utilisateur a supprimé tous ses contacts est un état légitime, pas un signal de "première
+  // ouverture" (sinon "Papa"/"Léa"/etc. ressuscitaient à chaque fois que la liste retombait à zéro).
+  if (isNewAccount && (contactRows ?? []).length === 0) return seedRemote(userId);
 
   return { contacts: (contactRows ?? []).map(rowToContact), pensees: (penseeRows ?? []).map(rowToPensee) };
 }

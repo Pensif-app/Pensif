@@ -1,7 +1,7 @@
 import { Contact, RejectReason, TraitKey } from './types';
-import { computeTraits, isQuizComplete, normalizeQuizProfile, INTEREST_OPTIONS } from './quiz';
+import { computeTraits, isQuizComplete, normalizeQuizProfile } from './quiz';
 import { significantWords } from './textSignals';
-import { CuratedGift, CURATED_GIFTS } from './giftCatalog';
+import { CuratedGift, CURATED_GIFTS, GiftTaxonomy } from './giftCatalog';
 
 export type BudgetRequest = { maxEuros: number };
 
@@ -30,20 +30,39 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
   other: 'Autre',
 };
 
-/**
- * Réduit la contrainte de budget après un "Trop cher", et compte les "Trop classique" reçus pour
- * pondérer l'originalité dans generateCandidates — c'est tout l'effet mémorisé de ces deux retours,
- * les autres raisons agissent uniquement via l'exclusion (isExcluded ci-dessous).
- */
-export function adjustBudgetForFeedback(currentMax: number, reason: RejectReason): number {
-  if (reason === 'too_expensive') return Math.round(currentMax * 0.75);
-  return currentMax;
+/** Retrouve le produit d'origine à partir de l'ASIN mémorisé dans un feedback — permet de connaître
+ *  son `giftConcept`/`taxonomy` au moment du scoring sans avoir à dupliquer ces champs dans
+ *  `quiz.feedback` (une seule source de vérité, le catalogue). */
+function giftByAsin(asin: string | undefined): CuratedGift | undefined {
+  if (!asin) return undefined;
+  return CURATED_GIFTS.find((g) => g.asin === asin);
+}
+
+/** Compare deux taxonomies en ne comptant QUE les dimensions présentes chez les DEUX produits, et à
+ *  l'intérieur de chaque dimension commune, les valeurs partagées — jamais de correspondance entre
+ *  deux dimensions différentes (ex. gaming.focus et musique.mode ne se comparent jamais entre eux,
+ *  même si leurs libellés se ressemblaient). */
+function taxonomySimilarity(a: GiftTaxonomy | undefined, b: GiftTaxonomy | undefined): number {
+  if (!a || !b) return 0;
+  let shared = 0;
+  for (const [dim, valuesA] of Object.entries(a)) {
+    const valuesB = b[dim];
+    if (!valuesA || !valuesB) continue;
+    shared += valuesA.filter((v) => valuesB.includes(v)).length;
+  }
+  return shared;
 }
 
 function isExcluded(gift: CuratedGift, feedback: ReturnType<typeof normalizeQuizProfile>['feedback']): boolean {
   return feedback.some((f) => {
     if (f.asin && f.asin === gift.asin) return true; // ce produit précis a été rejeté
-    if (f.theme === gift.theme && (f.reason === 'too_similar' || f.reason === 'has_it')) return true;
+    if (f.reason !== 'has_it' && f.reason !== 'too_similar') return false;
+    // "Il a déjà ça" / "Trop similaire" n'excluent plus tout le thème (trop large — un thème couvre
+    // des dizaines d'idées très différentes) : seulement les autres produits qui partagent la MÊME
+    // idée-cadeau concrète (giftConcept) que celui refusé, ex. une 2e carte cadeau PlayStation après
+    // en avoir refusé une.
+    const rejected = giftByAsin(f.asin);
+    if (rejected?.giftConcept && rejected.giftConcept === gift.giftConcept) return true;
     return false;
   });
 }
@@ -55,11 +74,55 @@ function traitBonus(gift: CuratedGift, traits: Record<TraitKey, number>): number
 
 /** Nombre de tags du produit qui recoupent une réponse d'affinage — pas juste un booléen, pour
  *  qu'un produit qui correspond sur PLUSIEURS critères (ex. 'fandom' ET 'playstation') sorte
- *  clairement devant un produit qui ne recoupe qu'un seul critère générique. */
+ *  clairement devant un produit qui ne recoupe qu'un seul critère générique. Une question à choix
+ *  multiple stocke ses valeurs jointes par virgule (ex. "salle,exterieur") — on les éclate donc
+ *  avant de construire l'ensemble de comparaison. */
 function themeAnswerMatchCount(gift: CuratedGift, themeAnswers: Record<string, string> | undefined): number {
   if (!gift.tags || !themeAnswers) return 0;
-  const answerValues = new Set(Object.values(themeAnswers));
+  const answerValues = new Set(Object.values(themeAnswers).flatMap((v) => v.split(',')));
   return gift.tags.filter((tag) => answerValues.has(tag)).length;
+}
+
+/** Même principe que themeAnswerMatchCount mais pour les thèmes migrés vers la vraie taxonomie
+ *  (`taxonomy` plutôt que `tags` libres) — compte toutes les valeurs, toutes dimensions confondues,
+ *  qui recoupent une réponse d'affinage. */
+function taxonomyMatchCount(gift: CuratedGift, themeAnswers: Record<string, string> | undefined): number {
+  if (!gift.taxonomy || !themeAnswers) return 0;
+  const answerValues = new Set(Object.values(themeAnswers).flatMap((v) => v.split(',')));
+  let count = 0;
+  for (const values of Object.values(gift.taxonomy)) {
+    if (!values) continue;
+    count += values.filter((v) => answerValues.has(v)).length;
+  }
+  return count;
+}
+
+/**
+ * Filtre DUR : élimine (pas juste pénalise) un produit incompatible avec une réponse déjà donnée —
+ * ex. une manette DualSense alors que le contact joue sur Xbox. Une question sans réponse ne filtre
+ * rien (on ne sait pas encore, donc on ne prive pas de candidats). Uniquement actif pour les
+ * produits qui déclarent hardRequirements/hardExclusions (thèmes migrés) — aucun effet sur les
+ * autres, donc pas de régression sur les 18 thèmes pas encore migrés.
+ */
+function passesHardFilters(gift: CuratedGift, themeAnswers: Record<string, string> | undefined): boolean {
+  if (!themeAnswers) return true;
+  if (gift.hardRequirements) {
+    for (const [questionId, allowed] of Object.entries(gift.hardRequirements)) {
+      const answer = themeAnswers[questionId];
+      if (!answer) continue;
+      const values = answer.split(',');
+      if (!values.some((v) => allowed.includes(v))) return false;
+    }
+  }
+  if (gift.hardExclusions) {
+    for (const [questionId, excluded] of Object.entries(gift.hardExclusions)) {
+      const answer = themeAnswers[questionId];
+      if (!answer) continue;
+      const values = answer.split(',');
+      if (values.some((v) => excluded.includes(v))) return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -131,19 +194,46 @@ function likedGiftsFor(history: ReturnType<typeof normalizeQuizProfile>['recomme
   return CURATED_GIFTS.filter((g) => likedAsins.has(g.asin));
 }
 
-/** Un produit qui ressemble à une idée déjà aimée (même thème, même trait, ou tags en commun) est
- *  poussé vers le haut du classement — c'est ce qui fait que "J'aime cette idée" a un effet réel
- *  sur les prochaines recommandations, pas juste un cœur qui se colore. Plafonné pour ne jamais à
- *  lui seul dominer l'intérêt/le budget/les réponses du quiz. */
+/** Un produit qui ressemble à une idée déjà aimée (même thème, même trait, dimensions taxonomiques
+ *  communes) est poussé vers le haut du classement — c'est ce qui fait que "J'aime cette idée" a un
+ *  effet réel sur les prochaines recommandations, pas juste un cœur qui se colore. La similarité de
+ *  détail utilise la vraie `taxonomy` quand les deux produits en ont une (thèmes migrés Phase 3) ;
+ *  sinon elle retombe sur les `tags` legacy — jamais les deux mécanismes cumulés sur la même paire,
+ *  pour ne pas compter un même recoupement deux fois. Plafonné pour ne jamais à lui seul dominer
+ *  l'intérêt/le budget/les réponses du quiz. */
 function likedSimilarityBonus(gift: CuratedGift, liked: CuratedGift[]): number {
   let bonus = 0;
   for (const l of liked) {
     if (l.asin === gift.asin) continue;
     if (l.theme === gift.theme) bonus += 8;
     if (l.trait && l.trait === gift.trait) bonus += 6;
-    if (l.tags && gift.tags) bonus += l.tags.filter((t) => gift.tags!.includes(t)).length * 5;
+    if (l.taxonomy && gift.taxonomy) {
+      bonus += taxonomySimilarity(l.taxonomy, gift.taxonomy) * 5;
+    } else if (l.tags && gift.tags) {
+      bonus += l.tags.filter((t) => gift.tags!.includes(t)).length * 5;
+    }
   }
   return Math.min(bonus, 25);
+}
+
+/**
+ * "Pas son style" n'exclut que le produit précis refusé — mais recevoir ce retour doit quand même
+ * avoir un effet réel, sous forme de pénalité MODÉRÉE (jamais une exclusion) sur les produits qui
+ * partagent des dimensions taxonomiques avec ce qui a été refusé. Plafonnée nettement plus bas que
+ * le bonus "J'aime" pour ne jamais, à elle seule, faire disparaître une branche entière sur un seul
+ * retour.
+ */
+function notStyleTaxonomyPenalty(gift: CuratedGift, feedback: ReturnType<typeof normalizeQuizProfile>['feedback']): number {
+  let penalty = 0;
+  for (const f of feedback) {
+    if (f.reason !== 'not_his_style') continue;
+    const rejected = giftByAsin(f.asin);
+    if (!rejected || rejected.asin === gift.asin) continue;
+    if (rejected.taxonomy && gift.taxonomy) {
+      penalty += taxonomySimilarity(rejected.taxonomy, gift.taxonomy) * 4;
+    }
+  }
+  return Math.min(penalty, 20);
 }
 
 /**
@@ -156,7 +246,12 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   if (!isQuizComplete(contact.quiz)) return [];
   const quiz = normalizeQuizProfile(contact.quiz);
   const traits = computeTraits(quiz.answers);
-  const originalityBoost = quiz.feedback.filter((f) => f.reason === 'too_classic').length * 8;
+  // Plafonnés (3 occurrences suffisent à atteindre le maximum) pour qu'un contact avec beaucoup de
+  // refus accumulés ne finisse pas par écraser l'intérêt/le budget/les réponses du quiz — même
+  // logique de plafond que likedBonus ci-dessous.
+  const originalityBoost = Math.min(quiz.feedback.filter((f) => f.reason === 'too_classic').length * 8, 24);
+  const personalBoost = Math.min(quiz.feedback.filter((f) => f.reason === 'more_personal').length * 8, 24);
+  const wantsMorePersonal = personalBoost > 0;
   const liked = likedGiftsFor(quiz.recommendationHistory);
   const freeTexts = collectFreeTexts(quiz);
   const excludedSet = new Set(excludeAsins);
@@ -165,19 +260,26 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   const pool = onInterests.length >= 6 ? onInterests : CURATED_GIFTS.filter((g) => g.price <= budget.maxEuros);
 
   return pool
-    .filter((g) => !excludedSet.has(g.asin) && !isExcluded(g, quiz.feedback) && !quiz.avoid.includes(g.theme))
+    .filter(
+      (g) =>
+        !excludedSet.has(g.asin) &&
+        !isExcluded(g, quiz.feedback) &&
+        !quiz.avoid.includes(g.theme) &&
+        passesHardFilters(g, quiz.themeAnswers[g.theme])
+    )
     .map((g) => {
       const interestMatch = quiz.interests.includes(g.theme);
       const trait = traitBonus(g, traits) >= 10 ? (g.trait ?? null) : null;
       const answersForTheme = quiz.themeAnswers[g.theme];
-      const themeAnswerMatches = themeAnswerMatchCount(g, answersForTheme);
+      const themeAnswerMatches = themeAnswerMatchCount(g, answersForTheme) + taxonomyMatchCount(g, answersForTheme);
       const genericBonus = genericThemeAnswerBonus(g, answersForTheme, budget.maxEuros);
       const themeAnswer = themeAnswerMatches > 0 || genericBonus > 0;
       const matchedText = textMatch(g, freeTexts);
       // Le champ 'favorite' (licence/artiste préféré…) n'a pas de correspondance produit directe
       // dans un catalogue statique, mais on le rappelle honnêtement dans "Pourquoi ?" quand un
       // produit "fandom" est justement là pour couvrir ce goût précis (ex. carte cadeau plateforme).
-      const favoriteText = themeAnswerMatches > 0 && g.tags?.includes('fandom') ? answersForTheme?.favorite ?? null : null;
+      const isFandom = g.tags?.includes('fandom') || Object.values(g.taxonomy ?? {}).some((values) => values?.includes('fandom'));
+      const favoriteText = themeAnswerMatches > 0 && isFandom ? answersForTheme?.favorite ?? null : null;
       const likedBonus = likedSimilarityBonus(g, liked);
       let score = 0;
       // Intérêt choisi et texte écrit à la main sont les deux signaux les plus fiables (jamais
@@ -187,8 +289,13 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
       score += themeAnswerMatches * 12;
       score += genericBonus;
       score -= tagConflictPenalty(g, answersForTheme);
-      if (matchedText) score += 26;
+      score -= notStyleTaxonomyPenalty(g, quiz.feedback);
+      // Le texte libre écrit à la main est déjà un signal réel et fiable (pas inventé) ; "je veux
+      // plus personnel" amplifie ce signal EXISTANT plutôt que d'en fabriquer un nouveau — et pousse
+      // en plus les objets au trait sentimental, qui sont par nature le genre de cadeau "personnel".
+      if (matchedText) score += wantsMorePersonal ? 36 : 26;
       if (g.trait === 'curious') score += originalityBoost;
+      if (g.trait === 'sentimental') score += personalBoost;
       score += likedBonus;
       return {
         gift: g,
@@ -203,39 +310,26 @@ export function topRecommendations(candidates: ScoredCandidate[], n = 3): Scored
   return candidates.slice(0, n);
 }
 
-/** Phrase "Pourquoi pour {prénom} ?" — construite UNIQUEMENT à partir des signaux qui ont compté
- *  dans le score (voir ScoredCandidate.reasons), jamais un goût ou trait inventé. */
+/**
+ * Texte affiché sous chaque recommandation — mène avec le PITCH de l'objet lui-même (pourquoi
+ * c'est un bon cadeau en soi, pour donner envie de l'acheter), et n'ajoute qu'une courte clause de
+ * personnalisation à la fin, seulement quand un signal concret et réel le justifie (jamais un goût
+ * ou trait inventé) : un seul signal, le plus précis disponible, pour rester court et lisible.
+ */
 export function whyForContact(candidate: ScoredCandidate, contact: Contact): string {
-  const bits: string[] = [];
-  const opt = INTEREST_OPTIONS.find((o) => o.key === candidate.gift.theme);
-  if (candidate.reasons.interest && opt) {
-    bits.push(`${contact.prenom} s’intéresse à ${opt.label.toLowerCase()}`);
-  }
-  if (candidate.reasons.trait) {
-    const traitPhrase: Record<TraitKey, string> = {
-      practical: `${contact.prenom} apprécie les cadeaux pratiques`,
-      social: `${contact.prenom} aime les moments partagés`,
-      curious: `${contact.prenom} aime découvrir des choses nouvelles`,
-      sentimental: `${contact.prenom} privilégie la qualité aux choses éphémères`,
-      experience: `${contact.prenom} préfère les expériences aux objets`,
-    };
-    bits.push(traitPhrase[candidate.reasons.trait]);
-  }
   const il = contact.genre === 'femme' ? 'elle' : 'il';
-  if (candidate.reasons.favoriteText) {
-    bits.push(`tu as noté qu’${il} aime particulièrement ${candidate.reasons.favoriteText}`);
-  } else if (candidate.reasons.themeAnswer) {
-    bits.push('ça correspond à ce que tu as précisé sur ses goûts dans ce domaine');
+  const { reasons } = candidate;
+  let tail = '';
+  if (reasons.favoriteText) {
+    tail = ` Tu as justement noté qu’${il} aime ${reasons.favoriteText}.`;
+  } else if (reasons.wishMatch) {
+    tail = ` Ça rejoint ce que tu as noté qu’${il} aimerait avoir.`;
+  } else if (reasons.likedSimilar) {
+    tail = ` Dans la même veine qu’une idée déjà aimée pour ${contact.prenom}.`;
+  } else if (reasons.themeAnswer) {
+    tail = ` Ça correspond à ce que tu as précisé sur ses goûts.`;
   }
-  if (candidate.reasons.wishMatch) {
-    bits.push(`ça rejoint ce que tu as noté qu’${il} aimerait avoir`);
-  }
-  if (candidate.reasons.likedSimilar) {
-    bits.push('ça ressemble à une idée que tu as aimée précédemment');
-  }
-  if (bits.length === 0) return `Une idée dans le budget indiqué pour ${contact.prenom}.`;
-  const joined = bits.length === 1 ? bits[0] : `${bits.slice(0, -1).join(', ')} et ${bits[bits.length - 1]}`;
-  return `${joined.charAt(0).toUpperCase()}${joined.slice(1)}.`;
+  return `${candidate.gift.pitch}${tail}`;
 }
 
 /**

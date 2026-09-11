@@ -12,6 +12,10 @@ import { ageTurning, daysUntilNext } from '../data/calendar';
 import { isQuizComplete } from '../data/quiz';
 import { RootStackParamList } from '../navigation/types';
 
+// "Ça arrive" ne montre que les 2 prochains mois — au-delà, c'est le rôle de l'onglet Contacts
+// (qui liste tout le monde) ; sans cette limite, les deux pages finissaient par se ressembler.
+const UPCOMING_WINDOW_DAYS = 60;
+
 const weekdayFull = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const monthFull = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
@@ -33,7 +37,9 @@ export function HomeScreen() {
   }, [contacts, today]);
 
   const todays = sorted.filter((x) => x.daysUntil === 0);
-  const upcoming = sorted.filter((x) => x.daysUntil > 0).slice(0, 6);
+  // Fenêtre volontairement courte (2 mois) : l'accueil doit rester un "ça arrive bientôt", pas un
+  // second annuaire complet qui redouble l'onglet Contacts.
+  const upcoming = sorted.filter((x) => x.daysUntil > 0 && x.daysUntil <= UPCOMING_WINDOW_DAYS);
 
   return (
     <Screen>

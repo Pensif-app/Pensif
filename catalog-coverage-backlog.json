@@ -1,0 +1,3688 @@
+[
+  {
+    "theme": "tech",
+    "level": "value",
+    "criteria": {
+      "usage": "maison"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"usage\")"
+  },
+  {
+    "theme": "tech",
+    "level": "value",
+    "criteria": {
+      "priorite": "automatisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"priorite\")"
+  },
+  {
+    "theme": "tech",
+    "level": "value",
+    "criteria": {
+      "equipmentLevel": "basique"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"equipmentLevel\")"
+  },
+  {
+    "theme": "tech",
+    "level": "value",
+    "criteria": {
+      "type": "gadget"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"type\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "mode": "both"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"mode\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "mode": "concerts"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"mode\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "format": "cd"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"format\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "format": "concerts"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"format\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "preference": "son"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"preference\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "preference": "fandom"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"preference\")"
+  },
+  {
+    "theme": "musique",
+    "level": "value",
+    "criteria": {
+      "preference": "experience"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"preference\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "rapport": "les-deux"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"rapport\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "univers": "bbq"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"univers\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "univers": "apero"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"univers\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "univers": "cuisine-du-monde"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"univers\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "cuisine",
+    "level": "value",
+    "criteria": {
+      "preference": "convivial"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"preference\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "discipline": "collectif"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"discipline\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "discipline": "raquette"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"discipline\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "lieu": "salle"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "lieu": "mixte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "niveau": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "sport",
+    "level": "value",
+    "criteria": {
+      "niveau": "avance"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "format": "audio"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"format\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "contexte": "maison"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contexte\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "contexte": "mobilite"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contexte\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "contexte": "partout"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contexte\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "intensite": "occasionnel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"intensite\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "intensite": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"intensite\")"
+  },
+  {
+    "theme": "lecture",
+    "level": "value",
+    "criteria": {
+      "besoin": "organisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "categorie": "vetements"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"categorie\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "categorie": "chaussures"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"categorie\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "style": "streetwear"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "style": "sportif"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "tailleConnue": "oui"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"tailleConnue\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "tailleConnue": "non"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"tailleConnue\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "taille": "xs"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"taille\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "taille": "s"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"taille\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "taille": "m"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"taille\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "taille": "l"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"taille\")"
+  },
+  {
+    "theme": "mode",
+    "level": "value",
+    "criteria": {
+      "taille": "xl"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"taille\")"
+  },
+  {
+    "theme": "bienetre",
+    "level": "value",
+    "criteria": {
+      "besoin": "relaxation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "bienetre",
+    "level": "value",
+    "criteria": {
+      "frequence": "quotidien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"frequence\")"
+  },
+  {
+    "theme": "bienetre",
+    "level": "value",
+    "criteria": {
+      "frequence": "occasionnel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"frequence\")"
+  },
+  {
+    "theme": "bienetre",
+    "level": "value",
+    "criteria": {
+      "parfum": "non"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"parfum\")"
+  },
+  {
+    "theme": "bienetre",
+    "level": "value",
+    "criteria": {
+      "parfum": "inconnu"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"parfum\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "platform": "pc"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"platform\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "platform": "playstation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"platform\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "platform": "xbox"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"platform\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "platform": "nintendo"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"platform\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "platform": "mobile"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"platform\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "focus": "confort"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"focus\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "focus": "multijoueur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"focus\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "social": "solo"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"social\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "social": "amis"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"social\")"
+  },
+  {
+    "theme": "gaming",
+    "level": "value",
+    "criteria": {
+      "social": "both"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"social\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "type": "weekend"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"type\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "type": "travail"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"type\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "type": "roadtrip"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"type\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "transport": "train"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"transport\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "transport": "voiture"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"transport\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "transport": "mixte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"transport\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "besoin": "securite"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "voyage",
+    "level": "value",
+    "criteria": {
+      "style": "variable"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "collection",
+    "level": "value",
+    "criteria": {
+      "usage": "acheter"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"usage\")"
+  },
+  {
+    "theme": "collection",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "zone": "chambre"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"zone\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "zone": "cuisine"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"zone\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "zone": "bureau"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"zone\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "zone": "exterieur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"zone\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "besoin": "pratique"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "besoin": "organisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "style": "minimaliste"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "style": "chaleureux"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "style": "moderne"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "style": "charge"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"style\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "connecte": "non"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"connecte\")"
+  },
+  {
+    "theme": "maison",
+    "level": "value",
+    "criteria": {
+      "connecte": "indifferent"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"connecte\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "profil": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"profil\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "besoin": "organisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "frequence": "quotidien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"frequence\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "frequence": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"frequence\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "frequence": "occasionnel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"frequence\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "diy": "oui"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"diy\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "diy": "un-peu"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"diy\")"
+  },
+  {
+    "theme": "auto",
+    "level": "value",
+    "criteria": {
+      "diy": "non"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"diy\")"
+  },
+  {
+    "theme": "nature",
+    "level": "value",
+    "criteria": {
+      "niveau": "occasionnel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "nature",
+    "level": "value",
+    "criteria": {
+      "niveau": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "nature",
+    "level": "value",
+    "criteria": {
+      "niveau": "passionne"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "nature",
+    "level": "value",
+    "criteria": {
+      "duree": "courte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"duree\")"
+  },
+  {
+    "theme": "nature",
+    "level": "value",
+    "criteria": {
+      "duree": "journee"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"duree\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "contenu": "films"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contenu\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "contenu": "series"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contenu\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "contenu": "les-deux"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contenu\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "contexte": "cinema"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"contexte\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "besoin": "fandom"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "cinema",
+    "level": "value",
+    "criteria": {
+      "besoin": "collection"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "pratique": "calligraphie"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"pratique\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "pratique": "contemplation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"pratique\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "niveau": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "niveau": "confirme"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "support": "mixte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"support\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "besoin": "decouverte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "besoin": "organisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "art",
+    "level": "value",
+    "criteria": {
+      "besoin": "inspiration"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "typeAnimal": "chat"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"typeAnimal\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "typeAnimal": "chien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"typeAnimal\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "typeAnimal": "oiseau"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"typeAnimal\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "typeAnimal": "rongeur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"typeAnimal\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "typeAnimal": "aquarium"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"typeAnimal\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "destinataire": "proprietaire"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"destinataire\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "destinataire": "les-deux"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"destinataire\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "besoin": "promenade"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "besoin": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "temperament": "calme"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"temperament\")"
+  },
+  {
+    "theme": "animaux",
+    "level": "value",
+    "criteria": {
+      "temperament": "variable"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"temperament\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "appareil": "appareil-photo"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"appareil\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "appareil": "plusieurs"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"appareil\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "usage": "partage"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"usage\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "usage": "retouche"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"usage\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "niveau": "occasionnel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "photo",
+    "level": "value",
+    "criteria": {
+      "besoin": "materiel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "jardinage",
+    "level": "value",
+    "criteria": {
+      "lieu": "grand-jardin"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "jardinage",
+    "level": "value",
+    "criteria": {
+      "univers": "amenagement"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"univers\")"
+  },
+  {
+    "theme": "jardinage",
+    "level": "value",
+    "criteria": {
+      "niveau": "passionne"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "bricolage",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "bricolage",
+    "level": "value",
+    "criteria": {
+      "niveau": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "bricolage",
+    "level": "value",
+    "criteria": {
+      "niveau": "equipe"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "bricolage",
+    "level": "value",
+    "criteria": {
+      "outil": "mixte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"outil\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "lieu": "studio"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "lieu": "club"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "lieu": "mixte"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"lieu\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "besoin": "confort"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "besoin": "accessoires"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"besoin\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "niveau": "regulier"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "danse",
+    "level": "value",
+    "criteria": {
+      "niveau": "passionne"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 1,
+    "missing": 1,
+    "priority": "P0",
+    "reason": "valeur de quiz réellement proposée, 0 produit ne la couvre (question \"niveau\")"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "type": "appareil",
+      "usage": "smartphone"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "priorite": "efficacite",
+      "type": "appareil"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "format": "streaming",
+      "mode": "jouer"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "context": "partout",
+      "instrument": "guitare"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "format": "streaming",
+      "instrument": "guitare"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "niveau": "passionne",
+      "preference": "outil"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "niveau": "passionne",
+      "rapport": "deguster"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "lecture",
+    "level": "combo",
+    "criteria": {
+      "besoin": "confort",
+      "format": "ecriture"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "bienetre",
+    "level": "combo",
+    "criteria": {
+      "besoin": "massage",
+      "parfum": "oui"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "lego",
+      "usage": "organiser"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "lego",
+      "usage": "proteger"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "tcg",
+      "usage": "construire"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "tcg",
+      "usage": "exposer"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "randonnee",
+      "priorite": "observation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "observation",
+      "priorite": "equipement"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "camping",
+      "priorite": "observation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "aventure",
+      "priorite": "observation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "art",
+    "level": "combo",
+    "criteria": {
+      "besoin": "upgrade",
+      "pratique": "peinture"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "pratique",
+      "usage": "impression"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "creatif",
+      "usage": "impression"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "manuel",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "preference": "manuel"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "manuel",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "preference": "automatisation"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "niveau": "debutant"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "preference": "culture"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "preference": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "culture",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "preference": "entretien"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "entretien",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 0,
+    "targetCount": 5,
+    "missing": 5,
+    "priority": "P0",
+    "reason": "combinaison importante, 0 produit"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "type": "appareil",
+      "usage": "mobilite"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "outil",
+      "rapport": "deguster"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "upgrade",
+      "rapport": "deguster"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "niveau": "passionne",
+      "univers": "cafe"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "discipline": "musculation",
+      "lieu": "maison"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel",
+      "discipline": "musculation"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bienetre",
+    "level": "combo",
+    "criteria": {
+      "format": "simple",
+      "parfum": "oui"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bienetre",
+    "level": "combo",
+    "criteria": {
+      "besoin": "massage",
+      "format": "simple"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "tcg",
+      "usage": "organiser"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "maison",
+    "level": "combo",
+    "criteria": {
+      "connecte": "oui",
+      "zone": "salon"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "maison",
+    "level": "combo",
+    "criteria": {
+      "besoin": "decoration",
+      "zone": "global"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "maison",
+    "level": "combo",
+    "criteria": {
+      "connecte": "oui",
+      "zone": "global"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "maison",
+    "level": "combo",
+    "criteria": {
+      "besoin": "decoration",
+      "connecte": "oui"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "aventure",
+      "priorite": "equipement"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "art",
+    "level": "combo",
+    "criteria": {
+      "besoin": "upgrade",
+      "pratique": "dessin"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "art",
+    "level": "combo",
+    "criteria": {
+      "besoin": "upgrade",
+      "support": "manuel"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone",
+      "usage": "impression"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone",
+      "besoin": "impression"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "impression",
+      "usage": "prise-de-vue"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "automatisation",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "preference": "automatisation"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "automatisation",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "outil": "manuel",
+      "univers": "maison"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "besoin": "polyvalence",
+      "univers": "maison"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "outil": "electrique",
+      "univers": "maison"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "outil": "manuel",
+      "univers": "polyvalent"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "besoin": "polyvalence",
+      "outil": "electrique"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "danse",
+    "level": "combo",
+    "criteria": {
+      "lieu": "maison",
+      "usage": "soiree"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "danse",
+    "level": "combo",
+    "criteria": {
+      "besoin": "ambiance",
+      "lieu": "maison"
+    },
+    "budget": null,
+    "currentCount": 1,
+    "targetCount": 5,
+    "missing": 4,
+    "priority": "P1",
+    "reason": "combinaison importante, seulement 1 produit(s)"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "priorite": "efficacite",
+      "usage": "mobilite"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "type": "accessoire",
+      "usage": "mobilite"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "priorite": "efficacite",
+      "usage": "smartphone"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "type": "accessoire",
+      "usage": "smartphone"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "tech",
+    "level": "combo",
+    "criteria": {
+      "priorite": "efficacite",
+      "type": "accessoire"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "instrument": "guitare",
+      "mode": "jouer"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "context": "partout",
+      "mode": "ecoute"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "format": "streaming",
+      "mode": "ecoute"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "musique",
+    "level": "combo",
+    "criteria": {
+      "context": "partout",
+      "format": "streaming"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "upgrade",
+      "rapport": "cuisiner"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "niveau": "passionne",
+      "rapport": "cuisiner"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "upgrade",
+      "univers": "cafe"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "niveau": "passionne",
+      "preference": "upgrade"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel",
+      "lieu": "maison"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel",
+      "discipline": "running"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "lecture",
+    "level": "combo",
+    "criteria": {
+      "besoin": "bel-objet",
+      "format": "ecriture"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "lecture",
+    "level": "combo",
+    "criteria": {
+      "besoin": "ecriture",
+      "format": "ecriture"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "mode",
+    "level": "combo",
+    "criteria": {
+      "preference": "intemporel",
+      "style": "classique"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "tcg",
+      "usage": "proteger"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "maison",
+    "level": "combo",
+    "criteria": {
+      "besoin": "decoration",
+      "zone": "salon"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "randonnee",
+      "priorite": "equipement"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "observation",
+      "priorite": "observation"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "nature",
+    "level": "combo",
+    "criteria": {
+      "activite": "camping",
+      "priorite": "equipement"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "art",
+    "level": "combo",
+    "criteria": {
+      "pratique": "peinture",
+      "support": "manuel"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "art",
+    "level": "combo",
+    "criteria": {
+      "pratique": "dessin",
+      "support": "manuel"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone",
+      "besoin": "pratique"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "pratique",
+      "usage": "prise-de-vue"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "impression",
+      "usage": "impression"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "niveau": "debutant",
+      "preference": "manuel"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "entretien",
+      "univers": "entretien"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "lieu": "interieur",
+      "preference": "culture"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "jardinage",
+    "level": "combo",
+    "criteria": {
+      "preference": "culture",
+      "univers": "plantes-interieur"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "besoin": "polyvalence",
+      "univers": "polyvalent"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "outil": "electrique",
+      "univers": "polyvalent"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "bricolage",
+    "level": "combo",
+    "criteria": {
+      "besoin": "polyvalence",
+      "outil": "manuel"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "danse",
+    "level": "combo",
+    "criteria": {
+      "besoin": "ambiance",
+      "usage": "soiree"
+    },
+    "budget": null,
+    "currentCount": 2,
+    "targetCount": 5,
+    "missing": 3,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 2 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "outil",
+      "univers": "cafe"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "rapport": "deguster",
+      "univers": "cafe"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel",
+      "discipline": "velo"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "mode",
+    "level": "combo",
+    "criteria": {
+      "categorie": "accessoires",
+      "style": "classique"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "mode",
+    "level": "combo",
+    "criteria": {
+      "categorie": "accessoires",
+      "preference": "intemporel"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "lego",
+      "usage": "exposer"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "cinema",
+    "level": "combo",
+    "criteria": {
+      "besoin": "installation",
+      "contexte": "maison"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone",
+      "besoin": "creatif"
+    },
+    "budget": null,
+    "currentCount": 3,
+    "targetCount": 5,
+    "missing": 2,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 3 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "rapport": "cuisiner",
+      "univers": "cafe"
+    },
+    "budget": null,
+    "currentCount": 4,
+    "targetCount": 5,
+    "missing": 1,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 4 produit(s)"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "equipmentLevel": "avance",
+      "focus": "setup"
+    },
+    "budget": null,
+    "currentCount": 4,
+    "targetCount": 5,
+    "missing": 1,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 4 produit(s)"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "type": "lego",
+      "usage": "construire"
+    },
+    "budget": null,
+    "currentCount": 4,
+    "targetCount": 5,
+    "missing": 1,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 4 produit(s)"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "besoin": "creatif",
+      "usage": "prise-de-vue"
+    },
+    "budget": null,
+    "currentCount": 4,
+    "targetCount": 5,
+    "missing": 1,
+    "priority": "P2",
+    "reason": "combinaison importante, seulement 4 produit(s)"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "rapport": "cuisiner"
+    },
+    "budget": "50-100€",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 50-100€"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "outil"
+    },
+    "budget": "50-100€",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 50-100€"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "preference": "outil"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "univers": "cafe"
+    },
+    "budget": "50-100€",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 50-100€"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel"
+    },
+    "budget": "50-100€",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 50-100€"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "besoin": "materiel"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "focus": "setup"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "equipmentLevel": "debutant"
+    },
+    "budget": "50-100€",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 50-100€"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "equipmentLevel": "debutant"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "equipmentLevel": "intermediaire"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "usage": "prise-de-vue"
+    },
+    "budget": "100€+",
+    "currentCount": 0,
+    "targetCount": 2,
+    "missing": 2,
+    "priority": "P3",
+    "reason": "branche bien couverte mais 0 produit en 100€+"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "rapport": "cuisiner"
+    },
+    "budget": "100€+",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 100€+"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "univers": "cafe"
+    },
+    "budget": "<20€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en <20€"
+  },
+  {
+    "theme": "cuisine",
+    "level": "combo",
+    "criteria": {
+      "univers": "cafe"
+    },
+    "budget": "100€+",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 100€+"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "discipline": "velo"
+    },
+    "budget": "20-50€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 20-50€"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "discipline": "velo"
+    },
+    "budget": "50-100€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 50-100€"
+  },
+  {
+    "theme": "sport",
+    "level": "combo",
+    "criteria": {
+      "discipline": "velo"
+    },
+    "budget": "100€+",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 100€+"
+  },
+  {
+    "theme": "gaming",
+    "level": "combo",
+    "criteria": {
+      "equipmentLevel": "intermediaire"
+    },
+    "budget": "<20€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en <20€"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "usage": "exposer"
+    },
+    "budget": "<20€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en <20€"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "usage": "exposer"
+    },
+    "budget": "50-100€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 50-100€"
+  },
+  {
+    "theme": "collection",
+    "level": "combo",
+    "criteria": {
+      "usage": "exposer"
+    },
+    "budget": "100€+",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 100€+"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone"
+    },
+    "budget": "<20€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en <20€"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone"
+    },
+    "budget": "50-100€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 50-100€"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "appareil": "smartphone"
+    },
+    "budget": "100€+",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en 100€+"
+  },
+  {
+    "theme": "photo",
+    "level": "combo",
+    "criteria": {
+      "usage": "prise-de-vue"
+    },
+    "budget": "<20€",
+    "currentCount": 1,
+    "targetCount": 2,
+    "missing": 1,
+    "priority": "P3",
+    "reason": "branche bien couverte mais seulement 1 produit en <20€"
+  }
+]

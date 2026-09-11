@@ -2,12 +2,20 @@ import { RouteProp, useRoute } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import * as SMS from 'expo-sms';
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { messageTemplates } from '../data/messages';
 import { RootStackParamList } from '../navigation/types';
+
+/** Convertit un numéro français local (06 xx xx xx xx) au format international sans "+" attendu
+ *  par wa.me — best-effort, pas de champ pays dédié dans la fiche contact. */
+function toWhatsAppNumber(tel: string): string {
+  const digits = tel.replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.startsWith('0') ? `33${digits.slice(1)}` : digits;
+}
 
 const TONES = [
   { key: 'chaleureux', label: 'Chaleureux' },
@@ -39,6 +47,21 @@ export function MessageScreen() {
   async function copyMessage() {
     await Clipboard.setStringAsync(message);
     Alert.alert('Copié', 'Le message a été copié dans le presse-papiers.');
+  }
+
+  async function sendWhatsApp() {
+    const number = toWhatsAppNumber(contact!.tel);
+    if (!number) {
+      Alert.alert('Numéro manquant', 'Ajoute le numéro de téléphone de ce contact pour utiliser WhatsApp.');
+      return;
+    }
+    try {
+      // Lien universel wa.me plutôt que le schéma whatsapp:// — ouvre l'appli si installée, sinon
+      // WhatsApp Web, sans avoir besoin de déclarer de permission de requête de schéma particulière.
+      await Linking.openURL(`https://wa.me/${number}?text=${encodeURIComponent(message)}`);
+    } catch {
+      Alert.alert('WhatsApp indisponible', "Impossible d'ouvrir WhatsApp sur cet appareil.");
+    }
   }
 
   return (
@@ -73,7 +96,10 @@ export function MessageScreen() {
           <Text style={{ color: theme.ink, fontWeight: '700' }}>Copier</Text>
         </Pressable>
         <Pressable onPress={sendSms} style={[styles.btn, { backgroundColor: theme.accentStrong, flex: 1 }]}>
-          <Text style={{ color: '#fff', fontWeight: '700' }}>Envoyer par SMS</Text>
+          <Text style={{ color: '#fff', fontWeight: '700' }}>SMS</Text>
+        </Pressable>
+        <Pressable onPress={sendWhatsApp} style={[styles.btn, { backgroundColor: theme.sage, flex: 1 }]}>
+          <Text style={{ color: '#fff', fontWeight: '700' }}>WhatsApp</Text>
         </Pressable>
       </View>
 

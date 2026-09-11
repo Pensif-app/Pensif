@@ -9,6 +9,10 @@ export type ThemeQuestion = {
   type: 'choice' | 'text';
   /** Requis pour type 'choice'. */
   options?: { key: string; label: string }[];
+  /** N'affiche cette question que si une réponse précédente du même thème correspond — permet un
+   *  branchement conditionnel (ex. musique : "il joue" → question instrument, "il écoute" →
+   *  question contexte d'écoute). */
+  when?: { questionId: string; oneOf: string[] };
 };
 
 export type ThemeQuizConfig = {
@@ -16,43 +20,9 @@ export type ThemeQuizConfig = {
   questions: ThemeQuestion[];
 };
 
-// Questions communes réutilisées par tous les thèmes ci-dessous (mêmes clés de réponse que
-// l'ancien arbre générique, lues telles quelles par genericThemeAnswerBonus dans
-// recommendationEngine.ts) — chaque thème ajoute ses 2 questions propres entre depth() et style()
-// pour rétrécir progressivement le champ des possibles plutôt que de rester générique.
-function passionQuestion(label: string): ThemeQuestion {
-  return {
-    id: 'passion',
-    prompt: `Son intérêt pour ${label.toLowerCase()}, c'est plutôt…`,
-    type: 'choice',
-    options: [
-      { key: 'occasionnel', label: 'Occasionnel' },
-      { key: 'passion', label: 'Une vraie passion' },
-    ],
-  };
-}
-function depthQuestion(): ThemeQuestion {
-  return {
-    id: 'depth',
-    prompt: 'Dans ce domaine, {il} est plutôt…',
-    type: 'choice',
-    options: [
-      { key: 'debutant', label: 'Néophyte / débutant' },
-      { key: 'connaisseur', label: 'Déjà connaisseur' },
-    ],
-  };
-}
-function styleQuestion(): ThemeQuestion {
-  return {
-    id: 'style',
-    prompt: '{Il} apprécierait plutôt…',
-    type: 'choice',
-    options: [
-      { key: 'pratique', label: 'Quelque chose de pratique/utile' },
-      { key: 'original', label: 'Quelque chose d’original' },
-    ],
-  };
-}
+// Question commune réutilisée par tous les thèmes dédiés ci-dessous : un texte libre facultatif
+// en fin d'arbre, le signal le plus précis (recherché mot à mot dans les titres produits — voir
+// TEXT_ANSWER_IDS dans recommendationEngine.ts).
 function detailQuestion(label: string): ThemeQuestion {
   return { id: 'detail', prompt: `Un détail précis sur ce qu'{il} aime en ${label.toLowerCase()} ?`, type: 'text' };
 }
@@ -61,16 +31,18 @@ function detailQuestion(label: string): ThemeQuestion {
  * Arbres de questions dédiés — architecture volontairement déclarative (pas de logique hardcodée
  * dans les composants UI) : ThemeAffinage.tsx se contente de lire cette config et de rendre les
  * questions génériquement. Ajouter un nouveau thème dédié = ajouter une entrée ici, rien d'autre.
- * Chacun des 20 thèmes a maintenant son propre arbre à 6 étapes — large au départ (passion, niveau)
- * puis 2 questions propres au thème pour rétrécir le champ des possibles, avant de reconverger sur
- * pratique/original et un détail libre. gaming/cuisine/musique restent sur mesure (5 questions déjà
- * bien ciblées) ; les 17 autres suivent ce même entonnoir.
+ * Les 20 thèmes ont maintenant chacun leur propre taxonomie (3-5 dimensions propres au thème, voir
+ * `taxonomy` dans giftCatalog.ts) plutôt que les anciennes clés génériques passion/depth/style —
+ * gaming/musique portent en plus de vrais filtres durs (`when` + `hardRequirements`, voir plan de
+ * refonte "moteur de réduction progressive" phases 1 et 2).
  */
 const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   gaming: {
     theme: 'gaming',
     questions: [
       {
+        // Filtre DUR : élimine tout accessoire exclusif à une autre plateforme (voir
+        // hardRequirements dans giftCatalog.ts, ex. manette DualSense, cartes cadeaux).
         id: 'platform',
         prompt: '{Il} joue principalement sur quoi ?',
         type: 'choice',
@@ -84,6 +56,31 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        id: 'focus',
+        prompt: 'Pour son univers gaming, {il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'setup', label: 'Améliorer son setup' },
+          { key: 'fandom', label: 'Quelque chose lié à ses jeux préférés' },
+          { key: 'confort', label: 'Plus de confort de jeu' },
+          { key: 'multijoueur', label: 'Jouer avec d’autres' },
+        ],
+      },
+      {
+        // N'a de sens que pour "améliorer son setup" — un niveau d'équipement ne s'applique pas à
+        // une carte cadeau fandom ni à une question de confort/multijoueur (voir audit Phase 3A :
+        // fandom × equipmentLevel n'est pas un trou catalogue, c'est une combinaison non pertinente).
+        id: 'equipmentLevel',
+        prompt: 'Son setup est…',
+        type: 'choice',
+        options: [
+          { key: 'debutant', label: 'Assez simple' },
+          { key: 'intermediaire', label: 'Correctement équipé' },
+          { key: 'avance', label: 'Déjà très équipé' },
+        ],
+        when: { questionId: 'focus', oneOf: ['setup'] },
+      },
+      {
         id: 'social',
         prompt: '{Il} joue plutôt…',
         type: 'choice',
@@ -91,24 +88,6 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'solo', label: 'Seul' },
           { key: 'amis', label: 'Avec ses amis' },
           { key: 'both', label: 'Les deux' },
-        ],
-      },
-      {
-        id: 'focus',
-        prompt: 'Pour son univers gaming, {il} apprécierait plutôt…',
-        type: 'choice',
-        options: [
-          { key: 'setup', label: 'Améliorer son setup' },
-          { key: 'fandom', label: 'Quelque chose lié à ses jeux préférés' },
-        ],
-      },
-      {
-        id: 'setupLevel',
-        prompt: 'Son setup est…',
-        type: 'choice',
-        options: [
-          { key: 'simple', label: 'Assez simple' },
-          { key: 'equipped', label: 'Déjà bien équipé' },
         ],
       },
       {
@@ -123,46 +102,51 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     theme: 'cuisine',
     questions: [
       {
-        id: 'mode',
+        id: 'rapport',
         prompt: '{Il} préfère…',
         type: 'choice',
         options: [
           { key: 'cuisiner', label: 'Cuisiner' },
-          { key: 'decouvrir', label: 'Manger / découvrir' },
+          { key: 'deguster', label: 'Déguster / découvrir' },
+          { key: 'les-deux', label: 'Les deux' },
         ],
       },
       {
-        id: 'taste',
-        prompt: '{Il} est plutôt…',
-        type: 'choice',
-        options: [
-          { key: 'sale', label: 'Salé' },
-          { key: 'sucre', label: 'Sucré' },
-        ],
-      },
-      {
-        id: 'novelty',
-        prompt: '{Il} aime…',
-        type: 'choice',
-        options: [
-          { key: 'decouverte', label: 'Découvrir de nouvelles choses' },
-          { key: 'valeurs-sures', label: 'Ses valeurs sûres' },
-        ],
-      },
-      {
-        id: 'universe',
+        id: 'univers',
         prompt: 'Son univers cuisine préféré ?',
         type: 'choice',
         options: [
-          { key: 'bbq', label: 'BBQ' },
           { key: 'patisserie', label: 'Pâtisserie' },
+          { key: 'bbq', label: 'BBQ' },
           { key: 'cafe', label: 'Café' },
-          { key: 'asiatique', label: 'Cuisine asiatique' },
           { key: 'apero', label: 'Apéro' },
-          { key: 'italienne', label: 'Cuisine italienne' },
-          { key: 'aucun', label: 'Aucun en particulier' },
+          { key: 'cuisine-du-monde', label: 'Cuisine du monde' },
+          { key: 'quotidien', label: 'Cuisine du quotidien' },
+          { key: 'gastronomie', label: 'Gastronomie' },
         ],
       },
+      {
+        id: 'niveau',
+        prompt: 'En cuisine, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'passionne', label: 'Une vraie passion' },
+        ],
+      },
+      {
+        id: 'preference',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'outil', label: 'Un bon outil du quotidien' },
+          { key: 'decouverte', label: 'Une découverte à tester' },
+          { key: 'upgrade', label: 'Un upgrade de son équipement' },
+          { key: 'convivial', label: 'Quelque chose à partager' },
+        ],
+      },
+      detailQuestion('Cuisine'),
     ],
   },
 
@@ -174,11 +158,14 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         prompt: '{Il} préfère…',
         type: 'choice',
         options: [
-          { key: 'ecouter', label: 'Écouter de la musique' },
+          { key: 'ecoute', label: 'Écouter de la musique' },
           { key: 'jouer', label: 'Jouer de la musique' },
+          { key: 'both', label: 'Les deux' },
+          { key: 'concerts', label: 'Aller à des concerts' },
         ],
       },
       {
+        // Q2A : uniquement si "écoute" (seul ou en plus de jouer) fait partie de la réponse.
         id: 'context',
         prompt: '{Il} écoute surtout…',
         type: 'choice',
@@ -187,6 +174,20 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'deplacement', label: 'En déplacement' },
           { key: 'partout', label: 'Partout' },
         ],
+        when: { questionId: 'mode', oneOf: ['ecoute', 'both'] },
+      },
+      {
+        // Q2B : uniquement si "joue" fait partie de la réponse — question instrument, pas contexte d'écoute.
+        id: 'instrument',
+        prompt: '{Il} joue de quel instrument ?',
+        type: 'choice',
+        options: [
+          { key: 'guitare', label: 'Guitare' },
+          { key: 'piano', label: 'Piano / clavier' },
+          { key: 'chant', label: 'Chant' },
+          { key: 'autre', label: 'Autre instrument' },
+        ],
+        when: { questionId: 'mode', oneOf: ['jouer', 'both'] },
       },
       {
         id: 'format',
@@ -200,6 +201,17 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        id: 'preference',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'son', label: 'Un meilleur son' },
+          { key: 'pratique', label: 'De quoi pratiquer' },
+          { key: 'fandom', label: 'Quelque chose lié à son artiste préféré' },
+          { key: 'experience', label: 'Une expérience (concert, événement)' },
+        ],
+      },
+      {
         id: 'favorite',
         prompt: 'Tu connais son artiste ou son genre préféré ?',
         type: 'text',
@@ -210,29 +222,54 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   tech: {
     theme: 'tech',
     questions: [
-      passionQuestion('Tech'),
-      depthQuestion(),
       {
         id: 'usage',
-        prompt: 'Il utilise surtout la tech pour…',
+        prompt: '{Il} utilise surtout la tech pour…',
         type: 'choice',
         options: [
-          { key: 'travail', label: 'Travailler / être productif' },
-          { key: 'creer', label: 'Créer (photo, vidéo, musique)' },
-          { key: 'quotidien', label: 'Se simplifier le quotidien' },
+          { key: 'smartphone', label: 'Son smartphone au quotidien' },
+          { key: 'travail-etudes', label: 'Travailler / étudier' },
+          { key: 'maison', label: 'La maison' },
+          { key: 'mobilite', label: 'Être équipé en déplacement' },
+          { key: 'gadgets', label: 'Découvrir des gadgets' },
         ],
       },
       {
-        id: 'univers',
-        prompt: 'Il serait plutôt content d’avoir…',
+        id: 'priorite',
+        prompt: 'Ce qui compte le plus, c’est plutôt…',
         type: 'choice',
         options: [
-          { key: 'accessoire', label: 'Un accessoire pratique en plus' },
-          { key: 'gadget', label: 'Un gadget innovant à découvrir' },
-          { key: 'connecte', label: 'Un objet connecté pour la maison' },
+          { key: 'efficacite', label: 'L’efficacité' },
+          { key: 'confort', label: 'Le confort' },
+          { key: 'nouveaute', label: 'La nouveauté' },
+          { key: 'automatisation', label: 'L’automatisation' },
+          { key: 'connectivite', label: 'La connectivité' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'equipmentLevel',
+        prompt: 'Côté tech, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'basique', label: 'Assez basique' },
+          { key: 'equipe', label: 'Déjà bien équipé' },
+          { key: 'technophile', label: 'Un vrai technophile' },
+        ],
+      },
+      {
+        id: 'type',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'accessoire', label: 'Un accessoire pratique' },
+          { key: 'appareil', label: 'Un appareil à part entière' },
+          { key: 'objet-connecte', label: 'Un objet connecté' },
+          // DEFERRED (Phase 3, LOT 3) : valeur valide, volontairement non couverte pour l'instant —
+          // à ne pas confondre avec 'autre' (OPEN) : on voudra un jour de vrais gadgets tech, on ne
+          // force juste pas un produit maintenant pour ne pas faire de tech un tiroir fourre-tout.
+          { key: 'gadget', label: 'Un gadget à découvrir' },
+        ],
+      },
       detailQuestion('Tech'),
     ],
   },
@@ -240,30 +277,59 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   sport: {
     theme: 'sport',
     questions: [
-      passionQuestion('Sport'),
-      depthQuestion(),
       {
         id: 'discipline',
-        prompt: 'Il pratique surtout…',
+        prompt: '{Il} pratique surtout…',
         type: 'choice',
         options: [
-          { key: 'salle', label: 'Sport en salle / fitness' },
-          { key: 'exterieur', label: 'Sport en extérieur / nature' },
-          { key: 'equipe', label: 'Sport en équipe' },
-          { key: 'douceur', label: 'Yoga / étirement / bien-être actif' },
+          { key: 'running', label: 'Course à pied' },
+          { key: 'musculation', label: 'Musculation' },
+          { key: 'yoga', label: 'Yoga / étirement' },
+          { key: 'velo', label: 'Vélo' },
+          { key: 'collectif', label: 'Sport collectif' },
+          { key: 'raquette', label: 'Sport de raquette' },
+          { key: 'autre', label: 'Autre discipline' },
         ],
       },
       {
-        id: 'social',
-        prompt: 'Il s’entraîne plutôt…',
+        // Le lieu ne discrimine vraiment le cadeau que pour les disciplines qu'on peut pratiquer
+        // aussi bien chez soi qu'en salle (musculation, yoga) — pour running/vélo/collectif/raquette
+        // le lieu n'oriente pas le choix de cadeau, "besoin" (performance/confort/récupération/
+        // sécurité/suivi) le fait déjà (voir audit Phase 3A : éviter de poser une question qui ne
+        // réduit jamais le pool de candidats).
+        id: 'lieu',
+        prompt: 'Il s’entraîne surtout…',
         type: 'choice',
         options: [
-          { key: 'solo', label: 'Seul' },
-          { key: 'groupe', label: 'Avec d’autres' },
-          { key: 'both', label: 'Les deux' },
+          { key: 'maison', label: 'À la maison' },
+          { key: 'salle', label: 'En salle' },
+          { key: 'exterieur', label: 'En extérieur' },
+          { key: 'mixte', label: 'Ça dépend' },
+        ],
+        when: { questionId: 'discipline', oneOf: ['musculation', 'yoga'] },
+      },
+      {
+        id: 'niveau',
+        prompt: 'Son niveau est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'avance', label: 'Avancé' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'besoin',
+        prompt: '{Il} aurait surtout besoin de…',
+        type: 'choice',
+        options: [
+          { key: 'materiel', label: 'Matériel' },
+          { key: 'performance', label: 'Suivi de performance' },
+          { key: 'confort', label: 'Confort pendant l’effort' },
+          { key: 'recuperation', label: 'Récupération' },
+          { key: 'suivi', label: 'Suivi de sa progression' },
+        ],
+      },
       detailQuestion('Sport'),
     ],
   },
@@ -271,28 +337,62 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   mode: {
     theme: 'mode',
     questions: [
-      passionQuestion('Mode'),
-      depthQuestion(),
       {
-        id: 'preference',
+        id: 'categorie',
+        prompt: '{Il} aimerait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'vetements', label: 'Un vêtement' },
+          { key: 'accessoires', label: 'Un accessoire' },
+          { key: 'chaussures', label: 'Des chaussures' },
+        ],
+      },
+      {
+        id: 'style',
         prompt: 'Son style est plutôt…',
         type: 'choice',
         options: [
-          { key: 'classique', label: 'Classique / intemporel' },
-          { key: 'decontracte', label: 'Sportswear / décontracté' },
-          { key: 'tendance', label: 'Tendance / fashion' },
+          { key: 'classique', label: 'Classique' },
+          { key: 'casual', label: 'Casual' },
+          { key: 'streetwear', label: 'Streetwear' },
+          { key: 'elegant', label: 'Élégant' },
+          { key: 'sportif', label: 'Sportif' },
         ],
       },
       {
-        id: 'occasion',
-        prompt: 'Il aimerait plutôt un accessoire…',
+        id: 'preference',
+        prompt: '{Il} préfère plutôt…',
         type: 'choice',
         options: [
-          { key: 'quotidien', label: 'Pour tous les jours' },
-          { key: 'special', label: 'Pour une occasion spéciale' },
+          { key: 'discret', label: 'Quelque chose de discret' },
+          { key: 'visible', label: 'Quelque chose qui se remarque' },
+          { key: 'intemporel', label: 'Une pièce intemporelle' },
         ],
       },
-      styleQuestion(),
+      {
+        // Filtre DUR potentiel : une taille connue permet d'éliminer les produits dont la taille
+        // ne correspond pas (voir hardRequirements sur les futurs vêtements/chaussures taillés).
+        id: 'tailleConnue',
+        prompt: 'Tu connais sa taille ?',
+        type: 'choice',
+        options: [
+          { key: 'oui', label: 'Oui' },
+          { key: 'non', label: 'Non' },
+        ],
+      },
+      {
+        id: 'taille',
+        prompt: 'Sa taille, c’est…',
+        type: 'choice',
+        options: [
+          { key: 'xs', label: 'XS' },
+          { key: 's', label: 'S' },
+          { key: 'm', label: 'M' },
+          { key: 'l', label: 'L' },
+          { key: 'xl', label: 'XL' },
+        ],
+        when: { questionId: 'tailleConnue', oneOf: ['oui'] },
+      },
       detailQuestion('Mode'),
     ],
   },
@@ -300,30 +400,50 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   voyage: {
     theme: 'voyage',
     questions: [
-      passionQuestion('Voyage'),
-      depthQuestion(),
       {
-        id: 'approche',
+        id: 'type',
+        prompt: 'Son prochain voyage, c’est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'weekend', label: 'Un week-end' },
+          { key: 'long', label: 'Un long voyage' },
+          { key: 'travail', label: 'Un déplacement pro' },
+          { key: 'roadtrip', label: 'Un road-trip' },
+        ],
+      },
+      {
+        id: 'transport',
+        prompt: 'Il voyage surtout…',
+        type: 'choice',
+        options: [
+          { key: 'avion', label: 'En avion' },
+          { key: 'train', label: 'En train' },
+          { key: 'voiture', label: 'En voiture' },
+          { key: 'mixte', label: 'Ça dépend' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} aurait surtout besoin de…',
+        type: 'choice',
+        options: [
+          { key: 'organisation', label: 'S’organiser' },
+          { key: 'confort', label: 'Du confort' },
+          { key: 'bagage', label: 'Un bon bagage' },
+          { key: 'recharge', label: 'Rester chargé' },
+          { key: 'securite', label: 'De la sécurité' },
+        ],
+      },
+      {
+        id: 'style',
         prompt: 'Il voyage plutôt…',
         type: 'choice',
         options: [
-          { key: 'aventure', label: 'Sac à dos / aventure' },
-          { key: 'confort', label: 'Confort / tourisme classique' },
-          { key: 'pro', label: 'Affaires / pro' },
+          { key: 'leger', label: 'Léger' },
+          { key: 'charge', label: 'Chargé' },
+          { key: 'variable', label: 'Ça dépend du voyage' },
         ],
       },
-      {
-        id: 'destination',
-        prompt: 'Son prochain type de voyage…',
-        type: 'choice',
-        options: [
-          { key: 'montagne', label: 'Montagne / nature' },
-          { key: 'ville', label: 'Ville' },
-          { key: 'plage', label: 'Plage' },
-          { key: 'aucun', label: 'Rien de prévu pour l’instant' },
-        ],
-      },
-      styleQuestion(),
       detailQuestion('Voyage'),
     ],
   },
@@ -331,30 +451,49 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   lecture: {
     theme: 'lecture',
     questions: [
-      passionQuestion('Lecture'),
-      depthQuestion(),
-      {
-        id: 'genre',
-        prompt: 'Il lit plutôt…',
-        type: 'choice',
-        options: [
-          { key: 'fiction', label: 'Fiction / romans' },
-          { key: 'essai', label: 'Non-fiction / essais' },
-          { key: 'bd', label: 'BD / mangas' },
-          { key: 'peu-importe', label: 'Peu importe le genre' },
-        ],
-      },
       {
         id: 'format',
         prompt: 'Il lit surtout…',
         type: 'choice',
         options: [
           { key: 'papier', label: 'Sur papier' },
-          { key: 'liseuse', label: 'Sur liseuse numérique' },
-          { key: 'both', label: 'Les deux' },
+          { key: 'numerique', label: 'Sur liseuse numérique' },
+          { key: 'audio', label: 'En livre audio' },
+          { key: 'ecriture', label: 'Il écrit aussi' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'contexte',
+        prompt: 'Il lit surtout…',
+        type: 'choice',
+        options: [
+          { key: 'maison', label: 'À la maison' },
+          { key: 'lit', label: 'Le soir, au lit' },
+          { key: 'mobilite', label: 'En déplacement' },
+          { key: 'partout', label: 'Partout' },
+        ],
+      },
+      {
+        id: 'intensite',
+        prompt: 'Côté lecture, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'occasionnel', label: 'Occasionnel' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'gros-lecteur', label: 'Un gros lecteur' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'confort', label: 'Plus de confort de lecture' },
+          { key: 'bel-objet', label: 'Un bel objet' },
+          { key: 'organisation', label: 'De quoi s’organiser' },
+          { key: 'ecriture', label: 'De quoi écrire' },
+        ],
+      },
       detailQuestion('Lecture'),
     ],
   },
@@ -362,59 +501,98 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   collection: {
     theme: 'collection',
     questions: [
-      passionQuestion('Collection'),
-      depthQuestion(),
       {
-        id: 'univers',
+        id: 'type',
         prompt: 'Sa collection tourne autour de…',
         type: 'choice',
         options: [
-          { key: 'figurines', label: 'Figurines / jouets' },
-          { key: 'vintage', label: 'Objets vintage / rétro' },
-          { key: 'cartes', label: 'Cartes / comics' },
+          { key: 'lego', label: 'LEGO' },
+          { key: 'tcg', label: 'Cartes à collectionner' },
+          { key: 'figurines', label: 'Figurines' },
+          { key: 'popculture', label: 'Pop culture' },
+          { key: 'miniatures', label: 'Miniatures' },
           { key: 'autre', label: 'Autre chose de précis' },
         ],
       },
       {
-        id: 'rythme',
-        prompt: 'Il complète sa collection…',
+        id: 'usage',
+        prompt: 'Il aime surtout…',
         type: 'choice',
         options: [
-          { key: 'regulier', label: 'Régulièrement, il connaît bien son domaine' },
-          { key: 'occasionnel', label: 'Occasionnellement seulement' },
+          { key: 'acheter', label: 'Acheter de nouvelles pièces' },
+          { key: 'construire', label: 'Construire / assembler' },
+          { key: 'exposer', label: 'Exposer sa collection' },
+          { key: 'proteger', label: 'Protéger ses pièces' },
+          { key: 'organiser', label: 'Organiser / ranger' },
         ],
       },
-      styleQuestion(),
-      detailQuestion('Collection'),
+      {
+        id: 'niveau',
+        prompt: 'Sur sa collection, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'gros-collectionneur', label: 'Un gros collectionneur' },
+        ],
+      },
+      {
+        id: 'favorite',
+        prompt: 'Tu connais une licence ou un univers qu’{il} adore ?',
+        type: 'text',
+      },
     ],
   },
 
   maison: {
     theme: 'maison',
     questions: [
-      passionQuestion('Maison / déco'),
-      depthQuestion(),
       {
-        id: 'univers',
-        prompt: 'Chez {lui}, il aime plutôt…',
+        id: 'zone',
+        prompt: 'Pour quelle pièce {il} apprécierait un cadeau ?',
         type: 'choice',
         options: [
-          { key: 'deco', label: 'La déco et l’ambiance' },
-          { key: 'confort', label: 'Le confort et le cocooning' },
-          { key: 'connecte', label: 'La maison connectée' },
+          { key: 'salon', label: 'Le salon' },
+          { key: 'chambre', label: 'La chambre' },
+          { key: 'cuisine', label: 'La cuisine' },
+          { key: 'bureau', label: 'Le bureau' },
+          { key: 'exterieur', label: 'L’extérieur' },
+          { key: 'global', label: 'Toute la maison' },
         ],
       },
       {
-        id: 'ambiance',
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'decoration', label: 'De la décoration' },
+          { key: 'confort', label: 'Du confort' },
+          { key: 'pratique', label: 'Du pratique' },
+          { key: 'organisation', label: 'De l’organisation' },
+          { key: 'smart-home', label: 'De la maison connectée' },
+        ],
+      },
+      {
+        id: 'style',
         prompt: 'Sa maison est plutôt…',
         type: 'choice',
         options: [
-          { key: 'minimaliste', label: 'Minimaliste / épurée' },
-          { key: 'cosy', label: 'Chaleureuse / cosy' },
-          { key: 'moderne', label: 'Moderne / high-tech' },
+          { key: 'minimaliste', label: 'Minimaliste' },
+          { key: 'chaleureux', label: 'Chaleureuse' },
+          { key: 'moderne', label: 'Moderne' },
+          { key: 'charge', label: 'Chargée / éclectique' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'connecte',
+        prompt: 'Le côté connecté, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'oui', label: 'Fan' },
+          { key: 'non', label: 'Pas intéressé' },
+          { key: 'indifferent', label: 'Indifférent' },
+        ],
+      },
       detailQuestion('Maison'),
     ],
   },
@@ -422,27 +600,56 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   auto: {
     theme: 'auto',
     questions: [
-      passionQuestion('Automobile'),
-      depthQuestion(),
       {
         id: 'profil',
-        prompt: 'Côté voiture, il est plutôt…',
+        prompt: 'Côté voiture, {il} est plutôt…',
         type: 'choice',
         options: [
-          { key: 'passionne', label: 'Passionné / bricoleur auto' },
-          { key: 'pratique', label: 'Utilisateur pratique au quotidien' },
+          { key: 'utilitaire', label: 'Juste un moyen de transport' },
+          { key: 'aime-conduire', label: 'Il aime conduire' },
+          { key: 'entretien', label: 'Attentif à l’entretien' },
+          { key: 'passionne', label: 'Un vrai passionné' },
         ],
       },
       {
         id: 'besoin',
-        prompt: 'Il apprécierait plutôt…',
+        prompt: '{Il} apprécierait plutôt…',
         type: 'choice',
         options: [
-          { key: 'confort', label: 'Un accessoire pour le confort de conduite' },
-          { key: 'techno', label: 'Un gadget technologique pour la voiture' },
+          { key: 'confort', label: 'Du confort de conduite' },
+          { key: 'entretien', label: 'De l’entretien' },
+          { key: 'technologie', label: 'De la technologie' },
+          { key: 'organisation', label: 'De l’organisation' },
+          { key: 'securite', label: 'De la sécurité' },
         ],
       },
-      styleQuestion(),
+      // QUESTION_REVIEW (Phase 3, LOT 3) : quotidien/régulier/occasionnel décrit une cadence
+      // d'usage, pas un besoin cadeau — rien ne permet d'en déduire un produit plus pertinent
+      // qu'un autre de façon défendable (contrairement à profil/besoin/diy ci-dessus/dessous).
+      // Ne pas chercher de produit pour "satisfaire" cette dimension : si elle est un jour
+      // remplacée, un axe du type "ce qu'il apprécie dans sa voiture" (confort/techno/entretien/
+      // esthétique/conduite) serait plus discriminant — mais vérifier d'abord que ce signal n'est
+      // pas déjà capturé par `besoin`.
+      {
+        id: 'frequence',
+        prompt: 'Il prend la voiture…',
+        type: 'choice',
+        options: [
+          { key: 'quotidien', label: 'Tous les jours' },
+          { key: 'regulier', label: 'Régulièrement' },
+          { key: 'occasionnel', label: 'Occasionnellement' },
+        ],
+      },
+      {
+        id: 'diy',
+        prompt: 'Il bricole sa voiture lui-même ?',
+        type: 'choice',
+        options: [
+          { key: 'oui', label: 'Oui, complètement' },
+          { key: 'un-peu', label: 'Un peu' },
+          { key: 'non', label: 'Non, jamais' },
+        ],
+      },
       detailQuestion('Auto'),
     ],
   },
@@ -450,28 +657,50 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   nature: {
     theme: 'nature',
     questions: [
-      passionQuestion('Nature'),
-      depthQuestion(),
       {
-        id: 'pratique',
+        id: 'activite',
         prompt: 'Il aime la nature plutôt…',
         type: 'choice',
         options: [
-          { key: 'rando', label: 'En randonnée / activité physique' },
-          { key: 'observation', label: 'En observation calme (paysages, oiseaux…)' },
+          { key: 'randonnee', label: 'En randonnée' },
           { key: 'camping', label: 'En camping / bivouac' },
+          { key: 'observation', label: 'En observation calme' },
+          { key: 'balade', label: 'En balade tranquille' },
+          { key: 'aventure', label: 'En quête d’aventure' },
         ],
       },
       {
-        id: 'frequence',
+        id: 'niveau',
         prompt: 'Il sort en nature…',
         type: 'choice',
         options: [
-          { key: 'souvent', label: 'Souvent' },
-          { key: 'parfois', label: 'De temps en temps' },
+          { key: 'occasionnel', label: 'Occasionnellement' },
+          { key: 'regulier', label: 'Régulièrement' },
+          { key: 'passionne', label: 'C’est une vraie passion' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'duree',
+        prompt: 'Ses sorties durent plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'courte', label: 'Une courte sortie' },
+          { key: 'journee', label: 'Une journée' },
+          { key: 'plusieurs-jours', label: 'Plusieurs jours' },
+        ],
+      },
+      {
+        id: 'priorite',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'confort', label: 'Du confort' },
+          { key: 'equipement', label: 'De l’équipement' },
+          { key: 'observation', label: 'De l’observation' },
+          { key: 'organisation', label: 'De l’organisation' },
+          { key: 'autonomie', label: 'De l’autonomie' },
+        ],
+      },
       detailQuestion('Nature'),
     ],
   },
@@ -479,17 +708,14 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   cinema: {
     theme: 'cinema',
     questions: [
-      passionQuestion('Cinéma / séries'),
-      depthQuestion(),
       {
-        id: 'format',
+        id: 'contenu',
         prompt: 'Il regarde plutôt…',
         type: 'choice',
         options: [
           { key: 'films', label: 'Des films' },
           { key: 'series', label: 'Des séries' },
-          { key: 'both', label: 'Les deux' },
-          { key: 'anime', label: 'De l’anime / manga' },
+          { key: 'les-deux', label: 'Les deux' },
         ],
       },
       {
@@ -498,27 +724,44 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         type: 'choice',
         options: [
           { key: 'cinema', label: 'Au cinéma' },
-          { key: 'maison', label: 'Chez lui, confortablement installé' },
+          { key: 'maison', label: 'Chez lui' },
+          { key: 'partout', label: 'Partout' },
         ],
       },
-      styleQuestion(),
-      detailQuestion('Cinéma'),
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'installation', label: 'Une meilleure installation' },
+          { key: 'ambiance', label: 'De l’ambiance' },
+          { key: 'fandom', label: 'Quelque chose lié à sa franchise préférée' },
+          { key: 'collection', label: 'Un objet de collection' },
+          { key: 'experience', label: 'Une expérience' },
+        ],
+      },
+      {
+        id: 'favorite',
+        prompt: 'Tu connais un film, une série ou une franchise qu’{il} adore ?',
+        type: 'text',
+      },
     ],
   },
 
   art: {
     theme: 'art',
     questions: [
-      passionQuestion('Art / créativité'),
-      depthQuestion(),
       {
         id: 'pratique',
         prompt: 'Il pratique plutôt…',
         type: 'choice',
         options: [
-          { key: 'dessin', label: 'Dessin / peinture' },
-          { key: 'numerique', label: 'Photographie / arts numériques' },
-          { key: 'diy', label: 'Artisanat / DIY créatif' },
+          { key: 'dessin', label: 'Dessin' },
+          { key: 'peinture', label: 'Peinture' },
+          { key: 'numerique', label: 'Art numérique' },
+          { key: 'calligraphie', label: 'Calligraphie' },
+          { key: 'loisirs-creatifs', label: 'Loisirs créatifs' },
+          { key: 'contemplation', label: 'Surtout en spectateur' },
         ],
       },
       {
@@ -526,11 +769,32 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         prompt: 'Son niveau est plutôt…',
         type: 'choice',
         options: [
-          { key: 'debutant', label: 'Amateur qui débute' },
-          { key: 'regulier', label: 'Pratique déjà régulièrement' },
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'confirme', label: 'Confirmé' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'support',
+        prompt: 'Il crée plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'manuel', label: 'À la main' },
+          { key: 'numerique', label: 'Sur écran' },
+          { key: 'mixte', label: 'Les deux' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'decouverte', label: 'Une nouvelle technique à découvrir' },
+          { key: 'upgrade', label: 'Un upgrade de son matériel' },
+          { key: 'organisation', label: 'De quoi ranger/organiser' },
+          { key: 'inspiration', label: 'De l’inspiration' },
+        ],
+      },
       detailQuestion('Art'),
     ],
   },
@@ -538,28 +802,52 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   bienetre: {
     theme: 'bienetre',
     questions: [
-      passionQuestion('Bien-être'),
-      depthQuestion(),
-      {
-        id: 'mode',
-        prompt: 'Il se détend plutôt par…',
-        type: 'choice',
-        options: [
-          { key: 'corps', label: 'Le soin du corps (massage, bain…)' },
-          { key: 'mental', label: 'La méditation / relaxation mentale' },
-          { key: 'sommeil', label: 'Le sommeil / la récupération' },
-        ],
-      },
       {
         id: 'besoin',
-        prompt: 'Il a plutôt besoin de…',
+        prompt: '{Il} a plutôt besoin de…',
         type: 'choice',
         options: [
-          { key: 'decompresser', label: 'Décompresser après le travail' },
-          { key: 'quotidien', label: 'Prendre soin de lui au quotidien' },
+          { key: 'relaxation', label: 'Relaxation' },
+          { key: 'sommeil', label: 'Mieux dormir' },
+          { key: 'massage', label: 'Massage' },
+          { key: 'soin', label: 'Soin du corps' },
+          { key: 'ambiance', label: 'Ambiance apaisante' },
         ],
       },
-      styleQuestion(),
+      // QUESTION_REVIEW (Phase 3, LOT 4) : même défaut qu'auto.frequence — quotidien/occasionnel
+      // décrit une cadence d'usage, pas un besoin cadeau. Un diffuseur, un pistolet de massage ou
+      // une bombe de bain fonctionnent aussi bien pour l'un que pour l'autre : rien ne permet
+      // d'en déduire un produit plus pertinent de façon défendable. Ne pas chercher de produit
+      // pour la satisfaire.
+      {
+        id: 'frequence',
+        prompt: 'Il en aurait l’usage…',
+        type: 'choice',
+        options: [
+          { key: 'quotidien', label: 'Au quotidien' },
+          { key: 'occasionnel', label: 'Occasionnellement' },
+        ],
+      },
+      {
+        id: 'format',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'simple', label: 'Quelque chose de simple' },
+          { key: 'appareil', label: 'Un appareil dédié' },
+          { key: 'sensoriel', label: 'Une expérience sensorielle' },
+        ],
+      },
+      {
+        id: 'parfum',
+        prompt: 'Il aime les objets parfumés ?',
+        type: 'choice',
+        options: [
+          { key: 'oui', label: 'Oui' },
+          { key: 'non', label: 'Non' },
+          { key: 'inconnu', label: 'Je ne sais pas' },
+        ],
+      },
       detailQuestion('Bien-être'),
     ],
   },
@@ -567,29 +855,54 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   animaux: {
     theme: 'animaux',
     questions: [
-      passionQuestion('Ses animaux'),
-      depthQuestion(),
       {
-        id: 'espece',
-        prompt: 'Son animal est plutôt…',
+        // Filtre DUR : un produit compatible seulement avec une espèce (ex. panier pour chien)
+        // disparaît dès que l'espèce répondue ne correspond pas — voir hardRequirements.
+        id: 'typeAnimal',
+        prompt: 'Son animal est…',
         type: 'choice',
         options: [
           { key: 'chat', label: 'Un chat' },
           { key: 'chien', label: 'Un chien' },
+          { key: 'oiseau', label: 'Un oiseau' },
+          { key: 'rongeur', label: 'Un rongeur' },
+          { key: 'aquarium', label: 'Un poisson / aquarium' },
           { key: 'autre', label: 'Un autre animal' },
         ],
       },
       {
-        id: 'plaisir',
+        id: 'destinataire',
+        prompt: 'Le cadeau est plutôt pour…',
+        type: 'choice',
+        options: [
+          { key: 'animal', label: 'L’animal' },
+          { key: 'proprietaire', label: 'Le/la propriétaire' },
+          { key: 'les-deux', label: 'Les deux' },
+        ],
+      },
+      {
+        id: 'besoin',
         prompt: 'Il aime plutôt lui offrir…',
         type: 'choice',
         options: [
-          { key: 'jeu', label: 'Des jouets / de l’amusement' },
-          { key: 'confort', label: 'Du confort (panier, couchage…)' },
-          { key: 'pratique', label: 'Des accessoires pratiques (gamelle, laisse…)' },
+          { key: 'jeu', label: 'Des jouets' },
+          { key: 'confort', label: 'Du confort' },
+          { key: 'nourriture-hydratation', label: 'Nourriture / hydratation' },
+          { key: 'promenade', label: 'De quoi le promener' },
+          { key: 'entretien', label: 'De l’entretien' },
+          { key: 'tech', label: 'Un accessoire connecté' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'temperament',
+        prompt: 'Son animal est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'actif', label: 'Actif' },
+          { key: 'calme', label: 'Calme' },
+          { key: 'variable', label: 'Ça dépend des jours' },
+        ],
+      },
       detailQuestion('Animaux'),
     ],
   },
@@ -597,28 +910,52 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   photo: {
     theme: 'photo',
     questions: [
-      passionQuestion('Photo'),
-      depthQuestion(),
       {
-        id: 'pratique',
-        prompt: 'Il aime plutôt…',
+        // Filtre DUR potentiel : une recharge/accessoire compatible seulement avec un type
+        // d'appareil (ex. films Instax) disparaît si {il} n'a pas cet appareil précis.
+        id: 'appareil',
+        prompt: 'Il photographie surtout avec…',
         type: 'choice',
         options: [
-          { key: 'prendre', label: 'Prendre des photos' },
-          { key: 'exposer', label: 'Les imprimer / les exposer' },
-          { key: 'both', label: 'Les deux' },
+          { key: 'smartphone', label: 'Son smartphone' },
+          { key: 'appareil-photo', label: 'Un appareil photo dédié' },
+          { key: 'instantane', label: 'Un appareil instantané' },
+          { key: 'plusieurs', label: 'Plusieurs appareils' },
         ],
       },
       {
-        id: 'materiel',
-        prompt: 'Il photographie surtout…',
+        id: 'usage',
+        prompt: 'Il aime surtout…',
         type: 'choice',
         options: [
-          { key: 'smartphone', label: 'Avec son smartphone' },
-          { key: 'appareil', label: 'Avec un appareil dédié' },
+          { key: 'prise-de-vue', label: 'Prendre des photos' },
+          { key: 'impression', label: 'Les imprimer' },
+          { key: 'partage', label: 'Les partager' },
+          { key: 'retouche', label: 'Les retoucher' },
+          { key: 'souvenirs', label: 'Garder des souvenirs' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'niveau',
+        prompt: 'En photo, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'occasionnel', label: 'Occasionnel' },
+          { key: 'amateur', label: 'Amateur passionné' },
+          { key: 'passionne', label: 'Une vraie passion' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'pratique', label: 'Quelque chose de pratique' },
+          { key: 'creatif', label: 'Quelque chose de créatif' },
+          { key: 'impression', label: 'De quoi imprimer' },
+          { key: 'materiel', label: 'Du matériel' },
+        ],
+      },
       detailQuestion('Photo'),
     ],
   },
@@ -626,28 +963,50 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   jardinage: {
     theme: 'jardinage',
     questions: [
-      passionQuestion('Jardinage'),
-      depthQuestion(),
+      {
+        id: 'lieu',
+        prompt: 'Il jardine plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'interieur', label: 'À l’intérieur' },
+          { key: 'balcon', label: 'Sur un balcon' },
+          { key: 'petit-jardin', label: 'Dans un petit jardin' },
+          { key: 'grand-jardin', label: 'Dans un grand jardin' },
+        ],
+      },
       {
         id: 'univers',
         prompt: 'Son jardin, c’est plutôt…',
         type: 'choice',
         options: [
-          { key: 'potager', label: 'Le potager / les légumes' },
-          { key: 'fleurs', label: 'Les fleurs / l’ornemental' },
-          { key: 'interieur', label: 'Les plantes d’intérieur' },
+          { key: 'fleurs', label: 'Les fleurs' },
+          { key: 'potager', label: 'Le potager' },
+          { key: 'plantes-interieur', label: 'Les plantes d’intérieur' },
+          { key: 'entretien', label: 'L’entretien général' },
+          { key: 'amenagement', label: 'L’aménagement' },
         ],
       },
       {
-        id: 'lieu',
-        prompt: 'Il jardine…',
+        id: 'niveau',
+        prompt: 'En jardinage, {il} est plutôt…',
         type: 'choice',
         options: [
-          { key: 'exterieur', label: 'Dehors, dans un jardin' },
-          { key: 'interieur', label: 'Dedans, sur un rebord de fenêtre/balcon' },
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'passionne', label: 'Une vraie passion' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'preference',
+        prompt: '{Il} préfère plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'manuel', label: 'Jardiner à la main' },
+          { key: 'automatisation', label: 'Automatiser' },
+          { key: 'culture', label: 'Cultiver' },
+          { key: 'entretien', label: 'Entretenir' },
+        ],
+      },
       detailQuestion('Jardinage'),
     ],
   },
@@ -655,28 +1014,50 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   bricolage: {
     theme: 'bricolage',
     questions: [
-      passionQuestion('Bricolage'),
-      depthQuestion(),
       {
         id: 'univers',
         prompt: 'Il bricole plutôt…',
         type: 'choice',
         options: [
-          { key: 'reparation', label: 'Petites réparations du quotidien' },
-          { key: 'gros-projet', label: 'Gros projets / construction' },
-          { key: 'bois', label: 'Menuiserie / travail du bois' },
+          { key: 'maison', label: 'Réparations à la maison' },
+          { key: 'bois', label: 'Le bois' },
+          { key: 'electronique', label: 'L’électronique' },
+          { key: 'mecanique', label: 'La mécanique' },
+          { key: 'polyvalent', label: 'Un peu de tout' },
         ],
       },
       {
-        id: 'atelier',
-        prompt: 'Son atelier est plutôt…',
+        id: 'niveau',
+        prompt: 'En bricolage, {il} est plutôt…',
         type: 'choice',
         options: [
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
           { key: 'equipe', label: 'Déjà bien équipé' },
-          { key: 'a-completer', label: 'À compléter' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'outil',
+        prompt: 'Il préfère plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'manuel', label: 'L’outillage manuel' },
+          { key: 'electrique', label: 'L’outillage électrique' },
+          { key: 'mixte', label: 'Les deux' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'precision', label: 'De la précision' },
+          { key: 'puissance', label: 'De la puissance' },
+          { key: 'polyvalence', label: 'De la polyvalence' },
+          { key: 'organisation', label: 'De l’organisation' },
+          { key: 'mesure', label: 'De quoi mesurer' },
+        ],
+      },
       detailQuestion('Bricolage'),
     ],
   },
@@ -684,27 +1065,50 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
   danse: {
     theme: 'danse',
     questions: [
-      passionQuestion('Danse'),
-      depthQuestion(),
       {
-        id: 'pratique',
+        id: 'usage',
         prompt: 'Il danse plutôt…',
         type: 'choice',
         options: [
-          { key: 'cours', label: 'En cours, un style précis (classique, hip-hop…)' },
-          { key: 'plaisir', label: 'Pour le plaisir, chez lui ou en soirée' },
+          { key: 'sport', label: 'Comme sport' },
+          { key: 'artistique', label: 'Comme pratique artistique' },
+          { key: 'soiree', label: 'En soirée, pour le plaisir' },
+          { key: 'mixte', label: 'Un peu de tout' },
         ],
       },
       {
-        id: 'envie',
-        prompt: 'Il aimerait plutôt…',
+        id: 'lieu',
+        prompt: 'Il danse surtout…',
         type: 'choice',
         options: [
-          { key: 'materiel', label: 'Du matériel / équipement de danse' },
-          { key: 'ambiance', label: 'Une ambiance musicale pour danser' },
+          { key: 'maison', label: 'À la maison' },
+          { key: 'studio', label: 'En studio / en cours' },
+          { key: 'club', label: 'En club / soirée' },
+          { key: 'mixte', label: 'Ça dépend' },
         ],
       },
-      styleQuestion(),
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'entrainement', label: 'De quoi s’entraîner' },
+          { key: 'musique', label: 'De la musique' },
+          { key: 'ambiance', label: 'De l’ambiance' },
+          { key: 'confort', label: 'Du confort' },
+          { key: 'accessoires', label: 'Des accessoires' },
+        ],
+      },
+      {
+        id: 'niveau',
+        prompt: 'En danse, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'debutant', label: 'Débutant' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'passionne', label: 'Une vraie passion' },
+        ],
+      },
       detailQuestion('Danse'),
     ],
   },

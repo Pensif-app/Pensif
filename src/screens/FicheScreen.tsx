@@ -18,7 +18,7 @@ import { Contact, Genre } from '../data/types';
 import { generateId } from '../lib/id';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
-const RELATIONS = ['Ami', 'Famille', 'Autres'];
+const RELATIONS = ['Famille', 'Ami', 'Autres'];
 // Liens de famille genrés : tant que le genre n'est pas choisi, les deux formes sont proposées ;
 // une fois choisi, seule la forme qui correspond s'affiche (ex. Genre = Femme → "Sœur", pas "Frère").
 const FAMILY_ROLE_PAIRS: { m: string; f: string }[] = [
@@ -40,6 +40,14 @@ function swapFamilyRoleGender(role: string | null, genre: Genre | null): string 
   const pair = FAMILY_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
   if (!pair) return role;
   return genre === 'homme' ? pair.m : pair.f;
+}
+/** Déduit le genre à partir d'un lien de famille genré (Frère → Homme…) — pour le cas inverse : on
+ *  clique un lien précis avant d'avoir choisi le genre, autant l'en déduire directement plutôt que
+ *  de forcer à re-choisir un genre déjà implicite dans le lien sélectionné. */
+function genreForFamilyRole(role: string): Genre | null {
+  const pair = FAMILY_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
+  if (!pair) return null;
+  return pair.m === role ? 'homme' : 'femme';
 }
 // Options de "lien précis", propres à chaque catégorie de relation (Famille dépend du genre —
 // voir familyRoleOptions).
@@ -82,7 +90,9 @@ export function FicheScreen() {
   const [genre, setGenre] = useState<Genre | null>(existing?.genre ?? null);
   const [favorite, setFavorite] = useState(existing?.favorite ?? false);
   const [birthdayReminderDays, setBirthdayReminderDays] = useState<number | null>(existing?.birthdayReminderDays ?? null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  // Ouvert d'office pour un nouveau contact : sans ça, rien n'indique qu'il faut renseigner
+  // l'anniversaire avant de pouvoir enregistrer (la fiche refuse sinon silencieusement l'échec).
+  const [showDatePicker, setShowDatePicker] = useState(!existing);
 
   const avatarColor = existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length];
   const previewInitials = useMemo(() => {
@@ -284,7 +294,21 @@ export function FicheScreen() {
       <Field label="Lien précis" theme={theme}>
         <ChipRow>
           {(relation === 'Famille' ? familyRoleOptions(genre) : LIEN_OPTIONS_STATIC[relation] ?? []).map((r) => (
-            <Chip key={r} label={r} active={familyRole === r} theme={theme} onPress={() => setFamilyRole(r)} />
+            <Chip
+              key={r}
+              label={r}
+              active={familyRole === r}
+              theme={theme}
+              onPress={() => {
+                setFamilyRole(r);
+                // "Frère" cliqué avant tout choix de genre → en déduire Homme directement, plutôt
+                // que de laisser le genre vide alors que le lien l'indique déjà sans ambiguïté.
+                if (relation === 'Famille' && !genre) {
+                  const inferred = genreForFamilyRole(r);
+                  if (inferred) setGenre(inferred);
+                }
+              }}
+            />
           ))}
         </ChipRow>
       </Field>

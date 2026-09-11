@@ -22,6 +22,8 @@ const KEYS = {
   userName: 'pensif.userName',
   themePref: 'pensif.themePref',
   notificationsEnabled: 'pensif.notificationsEnabled',
+  pendingDeleteContacts: 'pensif.pendingDeleteContacts',
+  pendingDeletePensees: 'pensif.pendingDeletePensees',
 };
 
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -59,6 +61,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [themePref, setThemePrefState] = useState<ThemePref>('system');
   const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
+  // Suppressions dont la confirmation serveur n'est pas encore arrivée — sans ça, un delete distant
+  // qui échoue silencieusement (réseau coupé pile à ce moment, etc.) faisait réapparaître le
+  // contact/la pensée "supprimé·e" au lancement suivant, puisque loadRemoteData() fait alors
+  // autorité et le retrouve toujours en base. Persisté pour survivre à un redémarrage.
+  const [pendingDeleteContactIds, setPendingDeleteContactIds] = useState<string[]>([]);
+  const [pendingDeletePenseeIds, setPendingDeletePenseeIds] = useState<string[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -77,26 +85,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // perdue, colonne manquante, coupure réseau juste après la création…), il ne doit pas
         // disparaître silencieusement au prochain lancement simplement parce que le serveur ne le
         // connaît pas encore.
-        const [cachedContactsRaw, cachedPenseesRaw] = await Promise.all([
+        const [cachedContactsRaw, cachedPenseesRaw, pendingDelContactsRaw, pendingDelPenseesRaw] = await Promise.all([
           AsyncStorage.getItem(KEYS.contacts),
           AsyncStorage.getItem(KEYS.pensees),
+          AsyncStorage.getItem(KEYS.pendingDeleteContacts),
+          AsyncStorage.getItem(KEYS.pendingDeletePensees),
         ]);
         const cachedContacts: Contact[] = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
         const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw) : [];
+        const pendingDelContacts: string[] = pendingDelContactsRaw ? JSON.parse(pendingDelContactsRaw) : [];
+        const pendingDelPensees: string[] = pendingDelPenseesRaw ? JSON.parse(pendingDelPenseesRaw) : [];
+        if (pendingDelContacts.length) setPendingDeleteContactIds(pendingDelContacts);
+        if (pendingDelPensees.length) setPendingDeletePenseeIds(pendingDelPensees);
 
         if (isSupabaseConfigured) {
-          const uid = await ensureAnonSession();
-          if (uid) {
+          const session = await ensureAnonSession();
+          if (session) {
+            const { userId: uid, isNewAccount } = session;
             setUserId(uid);
-            const remote = await loadRemoteData(uid);
+            const remote = await loadRemoteData(uid, isNewAccount);
 
-            const remoteContactIds = new Set(remote.contacts.map((c) => c.id));
-            const pendingContacts = cachedContacts.filter((c) => !remoteContactIds.has(c.id));
-            const remotePenseeIds = new Set(remote.pensees.map((p) => p.id));
-            const pendingPensees = cachedPensees.filter((p) => !remotePenseeIds.has(p.id));
+            // Écarte tout ce qui a été supprimé localement mais dont le delete serveur n'a jamais
+            // été confirmé — sinon ça revient d'entre les morts à chaque lancement tant que la
+            // suppression distante n'a pas fini par réussir (voir deleteContact/deletePensee).
+            const pendingDelContactSet = new Set(pendingDelContacts);
+            const pendingDelPenseeSet = new Set(pendingDelPensees);
+            const remoteContacts = remote.contacts.filter((c) => !pendingDelContactSet.has(c.id));
+            const remotePensees = remote.pensees.filter((p) => !pendingDelPenseeSet.has(p.id));
 
-            setContacts([...remote.contacts, ...pendingContacts]);
-            setPensees([...remote.pensees, ...pendingPensees]);
+            const remoteContactIds = new Set(remoteContacts.map((c) => c.id));
+            const pendingContacts = cachedContacts.filter((c) => !remoteContactIds.has(c.id) && !pendingDelContactSet.has(c.id));
+            const remotePenseeIds = new Set(remotePensees.map((p) => p.id));
+            const pendingPensees = cachedPensees.filter((p) => !remotePenseeIds.has(p.id) && !pendingDelPenseeSet.has(p.id));
+
+            setContacts([...remoteContacts, ...pendingContacts]);
+            setPensees([...remotePensees, ...pendingPensees]);
 
             // Retente l'envoi de ce qui n'était jamais arrivé côté serveur, plutôt que de laisser
             // l'échec silencieux d'origine se reproduire indéfiniment.
@@ -106,6 +129,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             });
             pendingPensees.forEach((p) => {
               insertPenseeRemote(uid, p).catch((e) => console.warn('[Pensif] nouvelle tentative de synchro de la pensée échouée', e));
+            });
+            // Retente les suppressions restées en attente.
+            pendingDelContacts.forEach((id) => {
+              deleteContactRemote(id)
+                .then(() => setPendingDeleteContactIds((prev) => prev.filter((x) => x !== id)))
+                .catch((e) => console.warn('[Pensif] nouvelle tentative de suppression du contact échouée', e));
+            });
+            pendingDelPensees.forEach((id) => {
+              deletePenseeRemote(id)
+                .then(() => setPendingDeletePenseeIds((prev) => prev.filter((x) => x !== id)))
+                .catch((e) => console.warn('[Pensif] nouvelle tentative de suppression de la pensée échouée', e));
             });
             return;
           }
@@ -129,6 +163,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (ready) AsyncStorage.setItem(KEYS.pensees, JSON.stringify(pensees)).catch(() => {});
   }, [pensees, ready]);
+  useEffect(() => {
+    if (ready) AsyncStorage.setItem(KEYS.pendingDeleteContacts, JSON.stringify(pendingDeleteContactIds)).catch(() => {});
+  }, [pendingDeleteContactIds, ready]);
+  useEffect(() => {
+    if (ready) AsyncStorage.setItem(KEYS.pendingDeletePensees, JSON.stringify(pendingDeletePenseeIds)).catch(() => {});
+  }, [pendingDeletePenseeIds, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -183,7 +223,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setContacts((prev) => prev.filter((c) => c.id !== contactId));
         setPensees((prev) => prev.map((p) => (p.contactId === contactId ? { ...p, contactId: null } : p)));
         if (isSupabaseConfigured && userId) {
-          deleteContactRemote(contactId).catch(() => {});
+          deleteContactRemote(contactId).catch((e) => {
+            // Si ce delete n'aboutit jamais côté serveur, le contact reviendrait au prochain
+            // lancement (loadRemoteData ferait autorité) — on mémorise donc la suppression en
+            // attente pour la filtrer/la retenter au boot (voir le useEffect d'init).
+            console.warn('[Pensif] échec de suppression du contact, retentée au prochain lancement', e);
+            setPendingDeleteContactIds((prev) => (prev.includes(contactId) ? prev : [...prev, contactId]));
+          });
         }
       },
       addPensee: (pensee: Omit<Pensee, 'id'>) => {
@@ -200,7 +246,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deletePensee: (penseeId: string) => {
         setPensees((prev) => prev.filter((p) => p.id !== penseeId));
         if (isSupabaseConfigured && userId) {
-          deletePenseeRemote(penseeId).catch(() => {});
+          deletePenseeRemote(penseeId).catch((e) => {
+            console.warn('[Pensif] échec de suppression de la pensée, retentée au prochain lancement', e);
+            setPendingDeletePenseeIds((prev) => (prev.includes(penseeId) ? prev : [...prev, penseeId]));
+          });
         }
       },
       toggleGiftSent: (contactId: string) => {

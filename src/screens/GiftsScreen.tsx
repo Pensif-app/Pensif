@@ -2,7 +2,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
@@ -113,10 +113,6 @@ export function GiftsScreen() {
     // Un budget différent ne doit pas faire réapparaître ce qui a déjà été vu/rejeté.
   }
 
-  function seeMore() {
-    setSessionExcluded((prev) => [...prev, ...top.map((c) => c.gift.asin)]);
-  }
-
   function handleLike(asin: string) {
     if (!contact?.quiz) return;
     const quiz = normalizeQuizProfile(contact.quiz);
@@ -143,6 +139,19 @@ export function GiftsScreen() {
     // le suivant sur la liste triée à cette place, pas besoin de le calculer/patcher à la main.
     setSessionExcluded((prev) => [...prev, asin]);
     setRejectTarget(null);
+
+    // "Trop cher" ne modifie jamais silencieusement un budget permanent — le budget appartient à
+    // cette recherche, pas au profil du contact. On propose juste, explicitement, de le baisser
+    // pour CETTE session : si accepté, ça ne fait qu'ajuster le curseur déjà affiché à l'écran.
+    if (reason === 'too_expensive') {
+      const lower = clampBudget(Math.round(sliderValue * 0.75));
+      if (lower < sliderValue) {
+        Alert.alert('Chercher moins cher ?', `Voir les idées à ${lower}€ et moins ?`, [
+          { text: 'Non merci', style: 'cancel' },
+          { text: `Oui, ${lower}€`, onPress: () => commitSlider(lower) },
+        ]);
+      }
+    }
   }
 
   return (
@@ -219,16 +228,12 @@ export function GiftsScreen() {
                   onReject={() => setRejectTarget(c.gift.asin)}
                 />
               ))}
-              {!showAll && (
-                <Pressable onPress={seeMore} style={[styles.seeMoreBtn, { borderColor: theme.line, backgroundColor: theme.card }]}>
-                  <Text style={{ color: theme.accent, fontWeight: '700' }}>Voir d’autres idées</Text>
-                </Pressable>
-              )}
               {candidates.length > 3 && (
-                <Pressable onPress={() => setShowAll((v) => !v)} style={{ alignItems: 'center', marginTop: 4, marginBottom: 8 }}>
-                  <Text style={{ color: theme.inkSoft, fontSize: 13, fontWeight: '600' }}>
-                    {showAll ? 'Revenir au Top 3' : `Voir toutes les idées dans ce budget (${candidates.length})`}
-                  </Text>
+                <Pressable
+                  onPress={() => setShowAll((v) => !v)}
+                  style={[styles.seeMoreBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
+                >
+                  <Text style={{ color: theme.accent, fontWeight: '700' }}>{showAll ? 'Réduire' : 'Tout voir'}</Text>
                 </Pressable>
               )}
             </>
