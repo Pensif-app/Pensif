@@ -13,6 +13,8 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
+import { birthdayCountdownLabel } from '../data/calendar';
+import { buildPenseeCards, groupPenseeCards } from '../data/penseesView';
 import { RootStackParamList } from '../navigation/types';
 import { Contact, Genre } from '../data/types';
 import { generateId } from '../lib/id';
@@ -72,13 +74,35 @@ function normalizeRelation(r?: string | null): string {
   return r && RELATIONS.includes(r) ? r : RELATIONS[0];
 }
 
+/**
+ * Résumé "N pensées · M à venir" (ou "· M aujourd'hui" si au moins une est active aujourd'hui) —
+ * singulier/pluriel et zéro gérés, sans aucun système de priorité : juste un if/else simple sur des
+ * comptages déjà calculés par groupPenseeCards (voir CHANTIER PROCHES + FICHE V1 §7).
+ */
+function penseeSummaryLabel(total: number, todayCount: number, upcomingCount: number): string {
+  if (total === 0) return 'Aucune pensée liée pour l’instant.';
+  const parts = [`${total} pensée${total > 1 ? 's' : ''}`];
+  if (todayCount > 0) parts.push(`${todayCount} aujourd’hui`);
+  else if (upcomingCount > 0) parts.push(`${upcomingCount} à venir`);
+  return `${parts.join(' · ')}.`;
+}
+
 export function FicheScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Fiche'>>();
   const contactId = route.params?.contactId;
-  const { contacts, upsertContact, deleteContact } = useStore();
+  const { contacts, pensees, today, upsertContact, deleteContact } = useStore();
   const existing = contacts.find((c) => c.id === contactId);
+
+  // Pensées liées — calculées uniquement à partir des données/fonctions existantes (filtre direct +
+  // buildPenseeCards/groupPenseeCards de penseesView.ts), aucune logique temporelle recréée ici.
+  const linkedPenseeGroups = useMemo(() => {
+    if (!existing) return { today: [], upcoming: [], past: [] };
+    const linked = pensees.filter((p) => p.contactId === existing.id);
+    return groupPenseeCards(buildPenseeCards(linked, contacts, today));
+  }, [existing, pensees, contacts, today]);
+  const linkedPenseeTotal = linkedPenseeGroups.today.length + linkedPenseeGroups.upcoming.length + linkedPenseeGroups.past.length;
 
   const initialRelation = normalizeRelation(existing?.relation);
   const [prenom, setPrenom] = useState(existing?.prenom ?? '');
@@ -101,8 +125,11 @@ export function FicheScreen() {
   }, [prenom, nom]);
 
   useEffect(() => {
+    // Seule source du titre (voir RootNavigator.tsx, qui ne fixe plus rien de statique) : le
+    // prénom du proche (+ nom si présent — la troncature native gère un nom trop long), ou "Nouveau
+    // proche" à la création — plus jamais un intitulé générique (voir CHANTIER PROCHES + FICHE V1 §6).
     navigation.setOptions({
-      title: existing ? 'Fiche contact' : 'Nouveau contact',
+      title: existing ? `${existing.prenom} ${existing.nom}`.trim() : 'Nouveau proche',
       headerRight: () => (
         <Pressable
           onPress={() => setFavorite((v) => !v)}
@@ -177,7 +204,7 @@ export function FicheScreen() {
       initials: previewInitials === '?' ? existing?.initials ?? '?' : previewInitials,
       color: avatarColor,
       quiz: existing?.quiz ?? null,
-      giftSent: existing?.giftSent ?? false,
+      giftPreparedYear: existing?.giftPreparedYear ?? null,
       favorite,
       birthdayReminderDays,
     };
@@ -197,9 +224,26 @@ export function FicheScreen() {
         </Pressable>
       )}
 
-      <View style={styles.avatarRow}>
-        <Avatar initials={previewInitials} colorKey={avatarColor} theme={theme} size={64} />
-      </View>
+      {existing ? (
+        // Synthèse compacte pour un proche déjà enregistré — identité + relation + prochain
+        // anniversaire, en un coup d'œil avant même les champs du formulaire (voir CHANTIER
+        // PROCHES + FICHE V1 §5). Volontairement une seule rangée, pas une hero card : pas de
+        // synthèse pour un nouveau proche, qui garde le flux création/import tel quel.
+        <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+          <Avatar initials={previewInitials} colorKey={avatarColor} theme={theme} size={48} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.summaryName, { color: theme.ink }]}>{`${prenom} ${nom}`.trim()}</Text>
+            <Text style={[styles.summaryMeta, { color: theme.inkSoft }]}>
+              {familyRole ?? relation}
+              {date ? ` · ${birthdayCountdownLabel(date, today)}` : ''}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.avatarRow}>
+          <Avatar initials={previewInitials} colorKey={avatarColor} theme={theme} size={64} />
+        </View>
+      )}
 
       <SectionLabel theme={theme}>INFORMATIONS</SectionLabel>
       <View style={styles.twoCol}>
@@ -336,6 +380,38 @@ export function FicheScreen() {
         <>
           <SectionLabel theme={theme}>LE PETIT QUIZZ</SectionLabel>
           <QuizSummaryCard contact={existing} theme={theme} onPress={() => navigation.navigate('Quiz', { contactId: existing.id })} />
+          {/* Cadeaux n'est plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) — sans ce
+              lien, les idées cadeaux d'un proche autre que "le plus proche" deviendraient difficiles
+              à retrouver. Uniquement quand le quiz est fait : un écran Cadeaux sans quiz n'aurait
+              rien à proposer, la carte ci-dessus invite déjà à le faire dans ce cas. */}
+          {isQuizComplete(existing.quiz) && (
+            <Pressable
+              onPress={() => navigation.navigate('Cadeaux', { contactId: existing.id })}
+              style={[styles.giftsLink, { borderColor: theme.line }]}
+            >
+              <Ionicons name="gift-outline" size={16} color={theme.accent} />
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Voir ses idées cadeaux</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+            </Pressable>
+          )}
+        </>
+      )}
+
+      {existing && (
+        <>
+          <SectionLabel theme={theme}>PENSÉES LIÉES</SectionLabel>
+          <Pressable
+            onPress={() => navigation.navigate('Tabs', { screen: 'Pensées', params: { contactId: existing.id } })}
+            style={[styles.giftsLink, { borderColor: theme.line }]}
+          >
+            <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
+            <Text style={{ color: theme.ink, fontSize: 13, flex: 1 }}>
+              {penseeSummaryLabel(linkedPenseeTotal, linkedPenseeGroups.today.length, linkedPenseeGroups.upcoming.length)}
+              {'  '}
+              <Text style={{ color: theme.accent, fontWeight: '700' }}>Voir les pensées</Text>
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+          </Pressable>
         </>
       )}
 
@@ -346,7 +422,7 @@ export function FicheScreen() {
       {existing && (
         <Pressable onPress={remove} style={styles.deleteBtn}>
           <Ionicons name="trash-outline" size={15} color={theme.danger} />
-          <Text style={[styles.deleteText, { color: theme.danger }]}>Supprimer ce contact</Text>
+          <Text style={[styles.deleteText, { color: theme.danger }]}>Supprimer ce proche</Text>
         </Pressable>
       )}
     </Screen>
@@ -415,6 +491,9 @@ const styles = StyleSheet.create({
   importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12, marginBottom: 16 },
   importText: { fontWeight: '700', fontSize: 13 },
   avatarRow: { alignItems: 'center', marginBottom: 18 },
+  summaryCard: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 18 },
+  summaryName: { fontWeight: '700', fontSize: 16 },
+  summaryMeta: { fontSize: 12, marginTop: 3 },
   twoCol: { flexDirection: 'row', gap: 10 },
   field: { flex: 1, marginBottom: 13 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 5 },
@@ -423,6 +502,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 6, marginBottom: 10 },
   reminderHint: { fontSize: 12, lineHeight: 17, marginBottom: 10, marginTop: -4 },
   quizCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  giftsLink: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingTop: 12, paddingHorizontal: 2 },
   quizQ: { fontWeight: '700', fontSize: 14 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },

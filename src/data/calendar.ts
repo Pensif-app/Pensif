@@ -104,7 +104,7 @@ export function familyFetes(year: number) {
 }
 
 /** Fait le lien entre le libellé d'une fête calendaire et le "Lien précis" attendu sur une fiche. */
-const FAMILY_FETE_ROLE: Record<string, FamilyRole> = {
+export const FAMILY_FETE_ROLE: Record<string, FamilyRole> = {
   'Fête des Mères': 'Mère',
   'Fête des Pères': 'Père',
   'Fête des Grands-mères': 'Grand-mère',
@@ -168,6 +168,32 @@ export function daysUntilNext(dateStr: string, today: Date) {
   return Math.round((next.getTime() - todayMid.getTime()) / 86400000);
 }
 
+/**
+ * Libellé lisible du prochain anniversaire, sans jamais montrer l'année de naissance — "Anniversaire
+ * aujourd'hui"/"demain", sinon "Anniversaire dans N jours · 3 nov.". Réutilise daysUntilNext/frDate
+ * telles quelles (même définition d'occurrence annuelle partout) plutôt que de la recalculer —
+ * utilisé par ContactsScreen et FicheScreen (voir CHANTIER PROCHES + FICHE V1).
+ */
+export function birthdayCountdownLabel(dateStr: string, today: Date): string {
+  const days = daysUntilNext(dateStr, today);
+  if (days === 0) return "Anniversaire aujourd'hui";
+  if (days === 1) return 'Anniversaire demain';
+  return `Anniversaire dans ${days} jours · ${frDate(dateStr)}`;
+}
+
+/** Année (calendaire) de la prochaine occurrence — ou celle d'aujourd'hui — d'une date récurrente
+ *  'YYYY-MM-DD' (seuls mois/jour comptent). Sert à rattacher un état ponctuel (ex. "cadeau prévu")
+ *  à UNE édition annuelle précise plutôt qu'à la date de naissance elle-même, pour qu'il redevienne
+ *  automatiquement faux dès que l'occurrence suivante commence — sans job de réinitialisation. */
+export function occurrenceYear(dateStr: string, today: Date): number {
+  const parts = dateStr.split('-');
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const thisYear = new Date(today.getFullYear(), month, day);
+  return thisYear < todayMid ? today.getFullYear() + 1 : today.getFullYear();
+}
+
 /** Âge que la personne aura à sa prochaine occurrence d'anniversaire (déduit de l'année de `dateStr`). */
 export function ageTurning(dateStr: string, today: Date): number {
   const parts = dateStr.split('-');
@@ -180,11 +206,77 @@ export function ageTurning(dateStr: string, today: Date): number {
   return next.getFullYear() - birthYear;
 }
 
+/**
+ * Date/heure exacte de la prochaine occurrence — ou celle d'aujourd'hui — d'une date récurrente
+ * 'YYYY-MM-DD' (seuls mois/jour comptent, comme daysUntilNext/ageTurning/occurrenceYear ci-dessus :
+ * même définition d'une "occurrence annuelle", réutilisée telle quelle par notifications.ts au lieu
+ * d'être recodée séparément). `hour`/`minute` positionnent l'heure locale du déclenchement.
+ * Pour obtenir l'occurrence SUIVANTE (celle d'après), rappeler cette fonction avec `addDays(résultat, 1)`
+ * comme `today` — pas besoin d'une fonction dédiée.
+ */
+export function nextOccurrenceDate(dateStr: string, today: Date, hour = 9, minute = 0): Date {
+  const parts = dateStr.split('-');
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let d = new Date(today.getFullYear(), month, day, hour, minute, 0);
+  if (d < todayMid) d = new Date(today.getFullYear() + 1, month, day, hour, minute, 0);
+  return d;
+}
+
+/**
+ * Prochaine date (>= today) où la fête familiale `label` (ex. 'Fête des Mères') tombe — les fêtes
+ * familiales ne sont pas de simples récurrences MM-DD (Pâques fait varier certaines d'une année sur
+ * l'autre), d'où une recherche jour par jour plutôt qu'un calcul direct. `maxDaysAhead` borne la
+ * recherche (défaut ~13 mois, large marge pour toujours trouver au moins une occurrence).
+ */
+export function nextFamilyFeteDate(label: string, today: Date, maxDaysAhead = 400): Date | null {
+  for (let offset = 0; offset <= maxDaysAhead; offset++) {
+    const d = addDays(today, offset);
+    if (familyFetes(d.getFullYear())[dIso(d)] === label) return d;
+  }
+  return null;
+}
+
 /** Pensées de période (surlignage) qui touchent au moins un jour du mois affiché. */
 export function periodsInMonth(pensees: Pensee[], year: number, month: number): Pensee[] {
   const monthStart = isoOf(year, month, 1);
   const monthEnd = isoOf(year, month, daysInMonth(year, month));
   return pensees.filter((p): p is Pensee & { endDate: string } => Boolean(p.endDate) && p.date <= monthEnd && p.endDate! >= monthStart);
+}
+
+/** Écart en jours (calendaires, pas d'heures) entre une date ISO 'YYYY-MM-DD' quelconque et
+ *  aujourd'hui — négatif si `iso` est dans le passé. Générique (contrairement à daysUntilNext, qui
+ *  ne connaît que des dates récurrentes MM-DD) : utilisé pour les pensées, qui ne se répètent pas. */
+export function daysBetween(iso: string, today: Date): number {
+  const [y, m, d] = iso.split('-').map((n) => parseInt(n, 10));
+  const target = new Date(y, m - 1, d);
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((target.getTime() - todayMid.getTime()) / 86400000);
+}
+
+/** Une pensée (ponctuelle ou de période) est-elle "active" un jour ISO donné ? Même définition
+ *  utilisée par l'Accueil (homeAttention.ts) et par un futur écran Pensées — centralisée ici pour
+ *  ne pas être recodée séparément à chaque endroit qui doit le savoir. */
+export function isPenseeActiveOn(p: Pensee, iso: string): boolean {
+  return p.endDate ? p.date <= iso && iso <= p.endDate : p.date === iso;
+}
+
+/** Une pensée (ponctuelle ou de période) est-elle définitivement terminée à la date `todayIso` ?
+ *  Vrai pour une pensée ponctuelle déjà passée, ou une période dont `endDate` est révolue. */
+export function isPenseeEnded(p: Pensee, todayIso: string): boolean {
+  return p.endDate ? p.endDate < todayIso : p.date < todayIso;
+}
+
+/** Sous-titre lisible d'une pensée : "Du X au Y" pour une période, sinon la date seule — avec le
+ *  nom du proche lié en suffixe s'il y en a un. Même formatage utilisé par l'Accueil et un futur
+ *  écran Pensées, centralisé ici pour n'exister qu'à un seul endroit. */
+export function penseeSubtitle(p: Pensee, contacts: Contact[]): string {
+  const linkedName = p.contactId ? contactName(contacts, p.contactId) : '';
+  if (p.endDate) {
+    return `Du ${frDate(p.date)} au ${frDate(p.endDate)}${linkedName ? ` · ${linkedName}` : ''}`;
+  }
+  return linkedName ? `${frDate(p.date)} · ${linkedName}` : frDate(p.date);
 }
 
 export function getDayEvents(

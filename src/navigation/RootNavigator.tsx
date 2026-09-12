@@ -5,8 +5,10 @@ import React from 'react';
 import { useColorScheme } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { tabBarHidden } from './tabBarVisibility';
+import { navigationRef } from './navigationRef';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ContactsScreen } from '../screens/ContactsScreen';
+import { PenseesScreen } from '../screens/PenseesScreen';
 import { GiftsScreen } from '../screens/GiftsScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
 import { FicheScreen } from '../screens/FicheScreen';
@@ -34,7 +36,10 @@ function Tabs() {
     >
       <Tab.Screen name="Accueil" component={HomeScreen} />
       <Tab.Screen name="Contacts" component={ContactsScreen} />
-      <Tab.Screen name="Cadeaux" component={GiftsScreen} />
+      {/* Ce que l'utilisateur a confié à Pensif — remplace l'ancien onglet Cadeaux/"Pensée" à la
+          même position (voir CHANTIER ONGLET PENSÉES V1). Les cadeaux sont désormais une
+          destination contextuelle du Stack (voir Stack.Screen "Cadeaux" plus bas). */}
+      <Tab.Screen name="Pensées" component={PenseesScreen} />
       {/* Le swipe latéral est ici géré par le calendrier lui-même (mois/semaine précédent-suivant)
           plutôt que par le changement d'onglet, pour éviter que les deux gestes ne se marchent
           dessus. */}
@@ -43,7 +48,7 @@ function Tabs() {
   );
 }
 
-export function RootNavigator() {
+export function RootNavigator({ onReady }: { onReady?: () => void } = {}) {
   const systemScheme = useColorScheme();
   const { themePref } = useStore();
   const isDark = (themePref === 'system' ? systemScheme : themePref) === 'dark';
@@ -63,6 +68,8 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
+      onReady={onReady}
       theme={navTheme}
       // tabBarHidden est une shared value globale (persiste tant que l'app tourne) mise à 1 quand
       // on scrolle vers le bas dans un écran (voir Screen.tsx). Comme Fiche/Quiz/Réglages sont
@@ -83,7 +90,13 @@ export function RootNavigator() {
         }}
       >
         <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-        <Stack.Screen name="Fiche" component={FicheScreen} options={{ title: 'Fiche contact' }} />
+        {/* Pas de `title` statique ici : FicheScreen appelle navigation.setOptions({title}) lui-même
+            (prénom du proche, ou "Nouveau proche") — seule source du titre, voir CHANTIER PROCHES +
+            FICHE V1 §6. Un titre par défaut neutre évite un flash avant que l'effet ne s'exécute. */}
+        <Stack.Screen name="Fiche" component={FicheScreen} options={{ title: '' }} />
+        {/* Destination contextuelle, plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) —
+            toujours ouvert avec un contactId précis (Accueil, Fiche, Calendrier, notification). */}
+        <Stack.Screen name="Cadeaux" component={GiftsScreen} options={{ title: '' }} />
         <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
         <Stack.Screen name="Reglages" component={SettingsScreen} options={{ title: 'Réglages' }} />
         {/* Écran plein temps propre (barre de progression + retour maison), sans le header natif. */}

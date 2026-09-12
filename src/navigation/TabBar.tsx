@@ -15,6 +15,7 @@ import Animated, {
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
 import { tabBarHidden } from './tabBarVisibility';
+import { paramsForTabPress } from './tabNavigationHelpers';
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Accueil: 'home',
@@ -22,14 +23,17 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Calendrier: 'calendar',
 };
 
-// Pas d'icône Ionicons dédiée pour "Pensée" — on utilise le "P" du logo Pensif (silhouette
+// Pas d'icône Ionicons dédiée pour "Pensées" — on utilise le "P" du logo Pensif (silhouette
 // blanche avec le coeur en trou, voir assets/logo-mark.png généré depuis assets/icon.png), recoloré
-// via `tintColor` exactement comme les icônes de police des autres onglets.
-const LOGO_ROUTES = new Set(['Cadeaux']);
+// via `tintColor` exactement comme les icônes de police des autres onglets. Identité visuelle
+// conservée à l'identique lors du remplacement de l'onglet Cadeaux par Pensées (même emplacement,
+// même logo — voir CHANTIER ONGLET PENSÉES V1).
+const LOGO_ROUTES = new Set(['Pensées']);
 
-// Libellé affiché dans la barre — distinct du nom de route ('Cadeaux' reste le nom technique de
-// l'écran/onglet dans la navigation, pour ne pas avoir à toucher tous les endroits qui y naviguent).
-const LABELS: Record<string, string> = { Cadeaux: 'Pensée' };
+// Libellé affiché dans la barre — distinct du nom de route quand il diffère (le nom technique
+// 'Contacts' reste inchangé en interne, voir CHANTIER PROCHES + FICHE V1 §1 : seul l'affichage
+// change). 'Pensées' n'a pas besoin d'entrée ici, son nom de route est déjà le libellé voulu.
+const LABELS: Record<string, string> = { Contacts: 'Proches' };
 
 const SPRING = { damping: 18, stiffness: 260, mass: 0.7 };
 const SNAP_SPRING = { damping: 15, stiffness: 220, mass: 0.8 };
@@ -126,7 +130,8 @@ export function FloatingTabBar({ state, navigation }: MaterialTopTabBarProps) {
 
   const activeIndex = state.index;
   const navigateTo = (index: number) => {
-    navigation.navigate(state.routes[index].name as never);
+    const name = state.routes[index].name;
+    (navigation.navigate as (n: string, p?: object) => void)(name, paramsForTabPress(name));
   };
   const rowX = rowOrigin.x;
   const rowY = rowOrigin.y;

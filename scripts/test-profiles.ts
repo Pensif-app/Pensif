@@ -36,7 +36,7 @@ function makeContact(prenom: string, genre: 'homme' | 'femme', quiz: QuizProfile
     initials: prenom[0],
     color: 'sage',
     quiz,
-    giftSent: false,
+    giftPreparedYear: null,
     favorite: false,
     birthdayReminderDays: null,
   };

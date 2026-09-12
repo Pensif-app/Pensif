@@ -1,8 +1,17 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Contact, Pensee } from '../data/types';
-import { namedayTable, normalizeName, reminderLabels } from '../data/calendar';
-import { isQuizComplete } from '../data/quiz';
+import { navigateToAttention } from '../data/homeAttention';
+import {
+  buildCandidates,
+  consumeNotificationResponseOnce,
+  createPendingOnce,
+  resolveNotificationAction,
+  selectCandidatesToSchedule,
+} from './notificationPlanning';
+
+export type { NotificationTapData } from './notificationPlanning';
+export { resolveNotificationAction } from './notificationPlanning';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -36,89 +45,93 @@ export async function cancelAllReminders() {
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
-/** Prochaine occurrence (à 9h locales) d'une date 'YYYY-MM-DD', en ignorant l'année fournie. */
-function nextOccurrence(dateStr: string, today: Date): Date {
-  const parts = dateStr.split('-');
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
-  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  let d = new Date(today.getFullYear(), month, day, 9, 0, 0);
-  if (d < todayMid) d = new Date(today.getFullYear() + 1, month, day, 9, 0, 0);
-  return d;
-}
-
-async function scheduleAt(date: Date, title: string, body: string) {
-  if (date.getTime() <= Date.now()) return;
-  await Notifications.scheduleNotificationAsync({
-    content: { title, body, sound: true },
-    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date },
-  });
-}
-
 /**
  * Recalcule et reprogramme tous les rappels locaux à partir des contacts et pensées actuels.
- * Annule d'abord tout ce qui était programmé — l'app n'utilise pas les notifications pour autre chose,
- * donc c'est plus simple et plus fiable que de suivre des identifiants un par un.
+ * Annule d'abord tout ce qui était programmé (l'app n'utilise pas les notifications pour autre
+ * chose), construit tous les candidats possibles (voir notificationPlanning.ts), les trie par
+ * priorité (occurrence en cours avant occurrence suivante, puis par proximité), et n'en programme
+ * qu'un nombre borné — jamais un anniversaire dans plus d'un an n'évince une pensée proche, et
+ * jamais plus que le budget défini dans notificationPlanning.ts. Un échec individuel de
+ * programmation (ex. budget déjà atteint côté OS) n'interrompt jamais les suivants.
  */
 export async function rescheduleAllReminders(contacts: Contact[], pensees: Pensee[], today: Date, userName?: string | null) {
   if (Platform.OS === 'web') return;
+
+  // Annulation D'ABORD, indépendamment du résultat de la permission : si la permission a été
+  // retirée depuis les réglages système entre-temps, on ne doit jamais laisser un planning
+  // programmé quand la permission était encore accordée traîner silencieusement (voir §9) — annuler
+  // ne nécessite pas la permission elle-même.
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
   const granted = await ensureNotificationPermissions();
   if (!granted) return;
 
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  const candidates = selectCandidatesToSchedule(buildCandidates(contacts, pensees, today, userName), new Date());
 
-  for (const c of contacts) {
-    if (!c.date) continue;
-
-    const bday = nextOccurrence(c.date, today);
-    // Alerte du jour J : toujours envoyée, que l'utilisateur ait réglé un rappel en amont ou non.
-    await scheduleAt(bday, `🎂 Anniversaire de ${c.prenom}`, "C'est aujourd'hui — un petit message lui ferait plaisir.");
-
-    if (c.birthdayReminderDays) {
-      const reminder = new Date(bday);
-      reminder.setDate(reminder.getDate() - c.birthdayReminderDays);
-      const label = c.birthdayReminderDays === 1 ? 'Demain' : `Dans ${c.birthdayReminderDays} jours`;
-      await scheduleAt(
-        reminder,
-        `🎁 ${label}, l'anniversaire de ${c.prenom}`,
-        isQuizComplete(c.quiz)
-          ? 'Des idées cadeaux adaptées à son budget t’attendent dans Pensif.'
-          : 'Un petit quizz suffit pour débloquer des idées cadeaux adaptées.',
-      );
-    }
-
-    const mmdd = namedayTable[normalizeName(c.prenom)];
-    if (mmdd) {
-      const nameDay = nextOccurrence(`2000-${mmdd}`, today);
-      await scheduleAt(nameDay, `🎉 C'est la fête de ${c.prenom} !`, 'Bonus : une petite attention possible aujourd’hui.');
+  for (const c of candidates) {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: { title: c.title, body: c.body, sound: true, data: c.data as unknown as Record<string, unknown> },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: c.triggerAt },
+      });
+    } catch (e) {
+      if (__DEV__) console.warn('[Pensif] échec de programmation d’une notification', c.data, e);
+      // On continue avec les suivantes — un échec isolé (ex. limite système atteinte) ne doit
+      // jamais faire perdre le reste du lot déjà trié par priorité.
     }
   }
+}
 
-  if (userName) {
-    const userMmdd = namedayTable[normalizeName(userName)];
-    if (userMmdd) {
-      const nameDay = nextOccurrence(`2000-${userMmdd}`, today);
-      await scheduleAt(nameDay, '🎉 C’est ta fête aujourd’hui !', 'Profite de ta journée 😊');
-    }
+/**
+ * Branche le tap sur une notification à la navigation réelle — à appeler une seule fois au
+ * démarrage de l'app (voir App.tsx). Trois précautions, toutes vérifiées lors de l'audit "cold
+ * start" :
+ *
+ * 1. Déduplication par identifiant (`consumeNotificationResponseOnce`) : `getLastNotificationResponseAsync`
+ *    et le listener live peuvent en théorie recevoir la même interaction — la même réponse ne
+ *    déclenche jamais deux navigations.
+ * 2. `clearLastNotificationResponseAsync` après consommation : sans ça, l'OS ne "oublie" jamais la
+ *    dernière réponse, et un simple lancement normal de l'app des jours plus tard la rejouerait à
+ *    chaque fois (aucune notification n'a pourtant été touchée à ce moment-là).
+ * 3. `isReady()` + file d'attente d'UNE seule action en attente : au tout début du boot (app fermée
+ *    puis ouverte par un tap), ni le NavigationContainer ni les contacts réels du store ne sont
+ *    encore prêts — la navigation est mise en attente et résolue avec les données LIVE dès que
+ *    `isReady()` devient vrai (l'appelant doit rappeler `retryPending()` quand ses propres
+ *    conditions de disponibilité changent), jamais avec un état vide figé au moment du tap.
+ */
+export function registerNotificationTapHandler(
+  navigate: (name: string, params?: object) => void,
+  getContacts: () => Contact[],
+  isReady: () => boolean,
+): { unsubscribe: () => void; retryPending: () => void } {
+  const handledIds = new Set<string>();
+  const pending = createPendingOnce<unknown>();
+
+  function retryPending() {
+    if (!pending.hasPending() || !isReady()) return;
+    // Consommée AVANT tout calcul/navigation : jamais rejouée, même si resolveNotificationAction ou
+    // navigate() échoue derrière.
+    const data = pending.consumeIfReady(isReady);
+    const action = resolveNotificationAction(data, getContacts(), new Date());
+    if (action) navigateToAttention(navigate, action);
   }
 
-  for (const p of pensees) {
-    const parts = p.date.split('-');
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    if (p.remind === 'custom') {
-      if (p.customOffsetMinutes == null) continue;
-      // Même référence que le sélecteur dans l'app : la fin de la journée choisie, pas 9h — un
-      // rappel personnalisé doit pouvoir tomber n'importe quand dans le reste de ce jour-là.
-      const endOfDay = new Date(year, month, day, 23, 59, 59);
-      const reminder = new Date(endOfDay.getTime() - p.customOffsetMinutes * 60000);
-      await scheduleAt(reminder, '💭 Pensée', p.texte);
-      continue;
-    }
-    const target = new Date(year, month, day, 9, 0, 0);
-    const reminder = new Date(target);
-    reminder.setDate(reminder.getDate() - parseInt(p.remind, 10));
-    await scheduleAt(reminder, '💭 Pensée', `${p.texte} (rappel ${reminderLabels[p.remind]})`);
+  function handle(response: Notifications.NotificationResponse) {
+    if (!consumeNotificationResponseOnce(response.notification.request.identifier, handledIds)) return;
+    pending.set(response.notification.request.content.data);
+    retryPending();
   }
+
+  Notifications.getLastNotificationResponseAsync()
+    .then((response) => {
+      if (!response) return;
+      handle(response);
+      // Empêche cette même réponse de "revenir" au prochain lancement normal de l'app — l'OS ne la
+      // nettoie jamais tout seul (voir point 2 ci-dessus).
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
+    })
+    .catch(() => {});
+
+  const subscription = Notifications.addNotificationResponseReceivedListener(handle);
+  return { unsubscribe: () => subscription.remove(), retryPending };
 }

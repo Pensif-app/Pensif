@@ -1,9 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Contact, Pensee } from './types';
 import { seedContacts, seedPensees } from './seed';
+import { occurrenceYear } from './calendar';
 import { generateId } from '../lib/id';
-import { rescheduleAllReminders, cancelAllReminders } from '../lib/notifications';
+import { rescheduleAllReminders, cancelAllReminders, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   deleteContactRemote,
@@ -181,14 +183,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [ready, contacts, pensees, userName, notificationsEnabled]);
 
+  // Résynchronisation au retour au premier plan : la permission système a pu être changée depuis
+  // les réglages du téléphone pendant que l'app était en arrière-plan (l'app elle-même n'a alors
+  // reçu aucun changement de state) — sans ça, un planning devenu obsolète (permission retirée)
+  // restait silencieusement en place, ou une permission redonnée ne redéclenchait rien tant
+  // qu'aucune donnée ne changeait par ailleurs.
+  useEffect(() => {
+    if (!ready || !notificationsEnabled) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      getNotificationPermissionStatus().then((status) => {
+        if (status === 'granted') {
+          rescheduleAllReminders(contacts, pensees, new Date(), userName).catch(() => {});
+        } else {
+          cancelAllReminders().catch(() => {});
+        }
+      });
+    });
+    return () => sub.remove();
+  }, [ready, contacts, pensees, userName, notificationsEnabled]);
+
   const value = useMemo<Store>(
-    () => ({
+    () => {
+      const today = new Date();
+      return {
       ready,
-      today: new Date(),
+      today,
       contacts,
       pensees,
       userName,
-      giftSentIds: contacts.filter((c) => c.giftSent).map((c) => c.id),
+      // "Envoyé" veut dire : prévu pour l'occurrence d'anniversaire EN COURS, pas pour une
+      // occurrence passée — sinon la case restait cochée indéfiniment d'une année sur l'autre
+      // (voir occurrenceYear dans calendar.ts).
+      giftSentIds: contacts.filter((c) => c.giftPreparedYear === occurrenceYear(c.date, today)).map((c) => c.id),
       namePromptOpen,
       openNamePrompt: () => setNamePromptOpen(true),
       setUserName: (name: string) => {
@@ -255,11 +282,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toggleGiftSent: (contactId: string) => {
         const contact = contacts.find((c) => c.id === contactId);
         if (!contact) return;
-        const nextValue = !contact.giftSent;
+        const year = occurrenceYear(contact.date, today);
+        const nextYear = contact.giftPreparedYear === year ? null : year;
         if (isSupabaseConfigured && userId) {
-          setGiftSentRemote(contactId, nextValue).catch(() => {});
+          setGiftSentRemote(contactId, nextYear != null).catch(() => {});
         }
-        setContacts((prev) => prev.map((c) => (c.id === contactId ? { ...c, giftSent: nextValue } : c)));
+        setContacts((prev) => prev.map((c) => (c.id === contactId ? { ...c, giftPreparedYear: nextYear } : c)));
       },
       themePref,
       setThemePref: (pref: ThemePref) => {
@@ -275,7 +303,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setContacts(seedContacts);
         setPensees(seedPensees);
       },
-    }),
+      };
+    },
     [ready, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled],
   );
 

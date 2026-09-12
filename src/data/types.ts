@@ -92,7 +92,11 @@ export type Contact = {
   initials: string;
   color: string;
   quiz: QuizProfile | null;
-  giftSent: boolean;
+  /** Année (calendaire) de la prochaine/dernière occurrence d'anniversaire pour laquelle le cadeau
+   *  a été marqué comme prévu — remplace l'ancien booléen `giftSent`, qui restait bloqué à `true`
+   *  d'une année sur l'autre. `null` = rien de prévu pour l'occurrence en cours. Comparer à
+   *  `occurrenceYear(contact.date, today)` (voir calendar.ts) pour savoir si c'est à jour. */
+  giftPreparedYear: number | null;
   favorite: boolean;
   /** Rappel avant l'anniversaire, en jours (1 = la veille, 7 = J-7, 14 = J-14…) — null tant que
    *  l'utilisateur ne l'a pas réglé. L'alerte du jour J elle-même est toujours envoyée, quel que

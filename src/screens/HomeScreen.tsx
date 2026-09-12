@@ -1,45 +1,53 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import React, { useMemo } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Avatar } from '../components/Avatar';
 import { Pill } from '../components/Pill';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
-import { ageTurning, daysUntilNext } from '../data/calendar';
-import { isQuizComplete } from '../data/quiz';
+import { buildHomeAttentions, HomeAttention, HomeAttentionAction, navigateToAttention } from '../data/homeAttention';
+import { Contact } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
-
-// "Ça arrive" ne montre que les 2 prochains mois — au-delà, c'est le rôle de l'onglet Contacts
-// (qui liste tout le monde) ; sans cette limite, les deux pages finissaient par se ressembler.
-const UPCOMING_WINDOW_DAYS = 60;
 
 const weekdayFull = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const monthFull = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
-/** null si l'année saisie n'est manifestement pas une vraie année de naissance (peu fiable). */
-function plausibleAge(dateStr: string, today: Date): number | null {
-  const age = ageTurning(dateStr, today);
-  return age > 0 && age < 130 ? age : null;
-}
+// Nombre de cartes affichées d'emblée dans "Cette semaine"/"À anticiper" avant "Voir tout" — les
+// données au-delà ne sont jamais supprimées, seulement pas rendues tant qu'on n'a pas déplié (voir
+// §8 du chantier Accueil V1).
+const WEEK_VISIBLE = 5;
+const LATER_VISIBLE = 5;
 
 export function HomeScreen() {
   const theme = useTheme();
-  const { contacts, pensees, deletePensee, userName, today } = useStore();
+  const { contacts, pensees, userName, today } = useStore();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const sorted = useMemo(() => {
-    return contacts
-      .map((c) => ({ contact: c, daysUntil: daysUntilNext(c.date, today) }))
-      .sort((a, b) => a.daysUntil - b.daysUntil);
-  }, [contacts, today]);
+  const [showAllWeek, setShowAllWeek] = useState(false);
+  const [showAllLater, setShowAllLater] = useState(false);
 
-  const todays = sorted.filter((x) => x.daysUntil === 0);
-  // Fenêtre volontairement courte (2 mois) : l'accueil doit rester un "ça arrive bientôt", pas un
-  // second annuaire complet qui redouble l'onglet Contacts.
-  const upcoming = sorted.filter((x) => x.daysUntil > 0 && x.daysUntil <= UPCOMING_WINDOW_DAYS);
+  // Source unique : toute la logique métier (fenêtres temporelles, filtres HARD, tri) vit dans
+  // homeAttention.ts — cet écran ne fait plus que répartir par horizon et afficher.
+  const attentions = useMemo(() => buildHomeAttentions(contacts, pensees, today), [contacts, pensees, today]);
+  const todayItems = useMemo(() => attentions.filter((a) => a.horizon === 'today'), [attentions]);
+  const weekItems = useMemo(() => attentions.filter((a) => a.horizon === 'week'), [attentions]);
+  const laterItems = useMemo(() => attentions.filter((a) => a.horizon === 'later'), [attentions]);
+
+  const visibleWeek = showAllWeek ? weekItems : weekItems.slice(0, WEEK_VISIBLE);
+  const visibleLater = showAllLater ? laterItems : laterItems.slice(0, LATER_VISIBLE);
+
+  function contactFor(a: HomeAttention): Contact | undefined {
+    return a.contactId ? contacts.find((c) => c.id === a.contactId) : undefined;
+  }
+
+  function runAction(action: HomeAttentionAction) {
+    // Mapping partagé avec notifications.ts (voir navigateToAttention) — un seul endroit pour
+    // traduire une décision en navigation réelle, jamais dupliqué.
+    navigateToAttention((name, params) => (navigation as any).navigate(name, params), action);
+  }
 
   return (
     <Screen>
@@ -58,108 +66,95 @@ export function HomeScreen() {
         </Pressable>
       </View>
 
-      {todays.length > 0 && (
+      {todayItems.length > 0 && (
         <>
           <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
-          {todays.map(({ contact }) => {
-            const age = plausibleAge(contact.date, today);
-            return (
-              <Pressable
-                key={contact.id}
-                onPress={() => navigation.navigate('Message', { contactId: contact.id })}
-                style={[styles.todayCard, { backgroundColor: theme.plumTint, borderColor: theme.plum }]}
-              >
-                <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={50} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.name, { color: theme.ink }]}>{contact.prenom}</Text>
-                  <Text style={[styles.meta, { color: theme.inkSoft }]}>
-                    {age ? `Fête ses ${age} ans aujourd'hui 🎂` : "C'est le grand jour 🎂"}
-                  </Text>
-                </View>
-                <Pill label="Aujourd'hui" tone="plum" theme={theme} />
-              </Pressable>
-            );
-          })}
+          {todayItems.map((a) => (
+            <AttentionCard key={a.id} attention={a} contact={contactFor(a)} theme={theme} emphasis onPress={() => runAction(a.action)} />
+          ))}
         </>
       )}
 
-      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>ÇA ARRIVE</Text>
+      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>CETTE SEMAINE</Text>
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
-        {upcoming.length === 0 && (
-          <Text style={[styles.empty, { color: theme.inkSoft }]}>Aucun anniversaire dans les prochains mois.</Text>
-        )}
-        {upcoming.map(({ contact, daysUntil }, idx) => {
-          const hasQuiz = isQuizComplete(contact.quiz);
-          const age = plausibleAge(contact.date, today);
-          return (
-            <Pressable
-              key={contact.id}
-              onPress={() => {
-                // Toucher un contact déclenche la prochaine action à faire pour lui plutôt que
-                // toujours ouvrir sa fiche : le quizz s'il manque, sinon les idées (cadeau/message)
-                // s'il n'a rien reçu, sinon sa fiche pour régler l'alerte ou vérifier les infos.
-                if (!hasQuiz) navigation.navigate('Quiz', { contactId: contact.id });
-                else if (!contact.giftSent) navigation.navigate('Tabs', { screen: 'Cadeaux', params: { contactId: contact.id } });
-                else navigation.navigate('Fiche', { contactId: contact.id });
-              }}
-              style={[styles.row, idx < upcoming.length - 1 && { borderBottomColor: theme.line, borderBottomWidth: 1 }]}
-            >
-              <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.name, { color: theme.ink, fontSize: 14 }]}>{`${contact.prenom} ${contact.nom}`.trim()}</Text>
-                <Text style={[styles.meta, { color: theme.inkSoft }]}>
-                  {age ? `Fête ses ${age} ans dans ${daysUntil} j` : `${contact.familyRole ?? contact.relation} · J-${daysUntil}`}
-                </Text>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                {contact.favorite && <Ionicons name="star" size={14} color={theme.plum} />}
-                {!hasQuiz ? (
-                  <Pill label="Quizz à faire" tone="muted" theme={theme} />
-                ) : !contact.giftSent ? (
-                  <Pill label="Idées dispo" tone="accent" theme={theme} />
-                ) : contact.birthdayReminderDays == null ? (
-                  <Pill label="Alerte à régler" tone="plum" theme={theme} />
-                ) : (
-                  <Pill label="Tout est prêt" tone="sage" theme={theme} />
-                )}
-              </View>
-            </Pressable>
-          );
-        })}
+        {weekItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien de particulier cette semaine.</Text>}
+        {visibleWeek.map((a, idx) => (
+          <AttentionCard
+            key={a.id}
+            attention={a}
+            contact={contactFor(a)}
+            theme={theme}
+            onPress={() => runAction(a.action)}
+            withBorder={idx < visibleWeek.length - 1}
+          />
+        ))}
       </View>
+      {weekItems.length > WEEK_VISIBLE && (
+        <Pressable onPress={() => setShowAllWeek((v) => !v)} style={styles.seeMoreBtn}>
+          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
+            {showAllWeek ? 'Réduire' : `Voir tout (${weekItems.length})`}
+          </Text>
+        </Pressable>
+      )}
 
-      {pensees.length > 0 && (
-        <>
-          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>PENSÉES À VENIR</Text>
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
-            {pensees.slice(0, 3).map((p, idx) => (
-              <View
-                key={p.id}
-                style={[styles.row, idx < 2 && { borderBottomColor: theme.line, borderBottomWidth: 1 }]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.name, { color: theme.ink, fontSize: 14 }]}>{p.texte}</Text>
-                  <Text style={[styles.meta, { color: theme.inkSoft }]}>{p.date.split('-').reverse().join('/')}</Text>
-                </View>
-                <Pressable
-                  onPress={() =>
-                    Alert.alert('Supprimer cette pensée ?', 'Elle disparaîtra du calendrier et de l’accueil.', [
-                      { text: 'Annuler', style: 'cancel' },
-                      { text: 'Supprimer', style: 'destructive', onPress: () => deletePensee(p.id) },
-                    ])
-                  }
-                  hitSlop={10}
-                  style={{ padding: 4 }}
-                  accessibilityLabel="Supprimer"
-                >
-                  <Ionicons name="trash-outline" size={16} color={theme.danger} />
-                </Pressable>
-              </View>
-            ))}
-          </View>
-        </>
+      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>À ANTICIPER</Text>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
+        {laterItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien à anticiper pour l’instant.</Text>}
+        {visibleLater.map((a, idx) => (
+          <AttentionCard
+            key={a.id}
+            attention={a}
+            contact={contactFor(a)}
+            theme={theme}
+            onPress={() => runAction(a.action)}
+            withBorder={idx < visibleLater.length - 1}
+          />
+        ))}
+      </View>
+      {laterItems.length > LATER_VISIBLE && (
+        <Pressable onPress={() => setShowAllLater((v) => !v)} style={styles.seeMoreBtn}>
+          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
+            {showAllLater ? 'Réduire' : `Voir tout (${laterItems.length})`}
+          </Text>
+        </Pressable>
       )}
     </Screen>
+  );
+}
+
+function AttentionCard({
+  attention,
+  contact,
+  theme,
+  onPress,
+  emphasis,
+  withBorder,
+}: {
+  attention: HomeAttention;
+  contact: Contact | undefined;
+  theme: any;
+  onPress: () => void;
+  emphasis?: boolean;
+  withBorder?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        emphasis ? [styles.todayCard, { backgroundColor: theme.plumTint, borderColor: theme.plum }] : styles.row,
+        !emphasis && withBorder && { borderBottomColor: theme.line, borderBottomWidth: 1 },
+      ]}
+    >
+      {contact && <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={emphasis ? 50 : undefined} />}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.name, { color: theme.ink, fontSize: emphasis ? 16 : 14 }]}>{attention.title}</Text>
+        <Text style={[styles.meta, { color: theme.inkSoft }]}>{attention.subtitle}</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 5 }}>
+        {attention.favorite && <Ionicons name="star" size={14} color={theme.plum} />}
+        {attention.badge && <Pill label={attention.badge.label} tone={attention.badge.tone} theme={theme} />}
+      </View>
+    </Pressable>
   );
 }
 
@@ -169,10 +164,11 @@ const styles = StyleSheet.create({
   sub: { fontSize: 13, marginTop: 2 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
-  todayCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, borderWidth: 1 },
-  name: { fontWeight: '700', fontSize: 16 },
+  todayCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, borderWidth: 1, marginBottom: 10 },
+  name: { fontWeight: '700' },
   meta: { fontSize: 12, marginTop: 2 },
   card: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   empty: { paddingVertical: 16, fontSize: 13, textAlign: 'center' },
+  seeMoreBtn: { alignItems: 'center', paddingVertical: 10 },
 });

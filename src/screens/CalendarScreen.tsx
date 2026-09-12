@@ -1,5 +1,5 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -41,13 +41,15 @@ import {
   weekdayFull,
   weekdayLabels,
 } from '../data/calendar';
-import { RootStackParamList } from '../navigation/types';
+import { RootStackParamList, TabParamList } from '../navigation/types';
+import { ReminderOffset } from '../data/types';
 import { Palette } from '../theme/colors';
 
 export function CalendarScreen() {
   const theme = useTheme();
   const systemScheme = useColorScheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<TabParamList, 'Calendrier'>>();
   const { contacts, pensees, addPensee, deletePensee, today, userName, themePref } = useStore();
   const isDark = (themePref === 'system' ? systemScheme : themePref) === 'dark';
 
@@ -65,6 +67,19 @@ export function CalendarScreen() {
   const [periodModal, setPeriodModal] = useState<{ start: number; end: number } | null>(null);
   const [periodText, setPeriodText] = useState('');
   const [gridWidth, setGridWidth] = useState(0);
+
+  // Arrivée depuis l'Accueil sur une pensée précise (voir §6 chantier Accueil V1) : amène le
+  // calendrier sur le bon mois/jour plutôt que de laisser l'utilisateur le rechercher lui-même.
+  // Pas d'écran d'édition dédié pour une pensée dans l'app — la vue "jour sélectionné" ci-dessous
+  // (déjà existante) en tient lieu.
+  useEffect(() => {
+    const focusDate = route.params?.focusDate;
+    if (!focusDate) return;
+    const [y, m, d] = focusDate.split('-').map((n) => parseInt(n, 10));
+    setView({ year: y, month: m - 1 });
+    setSelected({ year: y, month: m - 1, day: d });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.focusDate]);
   const periods = useMemo(() => periodsInMonth(pensees, view.year, view.month), [pensees, view]);
   const [customDuration, setCustomDuration] = useState({ weeks: 0, days: 1, hours: 0, minutes: 0 });
   const customOffsetMinutes =
@@ -76,6 +91,29 @@ export function CalendarScreen() {
     0,
     Math.floor((new Date(selected.year, selected.month, selected.day, 23, 59, 59).getTime() - Date.now()) / 60000),
   );
+
+  // Choix rapide du rappel : "1" par défaut (la veille) — équivalent au réglage par défaut de
+  // l'ancienne roulette seule (weeks:0, days:1). La roulette (DurationWheelPicker) reste
+  // disponible mais devient secondaire, affichée seulement derrière "Personnaliser".
+  const [reminderChoice, setReminderChoice] = useState<ReminderOffset>('1');
+  const PRESET_REMINDERS: { key: Exclude<ReminderOffset, 'custom'>; label: string; days: number }[] = [
+    { key: '0', label: 'Le jour même', days: 0 },
+    { key: '1', label: 'La veille', days: 1 },
+    { key: '3', label: '3 jours avant', days: 3 },
+    { key: '7', label: '1 semaine avant', days: 7 },
+    { key: '14', label: '2 semaines avant', days: 14 },
+  ];
+  // Même référence que le rappel non-custom réellement programmé (voir rescheduleAllReminders) :
+  // 9h le jour choisi, moins N jours — pour qu'un preset désactivé ici corresponde exactement à un
+  // preset qui serait de toute façon silencieusement ignoré à la programmation (voir §5/§6).
+  function presetReminderDate(days: number): Date {
+    const d = new Date(selected.year, selected.month, selected.day, 9, 0, 0);
+    d.setDate(d.getDate() - days);
+    return d;
+  }
+  function isPresetPast(days: number): boolean {
+    return presetReminderDate(days).getTime() <= Date.now();
+  }
 
   // Tiroir du formulaire : le fond s'assombrit d'un coup (pas d'animation dessus, on l'a demandé
   // ainsi), seule la carte glisse — à l'ouverture, mais aussi à la fermeture (balayage vers le
@@ -142,9 +180,10 @@ export function CalendarScreen() {
     if (contactId) navigation.navigate('Fiche', { contactId });
   }
 
-  // Calendrier étant le dernier onglet, "revenir en arrière" mène toujours à Cadeaux.
+  // Calendrier étant le dernier onglet, "revenir en arrière" mène toujours à l'onglet précédent —
+  // Pensées depuis le CHANTIER ONGLET PENSÉES V1 (Cadeaux n'est plus un onglet, voir RootNavigator).
   function goToPreviousTab() {
-    navigation.navigate('Cadeaux' as never);
+    navigation.navigate('Pensées' as never);
   }
 
   function confirmDeletePensee(penseeId: string) {
@@ -396,15 +435,23 @@ export function CalendarScreen() {
       Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
       return;
     }
+    // Un preset qui tomberait déjà dans le passé pour ce jour est désactivé dans l'UI (voir
+    // isPresetPast) — filet de sécurité ici au cas où l'état serait resté sur un choix devenu
+    // invalide entre l'ouverture du formulaire et l'enregistrement.
+    if (reminderChoice !== 'custom' && isPresetPast(parseInt(reminderChoice, 10))) {
+      Alert.alert('Rappel dans le passé', 'Ce rappel tomberait avant maintenant — choisis un délai plus court ou "Personnaliser".');
+      return;
+    }
     addPensee({
       date: isoOf(selected.year, selected.month, selected.day),
       texte: texte.trim(),
-      remind: 'custom',
-      customOffsetMinutes,
+      remind: reminderChoice,
+      customOffsetMinutes: reminderChoice === 'custom' ? customOffsetMinutes : null,
       contactId: linkedContact,
     });
     setTexte('');
     setLinkedContact(null);
+    setReminderChoice('1');
     setCustomDuration({ weeks: 0, days: 1, hours: 0, minutes: 0 });
     closeForm();
   }
@@ -664,7 +711,10 @@ export function CalendarScreen() {
       )}
 
       <Pressable
-        onPress={() => setFormOpen(true)}
+        onPress={() => {
+          setReminderChoice('1');
+          setFormOpen(true);
+        }}
         style={[styles.addBtn, { borderColor: theme.line }]}
       >
         <Text style={{ color: theme.plum, fontWeight: '700' }}>+ Ajouter une pensée à ce jour</Text>
@@ -721,20 +771,58 @@ export function CalendarScreen() {
                 </ScrollView>
 
                 <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>ME LE RAPPELER</Text>
-                <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13, marginBottom: 6 }}>
-                  {formatCustomOffset(customOffsetMinutes)}
-                </Text>
-                <View style={{ marginBottom: 16 }}>
-                  <DurationWheelPicker
-                    weeks={customDuration.weeks}
-                    days={customDuration.days}
-                    hours={customDuration.hours}
-                    minutes={customDuration.minutes}
-                    maxMinutes={maxReminderMinutes}
-                    onChange={setCustomDuration}
-                    theme={theme}
-                  />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
+                  {PRESET_REMINDERS.map((preset) => {
+                    const disabled = isPresetPast(preset.days);
+                    const active = reminderChoice === preset.key;
+                    return (
+                      <Pressable
+                        key={preset.key}
+                        disabled={disabled}
+                        onPress={() => setReminderChoice(preset.key)}
+                        style={[
+                          styles.chip,
+                          { marginBottom: 6, borderColor: theme.line, backgroundColor: active ? theme.accent : theme.paperDim },
+                          disabled && { opacity: 0.4 },
+                        ]}
+                      >
+                        <Text style={{ color: active ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>{preset.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                  <Pressable
+                    onPress={() => setReminderChoice('custom')}
+                    style={[
+                      styles.chip,
+                      { marginBottom: 6, borderColor: theme.line, backgroundColor: reminderChoice === 'custom' ? theme.accent : theme.paperDim },
+                    ]}
+                  >
+                    <Text style={{ color: reminderChoice === 'custom' ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
+                      Personnaliser
+                    </Text>
+                  </Pressable>
                 </View>
+
+                {/* Roulette conservée, mais devenue secondaire : seulement visible derrière
+                    "Personnaliser", plus affichée en permanence (voir chantier notifications V1). */}
+                {reminderChoice === 'custom' && (
+                  <>
+                    <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13, marginBottom: 6, marginTop: 6 }}>
+                      {formatCustomOffset(customOffsetMinutes)}
+                    </Text>
+                    <View style={{ marginBottom: 16 }}>
+                      <DurationWheelPicker
+                        weeks={customDuration.weeks}
+                        days={customDuration.days}
+                        hours={customDuration.hours}
+                        minutes={customDuration.minutes}
+                        maxMinutes={maxReminderMinutes}
+                        onChange={setCustomDuration}
+                        theme={theme}
+                      />
+                    </View>
+                  </>
+                )}
 
                 <PrimaryButton label="Enregistrer la pensée" onPress={saveThought} />
             </Animated.View>

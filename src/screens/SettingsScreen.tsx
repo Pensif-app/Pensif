@@ -124,7 +124,7 @@ export function SettingsScreen() {
           value={isSupabaseConfigured ? 'Connecté (Supabase)' : 'Local sur cet appareil'}
         />
         <View style={[styles.divider, { backgroundColor: theme.line }]} />
-        <Row theme={theme} icon="people-outline" label="Contacts suivis" value={String(contacts.length)} />
+        <Row theme={theme} icon="people-outline" label="Proches suivis" value={String(contacts.length)} />
         <View style={[styles.divider, { backgroundColor: theme.line }]} />
         <Row theme={theme} icon="chatbubble-ellipses-outline" label="Pensées enregistrées" value={String(pensees.length)} />
       </Card>

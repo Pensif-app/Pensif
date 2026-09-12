@@ -40,7 +40,7 @@ function makeContact(id: string, quiz: QuizProfile): Contact {
     initials: 'X',
     color: 'sage',
     quiz,
-    giftSent: false,
+    giftPreparedYear: null,
     favorite: false,
     birthdayReminderDays: null,
   };

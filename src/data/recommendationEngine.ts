@@ -72,23 +72,57 @@ function traitBonus(gift: CuratedGift, traits: Record<TraitKey, number>): number
   return traits[gift.trait] * 20; // traits sont 0..1, donc jusqu'à +20
 }
 
+/**
+ * Certaines réponses composites ("les deux"/"both"/"mixte") représentent réellement l'UNION de
+ * plusieurs valeurs de taxonomie distinctes plutôt qu'une valeur à part entière — sans ce mapping
+ * explicite, un produit taggé UNIQUEMENT `films` OU `series` ne matche jamais la valeur littérale
+ * "les-deux", si bien que répondre "les deux" (le choix le plus ouvert) matche STRICTEMENT MOINS
+ * de produits que répondre une seule des deux options — l'inverse du but recherché. Mapping
+ * contrôlé par thème + question + valeur : ne JAMAIS supposer qu'un token 'mixte'/'both' a partout
+ * la même signification. Ex. `danse.usage=mixte` est une vraie valeur produit à part entière
+ * (`danse-enceinte-mini`) et n'est délibérément PAS mappée ici.
+ */
+const COMPOSITE_ANSWER_EXPANSIONS: Record<string, Record<string, Record<string, string[]>>> = {
+  cinema: { contenu: { 'les-deux': ['films', 'series'] } },
+  musique: { mode: { both: ['ecoute', 'jouer'] } },
+  cuisine: { rapport: { 'les-deux': ['cuisiner', 'deguster'] } },
+  sport: { lieu: { mixte: ['maison', 'salle', 'exterieur'] } },
+  art: { support: { mixte: ['manuel', 'numerique'] } },
+};
+
+function expandAnswerValue(theme: string, questionId: string, value: string): string[] {
+  return COMPOSITE_ANSWER_EXPANSIONS[theme]?.[questionId]?.[value] ?? [value];
+}
+
+/** Ensemble des valeurs de réponse d'affinage pour un thème, éclatées (multi-choix séparé par
+ *  virgule) puis étendues via COMPOSITE_ANSWER_EXPANSIONS — calculé une seule fois par candidat et
+ *  réutilisé par themeAnswerMatchCount/taxonomyMatchCount ci-dessous. */
+function answerValueSet(theme: string, themeAnswers: Record<string, string> | undefined): Set<string> {
+  const values = new Set<string>();
+  if (!themeAnswers) return values;
+  for (const [questionId, raw] of Object.entries(themeAnswers)) {
+    for (const v of raw.split(',')) {
+      for (const expanded of expandAnswerValue(theme, questionId, v)) values.add(expanded);
+    }
+  }
+  return values;
+}
+
 /** Nombre de tags du produit qui recoupent une réponse d'affinage — pas juste un booléen, pour
  *  qu'un produit qui correspond sur PLUSIEURS critères (ex. 'fandom' ET 'playstation') sorte
- *  clairement devant un produit qui ne recoupe qu'un seul critère générique. Une question à choix
- *  multiple stocke ses valeurs jointes par virgule (ex. "salle,exterieur") — on les éclate donc
- *  avant de construire l'ensemble de comparaison. */
-function themeAnswerMatchCount(gift: CuratedGift, themeAnswers: Record<string, string> | undefined): number {
-  if (!gift.tags || !themeAnswers) return 0;
-  const answerValues = new Set(Object.values(themeAnswers).flatMap((v) => v.split(',')));
+ *  clairement devant un produit qui ne recoupe qu'un seul critère générique. Legacy : uniquement
+ *  utilisé pour les produits SANS `taxonomy` (voir generateCandidates) pour ne jamais compter deux
+ *  fois le même signal quand un produit migré porte encore `tags` en plus de `taxonomy`. */
+function themeAnswerMatchCount(gift: CuratedGift, answerValues: Set<string>): number {
+  if (!gift.tags) return 0;
   return gift.tags.filter((tag) => answerValues.has(tag)).length;
 }
 
 /** Même principe que themeAnswerMatchCount mais pour les thèmes migrés vers la vraie taxonomie
  *  (`taxonomy` plutôt que `tags` libres) — compte toutes les valeurs, toutes dimensions confondues,
  *  qui recoupent une réponse d'affinage. */
-function taxonomyMatchCount(gift: CuratedGift, themeAnswers: Record<string, string> | undefined): number {
-  if (!gift.taxonomy || !themeAnswers) return 0;
-  const answerValues = new Set(Object.values(themeAnswers).flatMap((v) => v.split(',')));
+function taxonomyMatchCount(gift: CuratedGift, answerValues: Set<string>): number {
+  if (!gift.taxonomy) return 0;
   let count = 0;
   for (const values of Object.values(gift.taxonomy)) {
     if (!values) continue;
@@ -271,7 +305,11 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
       const interestMatch = quiz.interests.includes(g.theme);
       const trait = traitBonus(g, traits) >= 10 ? (g.trait ?? null) : null;
       const answersForTheme = quiz.themeAnswers[g.theme];
-      const themeAnswerMatches = themeAnswerMatchCount(g, answersForTheme) + taxonomyMatchCount(g, answersForTheme);
+      const answerValues = answerValueSet(g.theme, answersForTheme);
+      // Un produit migré (taxonomy) ne recompte jamais le même signal via ses tags legacy — sinon
+      // une réponse qui recoupe une valeur présente à la fois dans tags et taxonomy (ex. 'setup')
+      // est comptée deux fois pour un seul et même signal réel.
+      const themeAnswerMatches = g.taxonomy ? taxonomyMatchCount(g, answerValues) : themeAnswerMatchCount(g, answerValues);
       const genericBonus = genericThemeAnswerBonus(g, answersForTheme, budget.maxEuros);
       const themeAnswer = themeAnswerMatches > 0 || genericBonus > 0;
       const matchedText = textMatch(g, freeTexts);

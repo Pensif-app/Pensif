@@ -3,8 +3,17 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type TabParamList = {
   Accueil: undefined;
   Contacts: undefined;
-  Cadeaux: { contactId?: string } | undefined;
-  Calendrier: undefined;
+  // Ce que l'utilisateur a confié à Pensif (pensées) — remplace l'ancien onglet Cadeaux/"Pensée"
+  // dans la tab bar (voir CHANTIER ONGLET PENSÉES V1). Les cadeaux sont désormais une destination
+  // contextuelle du RootStack, jamais un onglet.
+  // `contactId` optionnel : filtre de contexte (ex. Fiche → "Voir les pensées"), jamais un état
+  // persistant — voir CHANTIER PROCHES + FICHE V1 §8/§9. Un tap direct sur l'onglet Pensées le
+  // réinitialise toujours (voir tabNavigationHelpers.ts) ; l'onglet reste utilisable sans paramètre.
+  Pensées: { contactId?: string } | undefined;
+  // focusDate ('YYYY-MM-DD') optionnel : ouvre directement le mois/jour correspondant plutôt que
+  // le mois courant — utilisé par l'Accueil/Pensées pour amener sur le détail d'une pensée (voir
+  // §6 du chantier Accueil V1 : pas d'écran d'édition dédié, on réutilise le détail déjà affiché ici).
+  Calendrier: { focusDate?: string } | undefined;
 };
 
 export type RootStackParamList = {
@@ -13,4 +22,8 @@ export type RootStackParamList = {
   Message: { contactId: string };
   Reglages: undefined;
   Quiz: { contactId: string };
+  // Destination contextuelle (Accueil, Fiche, Calendrier, notification) — jamais un onglet.
+  // `contactId` obligatoire : un écran Cadeaux doit toujours savoir pour quel proche il est ouvert,
+  // plus de sélection implicite du "prochain contact avec quiz fait" (voir chantier).
+  Cadeaux: { contactId: string };
 };

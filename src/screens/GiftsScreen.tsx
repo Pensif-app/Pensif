@@ -21,7 +21,7 @@ import {
   whyForContact,
 } from '../data/recommendationEngine';
 import { Contact, RejectReason } from '../data/types';
-import { RootStackParamList, TabParamList } from '../navigation/types';
+import { RootStackParamList } from '../navigation/types';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 const PRECISION_TONES: Record<ReturnType<typeof precisionLevel>, 'muted' | 'accent' | 'sage'> = {
@@ -40,17 +40,14 @@ function clampBudget(v: number): number {
 export function GiftsScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute<RouteProp<TabParamList, 'Cadeaux'>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Cadeaux'>>();
   const { contacts, today, giftSentIds, toggleGiftSent, upsertContact } = useStore();
 
-  const contact = useMemo(() => {
-    if (route.params?.contactId) return contacts.find((c) => c.id === route.params?.contactId);
-    const withIdeas = contacts
-      .filter((c) => isQuizComplete(c.quiz))
-      .map((c) => ({ c, days: daysUntilNext(c.date, today) }))
-      .sort((a, b) => a.days - b.days);
-    return withIdeas[0]?.c;
-  }, [route.params?.contactId, contacts, today]);
+  // Cadeaux est une destination contextuelle : `contactId` est obligatoire au niveau du type (voir
+  // navigation/types.ts) — plus de sélection implicite du "prochain contact avec quiz fait" (voir
+  // CHANTIER ONGLET PENSÉES V1). Le seul cas résiduel de `contact` introuvable est un contact
+  // supprimé entre la programmation d'un lien (notification, etc.) et son ouverture.
+  const contact = useMemo(() => contacts.find((c) => c.id === route.params.contactId), [route.params.contactId, contacts]);
 
   const suggestedMax = useMemo(() => BUDGET_OPTIONS.find((o) => o.key === contact?.quiz?.budget)?.max ?? null, [contact]);
   const initialSlider = useMemo(() => clampBudget(suggestedMax ?? SLIDER_MIN), [suggestedMax]);
@@ -90,11 +87,10 @@ export function GiftsScreen() {
   if (!contact) {
     return (
       <Screen>
-        <Text style={[styles.h1, { color: theme.ink }]}>Pensée</Text>
+        <Text style={[styles.h1, { color: theme.ink }]}>Idées cadeaux</Text>
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
           <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
-            Aucune suggestion pour l'instant. Remplis le petit quizz d'un contact pour voir apparaître des idées
-            cadeaux et des messages ici à l'approche de son anniversaire.
+            Ce contact est introuvable — il a peut-être été supprimé depuis.
           </Text>
         </View>
       </Screen>
@@ -156,7 +152,7 @@ export function GiftsScreen() {
 
   return (
     <Screen>
-      <Text style={[styles.h1, { color: theme.ink }]}>Pensée pour {contact.prenom}</Text>
+      <Text style={[styles.h1, { color: theme.ink }]}>Idées pour {contact.prenom}</Text>
       <Text style={[styles.sub, { color: theme.inkSoft }]}>
         Anniversaire le {contact.date.split('-').reverse().join('/')} · J-{days}
       </Text>

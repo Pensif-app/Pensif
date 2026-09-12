@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { Contact, Pensee } from '../data/types';
 import { seedContacts, seedPensees } from '../data/seed';
+import { occurrenceYear } from '../data/calendar';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
 
@@ -20,7 +21,16 @@ function deriveColor(id: string) {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-function rowToContact(row: any): Contact {
+/**
+ * La colonne distante `gift_sent` reste un simple booléen (aucune migration de schéma dans ce
+ * chantier) : elle est traduite en `giftPreparedYear` au moment de la lecture, en supposant qu'un
+ * `true` distant concerne l'occurrence en cours à CE moment (`today`). Limite connue : si plusieurs
+ * appareils se synchronisent à cheval sur un changement d'année sans qu'aucun n'ait rebasculé la
+ * case entre-temps, cette traduction peut réactiver `giftPreparedYear` pour la nouvelle occurrence.
+ * Le stockage local (AsyncStorage, source de vérité pour un usage mono-appareil sans Supabase) ne
+ * connaît pas cette limite : il persiste directement `giftPreparedYear`.
+ */
+function rowToContact(row: any, today: Date): Contact {
   return {
     id: row.id,
     prenom: row.prenom,
@@ -33,7 +43,7 @@ function rowToContact(row: any): Contact {
     initials: deriveInitials(row.prenom, row.nom ?? ''),
     color: deriveColor(row.id),
     quiz: row.quiz ?? null,
-    giftSent: Boolean(row.gift_sent),
+    giftPreparedYear: row.gift_sent ? occurrenceYear(row.date_naissance, today) : null,
     favorite: Boolean(row.favorite),
     birthdayReminderDays: row.birthday_reminder_days ?? null,
   };
@@ -111,7 +121,8 @@ async function seedRemote(userId: string) {
     .select();
   if (penseeErr || !penseeRows) throw penseeErr;
 
-  return { contacts: contactRows.map(rowToContact), pensees: penseeRows.map(rowToPensee) };
+  const today = new Date();
+  return { contacts: contactRows.map((r) => rowToContact(r, today)), pensees: penseeRows.map(rowToPensee) };
 }
 
 export async function loadRemoteData(userId: string, isNewAccount: boolean) {
@@ -129,7 +140,8 @@ export async function loadRemoteData(userId: string, isNewAccount: boolean) {
   // ouverture" (sinon "Papa"/"Léa"/etc. ressuscitaient à chaque fois que la liste retombait à zéro).
   if (isNewAccount && (contactRows ?? []).length === 0) return seedRemote(userId);
 
-  return { contacts: (contactRows ?? []).map(rowToContact), pensees: (penseeRows ?? []).map(rowToPensee) };
+  const today = new Date();
+  return { contacts: (contactRows ?? []).map((r) => rowToContact(r, today)), pensees: (penseeRows ?? []).map(rowToPensee) };
 }
 
 export async function insertContactRemote(userId: string, contact: Omit<Contact, 'initials' | 'color'>): Promise<Contact> {
@@ -150,14 +162,14 @@ export async function insertContactRemote(userId: string, contact: Omit<Contact,
       family_role: contact.familyRole,
       genre: contact.genre,
       quiz: contact.quiz,
-      gift_sent: contact.giftSent,
+      gift_sent: contact.giftPreparedYear != null,
       favorite: contact.favorite,
       birthday_reminder_days: contact.birthdayReminderDays,
     })
     .select()
     .single();
   if (error || !data) throw error;
-  return rowToContact(data);
+  return rowToContact(data, new Date());
 }
 
 export async function updateContactRemote(contact: Contact): Promise<void> {
@@ -173,7 +185,7 @@ export async function updateContactRemote(contact: Contact): Promise<void> {
       family_role: contact.familyRole,
       genre: contact.genre,
       quiz: contact.quiz,
-      gift_sent: contact.giftSent,
+      gift_sent: contact.giftPreparedYear != null,
       favorite: contact.favorite,
       birthday_reminder_days: contact.birthdayReminderDays,
     })

@@ -691,7 +691,7 @@ function ResultsStep({
       <View style={{ width: '100%', marginTop: 28 }}>
         <PrimaryButton
           label="Voir ses idées cadeaux"
-          onPress={() => navigation.navigate('Tabs', { screen: 'Cadeaux', params: { contactId: contact.id } })}
+          onPress={() => navigation.navigate('Cadeaux', { contactId: contact.id })}
         />
         <Pressable onPress={() => navigation.goBack()} style={{ marginTop: 12, alignItems: 'center' }}>
           <Text style={{ color: theme.inkSoft }}>Retour à la fiche</Text>

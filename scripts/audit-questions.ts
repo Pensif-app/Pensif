@@ -13,7 +13,7 @@ function makeQuiz(themeAnswers: Record<string, string>, interests: InterestTag[]
   return { answers: ['A', 'B', 'A', 'B', 'A', 'B', 'A'], interests, avoid: [], wish: '', completedAt: new Date().toISOString(), budget: null, themeAnswers: { [interests[0]]: themeAnswers } as any, feedback: [], recommendationHistory: [] };
 }
 function makeContact(id: string, quiz: QuizProfile): Contact {
-  return { id, prenom: id, nom: '', tel: '', date: '2000-01-01', relation: 'Ami', familyRole: null, genre: 'homme', initials: 'X', color: 'sage', quiz, giftSent: false, favorite: false, birthdayReminderDays: null };
+  return { id, prenom: id, nom: '', tel: '', date: '2000-01-01', relation: 'Ami', familyRole: null, genre: 'homme', initials: 'X', color: 'sage', quiz, giftPreparedYear: null, favorite: false, birthdayReminderDays: null };
 }
 
 function baselineAnswers(theme: InterestTag): Record<string, string> {
