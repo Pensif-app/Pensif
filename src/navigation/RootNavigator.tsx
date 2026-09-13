@@ -15,6 +15,9 @@ import { FicheScreen } from '../screens/FicheScreen';
 import { MessageScreen } from '../screens/MessageScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { QuizScreen } from '../screens/QuizScreen';
+import { PenseeDetailScreen } from '../screens/PenseeDetailScreen';
+import { CaptureScreen } from '../screens/CaptureScreen';
+import { CaptureDebugScreen } from '../screens/CaptureDebugScreen';
 import { FloatingTabBar } from './TabBar';
 import { HeaderBackButton } from '../components/HeaderBackButton';
 import { RootStackParamList, TabParamList } from './types';
@@ -98,9 +101,20 @@ export function RootNavigator({ onReady }: { onReady?: () => void } = {}) {
             toujours ouvert avec un contactId précis (Accueil, Fiche, Calendrier, notification). */}
         <Stack.Screen name="Cadeaux" component={GiftsScreen} options={{ title: '' }} />
         <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
+        {/* Pas de `title` statique : PenseeDetailScreen fixe lui-même son titre ("Nouvelle pensée"
+            vs "Modifier la pensée") — même principe que Fiche (voir CHANTIER PENSÉES V2). */}
+        <Stack.Screen name="PenseeDetail" component={PenseeDetailScreen} options={{ title: '' }} />
         <Stack.Screen name="Reglages" component={SettingsScreen} options={{ title: 'Réglages' }} />
         {/* Écran plein temps propre (barre de progression + retour maison), sans le header natif. */}
         <Stack.Screen name="Quiz" component={QuizScreen} options={{ headerShown: false }} />
+        {/* gestureEnabled: false — le swipe-back natif iOS est un reconnaisseur indépendant du
+            PanResponder JS du bouton push-to-talk ; un léger décalage du doigt vers le bord pendant
+            l'enregistrement le déclenchait sinon, annulant le vocal en cours (voir CaptureScreen).
+            Le bouton retour du header reste le seul moyen de quitter, sur tous les états de l'écran. */}
+        <Stack.Screen name="Capture" component={CaptureScreen} options={{ title: '', gestureEnabled: false }} />
+        {/* Conservé pour diagnostic (chemin micro → backend → JSON brut) — plus aucun bouton n'y
+            mène depuis l'app (voir HomeScreen/PenseesScreen), remplacé par "Capture" ci-dessus. */}
+        <Stack.Screen name="CaptureDebug" component={CaptureDebugScreen} options={{ title: 'Capture (debug)' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

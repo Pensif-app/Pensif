@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore, ThemePref } from '../data/store';
 import { useTheme } from '../theme';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { ensureNotificationPermissions, getNotificationPermissionStatus } from '../lib/notifications';
+import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
+
+// Version affichée = celle réellement configurée pour ce build (app.json `expo.version`), jamais
+// une chaîne codée en dur qui pourrait diverger silencieusement — voir CHANTIER PRÉ-BÊTA 2 §4.
+// `expoConfig` est absent uniquement dans des contextes exotiques (jamais en usage normal
+// development/preview/production) ; secours sur "1.0.0" pour ne jamais afficher une valeur vide.
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 const THEME_OPTIONS: { key: ThemePref; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'system', label: 'Système', icon: 'phone-portrait-outline' },
@@ -62,6 +69,24 @@ export function SettingsScreen() {
   const permLabel =
     permStatus === 'granted' ? 'Autorisées' : permStatus === 'denied' ? 'Refusées par le téléphone' : permStatus === 'unsupported' ? 'Indisponibles sur le web' : 'Pas encore demandées';
 
+  async function openSystemSettings() {
+    try {
+      await Linking.openSettings();
+    } catch {
+      Alert.alert('Impossible d’ouvrir les réglages', "Ouvre manuellement les réglages de ton téléphone pour autoriser les notifications.");
+    }
+  }
+
+  // Dev helper temporaire (BUG NOTIFICATIONS PENSÉES V2) — indépendant des pensées/contacts, pour
+  // distinguer un problème de délivrance OS/Expo d'un problème du planificateur Pensées V2.
+  async function testNotification() {
+    const identifier = await scheduleTestNotificationIn60Seconds();
+    Alert.alert(
+      identifier ? 'Notification de test programmée' : 'Échec',
+      identifier ? 'Dans 60 secondes environ (voir la console pour l’identifiant).' : 'Permission refusée ou plateforme non supportée (web).',
+    );
+  }
+
   return (
     <Screen>
       <SectionLabel theme={theme}>PROFIL</SectionLabel>
@@ -96,6 +121,26 @@ export function SettingsScreen() {
           <Text style={[styles.rowLabel, { color: theme.ink, flex: 1 }]}>Permission système</Text>
           <Text style={[styles.rowValue, { color: theme.inkSoft }]}>{permLabel}</Text>
         </View>
+        {permStatus === 'denied' && (
+          <>
+            <View style={[styles.divider, { backgroundColor: theme.line }]} />
+            <Pressable onPress={openSystemSettings} style={styles.row}>
+              <Ionicons name="settings-outline" size={16} color={theme.accent} style={{ marginRight: 10 }} />
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Ouvrir les réglages du téléphone</Text>
+            </Pressable>
+          </>
+        )}
+        {__DEV__ && (
+          <>
+            <View style={[styles.divider, { backgroundColor: theme.line }]} />
+            <Pressable onPress={testNotification} style={styles.row}>
+              <Ionicons name="flask-outline" size={16} color={theme.accent} style={{ marginRight: 10 }} />
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                [Dev] Tester une notification (+60s)
+              </Text>
+            </Pressable>
+          </>
+        )}
       </Card>
 
       <SectionLabel theme={theme}>APPARENCE</SectionLabel>
@@ -138,7 +183,7 @@ export function SettingsScreen() {
 
       <SectionLabel theme={theme}>À PROPOS</SectionLabel>
       <Card theme={theme}>
-        <Row theme={theme} icon="information-circle-outline" label="Version" value="1.0.0" />
+        <Row theme={theme} icon="information-circle-outline" label="Version" value={APP_VERSION} />
         <View style={[styles.divider, { backgroundColor: theme.line }]} />
         <View style={styles.row}>
           <Text style={[styles.privacyText, { color: theme.inkSoft }]}>

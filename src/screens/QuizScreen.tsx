@@ -71,6 +71,13 @@ export function QuizScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Quiz'>>();
   const { contacts, upsertContact } = useStore();
   const contact = contacts.find((c) => c.id === route.params.contactId);
+  // Mode explicite de réédition (BUG "Refaire le quiz" revient immédiatement sur Profil terminé) :
+  // demandé depuis l'écran résultat (ResultsStep) et depuis la fiche pour un quiz déjà complété.
+  // `step` démarre déjà à 0 dans tous les cas (voir useState ci-dessous) — le seul risque venait du
+  // brouillon auto-enregistré (voir plus bas), qui pouvait contenir un `step` figé sur les résultats
+  // d'une session précédente ; en mode edit, on ignore délibérément tout brouillon existant pour
+  // repartir de `contact.quiz` uniquement, jamais d'un état résiduel.
+  const mode = route.params.mode ?? 'default';
 
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<QuizAnswer[]>(contact?.quiz?.answers ?? []);
@@ -81,7 +88,14 @@ export function QuizScreen() {
     contact?.quiz?.themeAnswers ?? {},
   );
   const [activeAffinageTheme, setActiveAffinageTheme] = useState<InterestTag | null>(null);
+  // `flash` = réponse actuellement mise en surbrillance (tap en cours OU réponse déjà enregistrée
+  // restaurée en arrivant sur la question, voir l'effet plus bas) — purement visuel.
+  // `isTransitioning` = anti-double-tap DÉDIÉ, vrai uniquement pendant la fenêtre d'animation d'un
+  // tap (ANSWER_FILL_MS). Les deux étaient confondus dans `flash` (BUG MODE EDIT : une réponse déjà
+  // affichée en surbrillance était à tort interprétée comme "transition en cours", bloquant tout
+  // nouveau tap sur une question déjà répondue).
   const [flash, setFlash] = useState<'A' | 'B' | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Brouillon auto-enregistré pour ne pas perdre les réponses si le quiz est fermé avant la fin
   // (ex : swipe pour revenir en arrière) — indépendant de contact.quiz, qui lui n'est écrit qu'à
@@ -90,7 +104,14 @@ export function QuizScreen() {
   const [draftLoaded, setDraftLoaded] = useState(false);
 
   useEffect(() => {
-    if (!draftKey) return;
+    // Mode edit : ignore délibérément tout brouillon existant — CAUSE RÉELLE du bug "Refaire le
+    // quiz revient immédiatement sur Profil terminé" (voir aussi le fix symétrique de l'effet de
+    // sauvegarde du brouillon ci-dessous). `step`/`answers` restent ceux du montage initial
+    // (0 / contact.quiz.answers), jamais un `step` figé sur les résultats d'une session précédente.
+    if (!draftKey || mode === 'edit') {
+      setDraftLoaded(true);
+      return;
+    }
     let cancelled = false;
     AsyncStorage.getItem(draftKey)
       .then((raw) => {
@@ -120,7 +141,13 @@ export function QuizScreen() {
     if (!draftKey || !draftLoaded) return;
     const isEmpty =
       step === 0 && answers.length === 0 && interests.length === 0 && avoid.length === 0 && !wish && Object.keys(themeAnswers).length === 0;
-    if (isEmpty) {
+    // CAUSE RÉELLE du bug "Refaire le quiz revient immédiatement sur Profil terminé" : `finish()`
+    // fait avancer `step` jusqu'à STEP_RESULTS, ce qui redéclenchait CET effet (il dépend de `step`)
+    // et persistait un brouillon `{ step: STEP_RESULTS, answers: [...] }` — brouillon que la
+    // prochaine ouverture (même en mode normal) rechargeait aussitôt, ramenant tout droit aux
+    // résultats. Une fois les résultats atteints, `contact.quiz` fait déjà foi (voir finish()) :
+    // plus aucun brouillon de progression n'a de sens, jamais le sauvegarder.
+    if (isEmpty || step >= STEP_RESULTS) {
       AsyncStorage.removeItem(draftKey).catch(() => {});
       return;
     }
@@ -144,17 +171,46 @@ export function QuizScreen() {
   }
 
   function answerQuestion(choice: QuizAnswer) {
-    if (flash) return; // déjà en cours de transition, ignore un second tap
+    // BUG MODE EDIT : `flash` sert AUSSI à afficher la réponse déjà enregistrée en arrivant sur une
+    // question (voir l'effet juste en dessous) — il est donc déjà non-null pour toute question
+    // déjà répondue, pas seulement pendant une transition. Le garder ici bloquait alors
+    // silencieusement tout nouveau tap sur une question déjà répondue (mode edit). `isTransitioning`
+    // est un état dédié, uniquement vrai pendant la fenêtre d'animation (ANSWER_FILL_MS) d'un tap
+    // en cours — jamais vrai simplement parce qu'une réponse existante est affichée.
+    if (isTransitioning) return; // déjà en cours de transition, ignore un second tap
+    setIsTransitioning(true);
     setFlash(choice);
-    const next = [...answers.slice(0, step), choice];
+    const answeredStep = step;
+    // Remplace UNIQUEMENT la réponse de cette question précise, sans jamais tronquer celles qui
+    // suivent — nécessaire pour rouvrir/modifier un quiz déjà complété (CHANTIER QUIZ MODIFIABLE) :
+    // avec un `answers` déjà entièrement rempli, un `slice(0, step)` effacerait silencieusement
+    // toutes les réponses après la question modifiée. Le remplissage séquentiel initial (quiz
+    // jamais fait) reste identique : `next[step]` complète simplement le tableau au bon index.
     // Laisse le temps à ChoiceCard de finir son animation de remplissage (voir ANSWER_FILL_MS)
     // avant de basculer sur la question suivante.
     setTimeout(() => {
-      setFlash(null);
-      setAnswers(next);
+      setIsTransitioning(false);
+      setAnswers((prev) => {
+        const next = [...prev];
+        next[answeredStep] = choice;
+        return next;
+      });
       goNext();
     }, ANSWER_FILL_MS);
   }
+
+  // Restaure la réponse déjà enregistrée pour la question affichée (surbrillance) quand on y
+  // revient — que ce soit en reculant pendant la même session, ou en rouvrant un quiz déjà
+  // complété où `answers` est prérempli d'entrée (CHANTIER QUIZ MODIFIABLE). Sans ça, revenir sur
+  // une question déjà répondue ne montrait aucun choix sélectionné, laissant croire qu'il fallait
+  // répondre à nouveau. N'affecte pas l'animation de sélection elle-même (voir answerQuestion),
+  // qui pose `flash` avant que `step` ne change.
+  useEffect(() => {
+    if (step < STEP_QUESTIONS) {
+      setFlash((answers[step] as 'A' | 'B' | undefined) ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   function toggleTag(list: InterestTag[], setList: (v: InterestTag[]) => void, tag: InterestTag) {
     setList(list.includes(tag) ? list.filter((t) => t !== tag) : [...list, tag]);
@@ -693,6 +749,18 @@ function ResultsStep({
           label="Voir ses idées cadeaux"
           onPress={() => navigation.navigate('Cadeaux', { contactId: contact.id })}
         />
+        {/* push + mode: 'edit' (BUG "Refaire le quiz revient immédiatement sur Profil terminé") :
+            push seul ne suffisait pas — un brouillon auto-enregistré pouvait persister un `step`
+            figé sur les résultats (voir l'effet de sauvegarde du brouillon plus haut, désormais
+            corrigé aussi), rechargé aussitôt par la nouvelle instance. `mode: 'edit'` fait en plus
+            ignorer explicitement tout brouillon résiduel : question 1, réponses de contact.quiz
+            préremplies, jamais l'instance résultat actuelle réutilisée. */}
+        <Pressable
+          onPress={() => navigation.push('Quiz', { contactId: contact.id, mode: 'edit' })}
+          style={[styles.secondaryBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
+        >
+          <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 14 }}>Refaire le quiz</Text>
+        </Pressable>
         <Pressable onPress={() => navigation.goBack()} style={{ marginTop: 12, alignItems: 'center' }}>
           <Text style={{ color: theme.inkSoft }}>Retour à la fiche</Text>
         </Pressable>
@@ -721,6 +789,7 @@ const styles = StyleSheet.create({
   wishInput: { borderWidth: 1, borderRadius: 12, padding: 14, minHeight: 90, textAlignVertical: 'top', fontSize: 14, marginTop: 20, width: '100%' },
   budgetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderRadius: 14, padding: 16 },
   resultsWrap: { alignItems: 'center', paddingTop: 30 },
+  secondaryBtn: { marginTop: 12, borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', width: '100%' },
   resultsTitle: { fontSize: 20, fontWeight: '700' },
   resultsSub: { fontSize: 13, textAlign: 'center', marginTop: 4 },
   archetype: { fontSize: 15, fontWeight: '800', letterSpacing: 0.6, marginTop: 24 },

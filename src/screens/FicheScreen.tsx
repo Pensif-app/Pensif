@@ -114,9 +114,12 @@ export function FicheScreen() {
   const [genre, setGenre] = useState<Genre | null>(existing?.genre ?? null);
   const [favorite, setFavorite] = useState(existing?.favorite ?? false);
   const [birthdayReminderDays, setBirthdayReminderDays] = useState<number | null>(existing?.birthdayReminderDays ?? null);
-  // Ouvert d'office pour un nouveau contact : sans ça, rien n'indique qu'il faut renseigner
-  // l'anniversaire avant de pouvoir enregistrer (la fiche refuse sinon silencieusement l'échec).
-  const [showDatePicker, setShowDatePicker] = useState(!existing);
+  // Ouvert d'office pour un nouveau contact SUR iOS SEULEMENT : sans ça, rien n'indique qu'il faut
+  // renseigner l'anniversaire avant de pouvoir enregistrer (la fiche refuse sinon silencieusement
+  // l'échec) — comportement iOS existant, non modifié. Sur Android, le DateTimePicker natif est une
+  // boîte de dialogue modale (pas un composant inline) : il ne doit jamais s'ouvrir tout seul,
+  // uniquement au tap explicite sur le champ.
+  const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios' && !existing);
 
   const avatarColor = existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length];
   const previewInitials = useMemo(() => {
@@ -274,6 +277,7 @@ export function FicheScreen() {
             <Text style={{ color: date ? theme.ink : theme.inkSoft }}>
               {date ? date.split('-').reverse().join('/') : 'À choisir'}
             </Text>
+            <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
           </Pressable>
         </Field>
       </View>
@@ -284,8 +288,13 @@ export function FicheScreen() {
           // souvent proche de cette année-là, ça évite de faire défiler la molette très loin.
           value={date ? new Date(date) : new Date(2000, 0, 1)}
           mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          // iOS : roulette inline inchangée. Android : boîte de dialogue native "calendar" explicite
+          // (jamais le spinner Android, jamais affichée ailleurs qu'au tap sur le champ ci-dessus).
+          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
           onChange={(_, selected) => {
+            // Sur Android, l'événement arrive une seule fois (validation OU annulation) et le
+            // dialogue se ferme tout seul côté OS — on referme donc toujours notre état ici. Sur
+            // iOS, la roulette reste affichée en continu (comportement existant, inchangé).
             setShowDatePicker(Platform.OS === 'ios');
             if (selected) {
               const y = selected.getFullYear();
@@ -379,7 +388,22 @@ export function FicheScreen() {
       {existing && (
         <>
           <SectionLabel theme={theme}>LE PETIT QUIZZ</SectionLabel>
-          <QuizSummaryCard contact={existing} theme={theme} onPress={() => navigation.navigate('Quiz', { contactId: existing.id })} />
+          {/* push (pas navigate) : CAUSE RÉELLE DU BUG "impossible de modifier un quiz déjà
+              complété" — si un écran 'Quiz' pour ce contact est déjà quelque part dans la pile
+              (ex. après un premier passage terminé par "Voir ses idées cadeaux", qui empile
+              Cadeaux SANS dépiler Quiz), `navigate('Quiz', ...)` se contente de refocaliser cette
+              instance déjà montée, figée à son ancien `step` (souvent les résultats), sans jamais
+              réinitialiser son état interne — le tap semblait alors ne "rien faire" d'utilisable.
+              `push` monte TOUJOURS une instance neuve, avec le flux de questions réellement
+              rejouable depuis le début (réponses préremplies, modifiables).
+              `mode: 'edit'` quand le quiz est déjà complété : ignore explicitement tout brouillon
+              résiduel (voir QuizScreen.tsx) pour repartir systématiquement de la question 1 avec
+              les réponses de contact.quiz, jamais un `step` figé sur d'anciens résultats. */}
+          <QuizSummaryCard
+            contact={existing}
+            theme={theme}
+            onPress={() => navigation.push('Quiz', { contactId: existing.id, mode: isQuizComplete(existing.quiz) ? 'edit' : 'default' })}
+          />
           {/* Cadeaux n'est plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) — sans ce
               lien, les idées cadeaux d'un proche autre que "le plus proche" deviendraient difficiles
               à retrouver. Uniquement quand le quiz est fait : un écran Cadeaux sans quiz n'aurait
@@ -466,7 +490,10 @@ function QuizSummaryCard({ contact, theme, onPress }: { contact: Contact; theme:
         {done ? (
           <>
             <Text style={[styles.quizQ, { color: theme.ink }]}>{archetype!.title}</Text>
-            <Text style={{ color: theme.inkSoft, fontSize: 12, marginTop: 2 }}>Voir le profil et les idées cadeaux</Text>
+            {/* CTA explicite pour rouvrir le quiz déjà complété — ce même Pressable navigue déjà
+                vers 'Quiz' quel que soit l'état (voir onPress ci-dessus/plus bas), seul ce libellé
+                changeait pour ne pas suggérer qu'on peut le modifier. */}
+            <Text style={{ color: theme.inkSoft, fontSize: 12, marginTop: 2 }}>Modifier le portrait</Text>
           </>
         ) : (
           <>
@@ -498,7 +525,7 @@ const styles = StyleSheet.create({
   field: { flex: 1, marginBottom: 13 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 5 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  dateBtn: { justifyContent: 'center' },
+  dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 6, marginBottom: 10 },
   reminderHint: { fontSize: 12, lineHeight: 17, marginBottom: 10, marginTop: -4 },
   quizCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },

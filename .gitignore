@@ -41,3 +41,6 @@ expo-tunnel.log
 # generated native folders
 /ios
 /android
+
+# Supabase CLI local state
+supabase/.temp/

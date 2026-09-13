@@ -13,6 +13,7 @@ import {
   namedayTable,
   normalizeName,
   occurrenceYear,
+  penseeAnchor,
   penseeSubtitle,
 } from './calendar';
 
@@ -30,7 +31,12 @@ export type HomeAttentionAction =
   | { kind: 'ideas'; contactId: string }
   | { kind: 'message'; contactId: string }
   | { kind: 'fiche'; contactId: string }
-  | { kind: 'calendar'; focusDate: string };
+  | { kind: 'calendar'; focusDate: string }
+  // CHANTIER NAVIGATION NOTIFICATION PENSÉES V2 : seule utilisée par le tap sur une notification de
+  // pensée (voir resolveNotificationAction, notificationPlanning.ts) — une pensée peut n'avoir aucune
+  // `date`/`endDate`, "calendar" n'est donc plus une destination fiable pour elle. Le tap sur une
+  // carte Pensée de l'Accueil, lui, continue d'ouvrir le Calendrier (non demandé, non modifié ici).
+  | { kind: 'pensee-detail'; penseeId: string };
 
 export type HomeAttention = {
   id: string;
@@ -145,13 +151,21 @@ function birthdayAttention(c: Contact, today: Date): HomeAttention | null {
 
 function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAttention | null {
   const todayIso = dIso(today);
+  // Une pensée purement mémorisée (aucune ancre calendrier ni rappel — voir penseeAnchor,
+  // CHANTIER PENSÉES V2) n'a rien de "temporel" à afficher sur l'Accueil, qui reste une fenêtre
+  // glissante sur ce qui se passe maintenant/bientôt — elle n'apparaît donc que dans l'onglet
+  // Pensées, jamais ici. Ce n'est PAS une régression : avant CHANTIER PENSÉES V2, une pensée avait
+  // toujours une ancre (date obligatoire), ce cas ne pouvait simplement pas se produire.
+  const anchor = penseeAnchor(p);
+  if (!anchor) return null;
+
   // Une pensée passée (ponctuelle dont la date est révolue, ou période déjà terminée) ne doit plus
   // jamais apparaître comme "à venir" — c'est le bug corrigé par le chantier Accueil V1. Même
   // définition réutilisée par l'écran Pensées (voir penseesView.ts) — centralisée dans calendar.ts.
   if (isPenseeEnded(p, todayIso)) return null;
 
   const activeToday = isPenseeActiveOn(p, todayIso);
-  const daysUntil = activeToday ? 0 : daysBetween(p.date, today);
+  const daysUntil = activeToday ? 0 : daysBetween(anchor.date, today);
   if (daysUntil > HOME_WINDOW_DAYS) return null;
 
   const subtitle = penseeSubtitle(p, contacts);
@@ -159,8 +173,8 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
   return {
     id: `pensee-${p.id}`,
     type: 'pensee',
-    date: p.date,
-    endDate: p.endDate ?? null,
+    date: anchor.date,
+    endDate: anchor.endDate,
     contactId: p.contactId,
     title: p.texte,
     subtitle,
@@ -171,7 +185,10 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
     needsAction: true,
     favorite: false,
     badge: null,
-    action: { kind: 'calendar', focusDate: p.date },
+    // CHANTIER NAVIGATION ACCUEIL PENSÉES V2 : ouvre directement la pensée (même variant que le tap
+    // sur notification, voir resolveNotificationAction/notificationPlanning.ts) — `calendar` n'est
+    // plus une destination fiable pour une pensée sans `date`/`endDate` (uniquement un `reminderAt`).
+    action: { kind: 'pensee-detail', penseeId: p.id },
   };
 }
 
@@ -296,6 +313,9 @@ export function navigateToAttention(navigate: (name: string, params?: object) =>
       break;
     case 'calendar':
       navigate('Tabs', { screen: 'Calendrier', params: { focusDate: action.focusDate } });
+      break;
+    case 'pensee-detail':
+      navigate('PenseeDetail', { penseeId: action.penseeId });
       break;
   }
 }

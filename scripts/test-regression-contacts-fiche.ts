@@ -47,8 +47,9 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
     id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
     date: '2026-01-01',
     texte: 'Une pensée',
-    remind: '0',
     contactId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    reminderAt: null,
     ...overrides,
   };
 }

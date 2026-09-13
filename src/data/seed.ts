@@ -108,7 +108,9 @@ export const seedPensees: Pensee[] = [
     id: 'p1',
     date: '2026-09-19',
     texte: "Entretien d'embauche de Sofia",
-    remind: '1',
+    // Rappel la veille à 9h — même calcul que faisait autrefois remind:'1' pour cette date.
+    reminderAt: '2026-09-18T09:00:00.000Z',
     contactId: 'sofia',
+    createdAt: '2026-08-20T10:00:00.000Z',
   },
 ];

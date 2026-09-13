@@ -1,4 +1,5 @@
-import { RouteProp, useRoute } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import * as SMS from 'expo-sms';
 import React, { useState } from 'react';
@@ -25,12 +26,26 @@ const TONES = [
 
 export function MessageScreen() {
   const theme = useTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Message'>>();
   const { contacts, giftSentIds, toggleGiftSent } = useStore();
   const contact = contacts.find((c) => c.id === route.params.contactId);
   const [tone, setTone] = useState<(typeof TONES)[number]['key']>('chaleureux');
 
-  if (!contact) return null;
+  if (!contact) {
+    // Le contact a pu être supprimé entre la programmation d'un lien (notification, etc.) et son
+    // ouverture — état de récupération plutôt qu'un écran blanc (voir CHANTIER PRÉ-BÊTA 1 §7). On ne
+    // recrée rien et on ne redirige jamais automatiquement, juste un retour explicite.
+    return (
+      <Screen>
+        <Text style={[styles.h1, { color: theme.ink }]}>Ce proche n’est plus disponible</Text>
+        <Text style={[styles.sub, { color: theme.inkSoft }]}>Il a peut-être été supprimé.</Text>
+        <Pressable onPress={() => navigation.goBack()} style={[styles.btn, { backgroundColor: theme.paperDim, marginTop: 16 }]}>
+          <Text style={{ color: theme.ink, fontWeight: '700' }}>Retour</Text>
+        </Pressable>
+      </Screen>
+    );
+  }
 
   const message = messageTemplates[tone](contact);
   const sent = giftSentIds.includes(contact.id);

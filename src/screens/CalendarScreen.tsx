@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -38,6 +39,7 @@ import {
   monthFull,
   periodsInMonth,
   sameDate,
+  subtractMinutesLocal,
   weekdayFull,
   weekdayLabels,
 } from '../data/calendar';
@@ -92,9 +94,12 @@ export function CalendarScreen() {
     Math.floor((new Date(selected.year, selected.month, selected.day, 23, 59, 59).getTime() - Date.now()) / 60000),
   );
 
-  // Choix rapide du rappel : "1" par défaut (la veille) — équivalent au réglage par défaut de
-  // l'ancienne roulette seule (weeks:0, days:1). La roulette (DurationWheelPicker) reste
+  // Le rappel est entièrement facultatif et désactivé par défaut (CHANTIER PENSÉES V2) : tant que
+  // ce toggle est éteint, aucune date/heure n'est demandée à l'utilisateur ni programmée. Choix
+  // rapide du rappel une fois activé : "1" par défaut (la veille) — équivalent au réglage par
+  // défaut de l'ancienne roulette seule (weeks:0, days:1). La roulette (DurationWheelPicker) reste
   // disponible mais devient secondaire, affichée seulement derrière "Personnaliser".
+  const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderChoice, setReminderChoice] = useState<ReminderOffset>('1');
   const PRESET_REMINDERS: { key: Exclude<ReminderOffset, 'custom'>; label: string; days: number }[] = [
     { key: '0', label: 'Le jour même', days: 0 },
@@ -406,8 +411,11 @@ export function CalendarScreen() {
       date: isoOf(view.year, view.month, periodModal.start),
       endDate: periodModal.start === periodModal.end ? null : isoOf(view.year, view.month, periodModal.end),
       texte: periodText.trim(),
-      remind: '0',
+      // Notification unique au tout début de la période, à 9h — même comportement par défaut
+      // qu'avant CHANTIER PENSÉES V2 (remind: '0'), désormais exprimé comme un rappel absolu.
+      reminderAt: new Date(view.year, view.month, periodModal.start, 9, 0, 0).toISOString(),
       contactId: null,
+      createdAt: new Date().toISOString(),
     });
     setPeriodText('');
     setPeriodModal(null);
@@ -435,22 +443,32 @@ export function CalendarScreen() {
       Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
       return;
     }
-    // Un preset qui tomberait déjà dans le passé pour ce jour est désactivé dans l'UI (voir
-    // isPresetPast) — filet de sécurité ici au cas où l'état serait resté sur un choix devenu
-    // invalide entre l'ouverture du formulaire et l'enregistrement.
-    if (reminderChoice !== 'custom' && isPresetPast(parseInt(reminderChoice, 10))) {
-      Alert.alert('Rappel dans le passé', 'Ce rappel tomberait avant maintenant — choisis un délai plus court ou "Personnaliser".');
-      return;
+    // Tant que "Me le rappeler" est désactivé, aucun rappel n'est programmé — le champ reste
+    // simplement `null` (CHANTIER PENSÉES V2 : le rappel est entièrement facultatif).
+    let reminderAt: string | null = null;
+    if (reminderEnabled) {
+      // Un preset qui tomberait déjà dans le passé pour ce jour est désactivé dans l'UI (voir
+      // isPresetPast) — filet de sécurité ici au cas où l'état serait resté sur un choix devenu
+      // invalide entre l'ouverture du formulaire et l'enregistrement.
+      if (reminderChoice !== 'custom' && isPresetPast(parseInt(reminderChoice, 10))) {
+        Alert.alert('Rappel dans le passé', 'Ce rappel tomberait avant maintenant — choisis un délai plus court ou "Personnaliser".');
+        return;
+      }
+      reminderAt =
+        reminderChoice === 'custom'
+          ? subtractMinutesLocal(new Date(selected.year, selected.month, selected.day, 23, 59, 59), customOffsetMinutes).toISOString()
+          : presetReminderDate(parseInt(reminderChoice, 10)).toISOString();
     }
     addPensee({
       date: isoOf(selected.year, selected.month, selected.day),
       texte: texte.trim(),
-      remind: reminderChoice,
-      customOffsetMinutes: reminderChoice === 'custom' ? customOffsetMinutes : null,
+      reminderAt,
       contactId: linkedContact,
+      createdAt: new Date().toISOString(),
     });
     setTexte('');
     setLinkedContact(null);
+    setReminderEnabled(false);
     setReminderChoice('1');
     setCustomDuration({ weeks: 0, days: 1, hours: 0, minutes: 0 });
     closeForm();
@@ -712,6 +730,7 @@ export function CalendarScreen() {
 
       <Pressable
         onPress={() => {
+          setReminderEnabled(false);
           setReminderChoice('1');
           setFormOpen(true);
         }}
@@ -770,57 +789,72 @@ export function CalendarScreen() {
                   ))}
                 </ScrollView>
 
-                <Text style={[styles.label, { color: theme.inkSoft, marginTop: 12 }]}>ME LE RAPPELER</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
-                  {PRESET_REMINDERS.map((preset) => {
-                    const disabled = isPresetPast(preset.days);
-                    const active = reminderChoice === preset.key;
-                    return (
-                      <Pressable
-                        key={preset.key}
-                        disabled={disabled}
-                        onPress={() => setReminderChoice(preset.key)}
-                        style={[
-                          styles.chip,
-                          { marginBottom: 6, borderColor: theme.line, backgroundColor: active ? theme.accent : theme.paperDim },
-                          disabled && { opacity: 0.4 },
-                        ]}
-                      >
-                        <Text style={{ color: active ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>{preset.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                  <Pressable
-                    onPress={() => setReminderChoice('custom')}
-                    style={[
-                      styles.chip,
-                      { marginBottom: 6, borderColor: theme.line, backgroundColor: reminderChoice === 'custom' ? theme.accent : theme.paperDim },
-                    ]}
-                  >
-                    <Text style={{ color: reminderChoice === 'custom' ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
-                      Personnaliser
-                    </Text>
-                  </Pressable>
+                <View style={[styles.reminderToggleRow, { marginTop: 12 }]}>
+                  <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0 }]}>ME LE RAPPELER</Text>
+                  <Switch
+                    value={reminderEnabled}
+                    onValueChange={setReminderEnabled}
+                    trackColor={{ false: theme.paperDim, true: theme.accent }}
+                    thumbColor="#fff"
+                  />
                 </View>
 
-                {/* Roulette conservée, mais devenue secondaire : seulement visible derrière
-                    "Personnaliser", plus affichée en permanence (voir chantier notifications V1). */}
-                {reminderChoice === 'custom' && (
+                {/* Tant que le rappel est désactivé, aucune date/heure n'est demandée — voir
+                    CHANTIER PENSÉES V2 §"Comportement attendu". */}
+                {reminderEnabled && (
                   <>
-                    <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13, marginBottom: 6, marginTop: 6 }}>
-                      {formatCustomOffset(customOffsetMinutes)}
-                    </Text>
-                    <View style={{ marginBottom: 16 }}>
-                      <DurationWheelPicker
-                        weeks={customDuration.weeks}
-                        days={customDuration.days}
-                        hours={customDuration.hours}
-                        minutes={customDuration.minutes}
-                        maxMinutes={maxReminderMinutes}
-                        onChange={setCustomDuration}
-                        theme={theme}
-                      />
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4, marginTop: 6 }}>
+                      {PRESET_REMINDERS.map((preset) => {
+                        const disabled = isPresetPast(preset.days);
+                        const active = reminderChoice === preset.key;
+                        return (
+                          <Pressable
+                            key={preset.key}
+                            disabled={disabled}
+                            onPress={() => setReminderChoice(preset.key)}
+                            style={[
+                              styles.chip,
+                              { marginBottom: 6, borderColor: theme.line, backgroundColor: active ? theme.accent : theme.paperDim },
+                              disabled && { opacity: 0.4 },
+                            ]}
+                          >
+                            <Text style={{ color: active ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>{preset.label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                      <Pressable
+                        onPress={() => setReminderChoice('custom')}
+                        style={[
+                          styles.chip,
+                          { marginBottom: 6, borderColor: theme.line, backgroundColor: reminderChoice === 'custom' ? theme.accent : theme.paperDim },
+                        ]}
+                      >
+                        <Text style={{ color: reminderChoice === 'custom' ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>
+                          Personnaliser
+                        </Text>
+                      </Pressable>
                     </View>
+
+                    {/* Roulette conservée, mais devenue secondaire : seulement visible derrière
+                        "Personnaliser", plus affichée en permanence (voir chantier notifications V1). */}
+                    {reminderChoice === 'custom' && (
+                      <>
+                        <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13, marginBottom: 6, marginTop: 6 }}>
+                          {formatCustomOffset(customOffsetMinutes)}
+                        </Text>
+                        <View style={{ marginBottom: 16 }}>
+                          <DurationWheelPicker
+                            weeks={customDuration.weeks}
+                            days={customDuration.days}
+                            hours={customDuration.hours}
+                            minutes={customDuration.minutes}
+                            maxMinutes={maxReminderMinutes}
+                            onChange={setCustomDuration}
+                            theme={theme}
+                          />
+                        </View>
+                      </>
+                    )}
                   </>
                 )}
 
@@ -936,6 +970,7 @@ const styles = StyleSheet.create({
   gripZone: { paddingVertical: 8, alignItems: 'center' },
   grip: { width: 36, height: 4, borderRadius: 999 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 },
+  reminderToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   textarea: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 60, textAlignVertical: 'top', fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, marginRight: 6 },
   periodScrim: { flex: 1, backgroundColor: 'rgba(20,24,28,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },

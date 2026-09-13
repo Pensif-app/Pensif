@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Avatar } from '../components/Avatar';
 import { Pill } from '../components/Pill';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { buildHomeAttentions, HomeAttention, HomeAttentionAction, navigateToAttention } from '../data/homeAttention';
@@ -58,65 +59,96 @@ export function HomeScreen() {
             {weekdayFull[today.getDay()]} {today.getDate()} {monthFull[today.getMonth()]}
           </Text>
         </View>
-        <Pressable
-          onPress={() => navigation.navigate('Reglages')}
-          style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
-        >
-          <Ionicons name="settings-outline" size={18} color={theme.ink} />
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {/* CHANTIER CAPTURE INTELLIGENTE V1 — point d'entrée principal (Accueil), visible et
+              rapide d'accès, comme décidé dans l'architecture. Voir aussi Pensées pour le point
+              d'entrée secondaire, plus discret. */}
+          <Pressable
+            onPress={() => navigation.navigate('Capture')}
+            accessibilityRole="button"
+            accessibilityLabel="Capture intelligente"
+            style={[styles.iconBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}
+          >
+            <Ionicons name="mic" size={18} color="#fff" />
+          </Pressable>
+          <Pressable
+            onPress={() => navigation.navigate('Reglages')}
+            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+          >
+            <Ionicons name="settings-outline" size={18} color={theme.ink} />
+          </Pressable>
+        </View>
       </View>
 
-      {todayItems.length > 0 && (
+      {contacts.length === 0 ? (
+        // Sans aucun proche, les trois sections n'auraient rien d'autre à montrer que trois
+        // messages "rien de prévu" à la suite — un seul état vide avec un CTA direct est plus clair
+        // (voir CHANTIER PRÉ-BÊTA 1 §4). Volontairement minimal : pas de carrousel ni de tutoriel.
+        <View style={[styles.card, styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+          <Text style={[styles.emptyTitle, { color: theme.ink }]}>Ajouter un proche</Text>
+          <Text style={[styles.emptyBody, { color: theme.inkSoft }]}>
+            Pour commencer, ajoute une première personne qui compte pour toi. Pensif pourra ensuite t’aider à
+            retenir les petites choses importantes au bon moment.
+          </Text>
+          <View style={{ marginTop: 16, width: '100%' }}>
+            <PrimaryButton label="Commencer" onPress={() => navigation.navigate('Fiche', undefined)} />
+          </View>
+        </View>
+      ) : (
         <>
-          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
-          {todayItems.map((a) => (
-            <AttentionCard key={a.id} attention={a} contact={contactFor(a)} theme={theme} emphasis onPress={() => runAction(a.action)} />
-          ))}
+          {todayItems.length > 0 && (
+            <>
+              <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
+              {todayItems.map((a) => (
+                <AttentionCard key={a.id} attention={a} contact={contactFor(a)} theme={theme} emphasis onPress={() => runAction(a.action)} />
+              ))}
+            </>
+          )}
+
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>CETTE SEMAINE</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
+            {weekItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien de particulier cette semaine.</Text>}
+            {visibleWeek.map((a, idx) => (
+              <AttentionCard
+                key={a.id}
+                attention={a}
+                contact={contactFor(a)}
+                theme={theme}
+                onPress={() => runAction(a.action)}
+                withBorder={idx < visibleWeek.length - 1}
+              />
+            ))}
+          </View>
+          {weekItems.length > WEEK_VISIBLE && (
+            <Pressable onPress={() => setShowAllWeek((v) => !v)} style={styles.seeMoreBtn}>
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
+                {showAllWeek ? 'Réduire' : `Voir tout (${weekItems.length})`}
+              </Text>
+            </Pressable>
+          )}
+
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>À ANTICIPER</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
+            {laterItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien à anticiper pour l’instant.</Text>}
+            {visibleLater.map((a, idx) => (
+              <AttentionCard
+                key={a.id}
+                attention={a}
+                contact={contactFor(a)}
+                theme={theme}
+                onPress={() => runAction(a.action)}
+                withBorder={idx < visibleLater.length - 1}
+              />
+            ))}
+          </View>
+          {laterItems.length > LATER_VISIBLE && (
+            <Pressable onPress={() => setShowAllLater((v) => !v)} style={styles.seeMoreBtn}>
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
+                {showAllLater ? 'Réduire' : `Voir tout (${laterItems.length})`}
+              </Text>
+            </Pressable>
+          )}
         </>
-      )}
-
-      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>CETTE SEMAINE</Text>
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
-        {weekItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien de particulier cette semaine.</Text>}
-        {visibleWeek.map((a, idx) => (
-          <AttentionCard
-            key={a.id}
-            attention={a}
-            contact={contactFor(a)}
-            theme={theme}
-            onPress={() => runAction(a.action)}
-            withBorder={idx < visibleWeek.length - 1}
-          />
-        ))}
-      </View>
-      {weekItems.length > WEEK_VISIBLE && (
-        <Pressable onPress={() => setShowAllWeek((v) => !v)} style={styles.seeMoreBtn}>
-          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
-            {showAllWeek ? 'Réduire' : `Voir tout (${weekItems.length})`}
-          </Text>
-        </Pressable>
-      )}
-
-      <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>À ANTICIPER</Text>
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
-        {laterItems.length === 0 && <Text style={[styles.empty, { color: theme.inkSoft }]}>Rien à anticiper pour l’instant.</Text>}
-        {visibleLater.map((a, idx) => (
-          <AttentionCard
-            key={a.id}
-            attention={a}
-            contact={contactFor(a)}
-            theme={theme}
-            onPress={() => runAction(a.action)}
-            withBorder={idx < visibleLater.length - 1}
-          />
-        ))}
-      </View>
-      {laterItems.length > LATER_VISIBLE && (
-        <Pressable onPress={() => setShowAllLater((v) => !v)} style={styles.seeMoreBtn}>
-          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
-            {showAllLater ? 'Réduire' : `Voir tout (${laterItems.length})`}
-          </Text>
-        </Pressable>
       )}
     </Screen>
   );
@@ -171,4 +203,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   empty: { paddingVertical: 16, fontSize: 13, textAlign: 'center' },
   seeMoreBtn: { alignItems: 'center', paddingVertical: 10 },
+  emptyCard: { padding: 24, alignItems: 'center', marginTop: 8 },
+  emptyTitle: { fontWeight: '700', fontSize: 16, textAlign: 'center' },
+  emptyBody: { fontSize: 13, textAlign: 'center', lineHeight: 19, marginTop: 8 },
 });

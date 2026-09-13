@@ -45,8 +45,9 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
     id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
     date: '2026-01-01',
     texte: 'Une pensée',
-    remind: '0',
     contactId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    reminderAt: null,
     ...overrides,
   };
 }
@@ -118,6 +119,13 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe pour d
   const list = buildHomeAttentions([], [p], TODAY);
   const a = find(list, 'pensee-p-j4');
   check('présente, horizon week, daysUntil 4', a?.horizon === 'week' && a?.daysUntil === 4, `${a?.horizon}/${a?.daysUntil}`);
+  // CHANTIER NAVIGATION ACCUEIL PENSÉES V2 : un tap sur cette carte doit ouvrir PenseeDetailScreen
+  // (même variant que le tap sur notification), plus jamais le Calendrier via focusDate.
+  check(
+    'action = pensee-detail avec le bon penseeId (plus "calendar")',
+    a?.action.kind === 'pensee-detail' && (a.action as any).penseeId === 'p-j4',
+    JSON.stringify(a?.action),
+  );
 }
 
 // --- Pensée de période contenant aujourd'hui --------------------------------------------------------
@@ -127,6 +135,11 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe pour d
   const list = buildHomeAttentions([], [p], TODAY);
   const a = find(list, 'pensee-p-period-active');
   check('active, horizon today, daysUntil 0', a?.horizon === 'today' && a?.daysUntil === 0, `${a?.horizon}/${a?.daysUntil}`);
+  check(
+    'action = pensee-detail même pour une pensée de période',
+    a?.action.kind === 'pensee-detail' && (a.action as any).penseeId === 'p-period-active',
+    JSON.stringify(a?.action),
+  );
 
   // Une période déjà terminée doit disparaître, comme une pensée ponctuelle passée.
   const pEnded = makePensee({ id: 'p-period-ended', date: '2026-01-01', endDate: '2026-01-10' });

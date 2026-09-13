@@ -21,9 +21,23 @@ export type RootStackParamList = {
   Fiche: { contactId?: string } | undefined;
   Message: { contactId: string };
   Reglages: undefined;
-  Quiz: { contactId: string };
+  // `mode: 'edit'` (BUG "Refaire le quiz" — voir QuizScreen.tsx) : force une réédition explicite
+  // depuis zéro (question 1, réponses de contact.quiz préremplies), en ignorant tout brouillon
+  // résiduel — jamais un simple `push` seul, qui pouvait rouvrir un brouillon figé sur les
+  // résultats. Absent/'default' = comportement normal (nouveau quiz, ou reprise d'un brouillon).
+  Quiz: { contactId: string; mode?: 'default' | 'edit' };
   // Destination contextuelle (Accueil, Fiche, Calendrier, notification) — jamais un onglet.
   // `contactId` obligatoire : un écran Cadeaux doit toujours savoir pour quel proche il est ouvert,
   // plus de sélection implicite du "prochain contact avec quiz fait" (voir chantier).
   Cadeaux: { contactId: string };
+  // Détail/édition d'une pensée (CHANTIER PENSÉES V2) — `penseeId` présent = édition d'une pensée
+  // existante ; absent = création (avec un `contactId` optionnel pour pré-lier un proche, ex.
+  // depuis Pensées filtré sur un proche).
+  PenseeDetail: { penseeId?: string; contactId?: string } | undefined;
+  // CHANTIER CAPTURE INTELLIGENTE V1 — parcours réel : Micro → Écoute → Analyse → Validation →
+  // addPensee(). Point d'entrée du bouton micro (Accueil/Pensées).
+  Capture: undefined;
+  // Écran de DEBUG (chemin micro → backend → JSON brut affiché) — conservé pour diagnostic, mais
+  // plus aucun bouton n'y mène depuis l'app (voir HomeScreen/PenseesScreen, remplacés par Capture).
+  CaptureDebug: undefined;
 };

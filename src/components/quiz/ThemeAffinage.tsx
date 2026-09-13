@@ -116,7 +116,7 @@ export function ThemeAffinageQuiz({
         {question.type === 'choice' && question.options && !isMulti && (
           <View style={{ gap: 10, marginTop: 22, width: '100%' }}>
             {question.options.map((opt) => (
-              <ChoiceCard key={opt.key} label={opt.label} theme={theme} active={flash === opt.key} onPress={() => selectSingleChoice(opt.key)} />
+              <ChoiceCard key={opt.key} label={formatQuizText(opt.label, contact)} theme={theme} active={flash === opt.key} onPress={() => selectSingleChoice(opt.key)} />
             ))}
           </View>
         )}
@@ -127,7 +127,7 @@ export function ThemeAffinageQuiz({
               {question.options.map((opt) => (
                 <ChoiceCard
                   key={opt.key}
-                  label={opt.label}
+                  label={formatQuizText(opt.label, contact)}
                   theme={theme}
                   active={multiSelected.includes(opt.key)}
                   onPress={() => toggleMultiChoice(opt.key)}

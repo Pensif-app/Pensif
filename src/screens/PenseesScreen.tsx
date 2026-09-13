@@ -9,14 +9,16 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { buildPenseeCards, groupPenseeCards, PenseeCard } from '../data/penseesView';
-import { navigateToAttention } from '../data/homeAttention';
 import { RootStackParamList, TabParamList } from '../navigation/types';
 
 /**
- * Onglet "Pensées" — ce que l'utilisateur a confié à Pensif (texte + date, éventuellement une
+ * Onglet "Pensées" — ce que l'utilisateur a confié à Pensif (texte, éventuellement un jour/une
  * période, un proche lié, un rappel), pas une todo-list : aucune action "à faire" n'apparaît ici,
- * seulement ce qui a été noté. La création/l'édition/la suppression restent dans le Calendrier
- * (voir §8 du chantier Accueil V1) — cet écran ne fait que retrouver et donner accès au détail.
+ * seulement ce qui a été noté. Depuis CHANTIER PENSÉES V2, une pensée n'a plus besoin d'aucune date
+ * ni d'aucun rappel — création/édition/suppression se font désormais directement depuis cet écran
+ * (PenseeDetailScreen, ouvert par le "+" ou par un tap sur une carte), en plus du Calendrier qui
+ * reste un point d'entrée valide pour une pensée liée à un jour précis (surlignage de période
+ * compris).
  *
  * `contactId` (route param optionnel) filtre sur un seul proche — contexte de navigation ponctuel
  * (ex. Fiche → "Voir les pensées"), JAMAIS un état persistant : un tap direct sur l'onglet Pensées
@@ -40,8 +42,12 @@ export function PenseesScreen() {
 
   const groups = useMemo(() => groupPenseeCards(buildPenseeCards(visiblePensees, contacts, today)), [visiblePensees, contacts, today]);
 
-  function openInCalendar(focusDate: string) {
-    navigateToAttention((name, params) => (navigation as any).navigate(name, params), { kind: 'calendar', focusDate });
+  function openDetail(penseeId: string) {
+    navigation.navigate('PenseeDetail', { penseeId });
+  }
+
+  function openCreate() {
+    navigation.navigate('PenseeDetail', { contactId: filterContactId });
   }
 
   function clearFilter() {
@@ -54,14 +60,38 @@ export function PenseesScreen() {
 
   return (
     <Screen>
-      <Text style={[styles.h1, { color: theme.ink }]}>{isFiltered ? `Pensées de ${filterContact?.prenom ?? 'ce proche'}` : 'Pensées'}</Text>
-      {isFiltered ? (
-        <Pressable onPress={clearFilter} style={styles.clearFilterBtn}>
-          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Toutes les pensées</Text>
-        </Pressable>
-      ) : (
-        <Text style={[styles.sub, { color: theme.inkSoft }]}>Ce que tu as confié à Pensif.</Text>
-      )}
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.h1, { color: theme.ink }]}>{isFiltered ? `Pensées de ${filterContact?.prenom ?? 'ce proche'}` : 'Pensées'}</Text>
+          {isFiltered ? (
+            <Pressable onPress={clearFilter} style={styles.clearFilterBtn}>
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Toutes les pensées</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.sub, { color: theme.inkSoft }]}>Ce que tu as confié à Pensif.</Text>
+          )}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {/* Point d'entrée secondaire de la capture intelligente — plus discret que sur Accueil,
+              même action (voir architecture Capture Intelligente). */}
+          <Pressable
+            onPress={() => navigation.navigate('Capture')}
+            accessibilityRole="button"
+            accessibilityLabel="Capture intelligente"
+            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+          >
+            <Ionicons name="mic-outline" size={18} color={theme.inkSoft} />
+          </Pressable>
+          <Pressable
+            onPress={openCreate}
+            accessibilityRole="button"
+            accessibilityLabel="Ajouter une pensée"
+            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+          >
+            <Ionicons name="add" size={20} color={theme.ink} />
+          </Pressable>
+        </View>
+      </View>
 
       {isEmpty ? (
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
@@ -71,10 +101,10 @@ export function PenseesScreen() {
           <Text style={[styles.emptyBody, { color: theme.inkSoft }]}>
             {isFiltered
               ? `Tu n’as pas encore confié de pensée liée à ${filterContact?.prenom ?? 'ce proche'}.`
-              : 'Note une petite chose que tu aimerais que Pensif te rappelle au bon moment.'}
+              : 'Note une petite chose que tu aimerais que Pensif retienne — une date n’est pas obligatoire.'}
           </Text>
           <View style={{ marginTop: 16, width: '100%' }}>
-            <PrimaryButton label="Aller au calendrier" onPress={() => (navigation as any).navigate('Tabs', { screen: 'Calendrier' })} />
+            <PrimaryButton label="Ajouter une pensée" onPress={openCreate} />
           </View>
         </View>
       ) : (
@@ -83,7 +113,7 @@ export function PenseesScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
               {groups.today.map((c) => (
-                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openInCalendar(c.pensee.date)} />
+                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
               ))}
             </>
           )}
@@ -92,13 +122,24 @@ export function PenseesScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>À VENIR</Text>
               {groups.upcoming.map((c) => (
-                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openInCalendar(c.pensee.date)} />
+                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
               ))}
             </>
           )}
 
-          {groups.today.length === 0 && groups.upcoming.length === 0 && groups.past.length > 0 && (
+          {groups.today.length === 0 && groups.upcoming.length === 0 && groups.memo.length === 0 && groups.past.length > 0 && (
             <Text style={[styles.emptyInline, { color: theme.inkSoft }]}>Rien d’actif ou à venir pour l’instant.</Text>
+          )}
+
+          {groups.memo.length > 0 && (
+            <>
+              {/* Pensées sans aucune date ni rappel — jamais reléguées en "passées" simplement
+                  parce qu'elles vieillissent (CHANTIER PENSÉES V2). */}
+              <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>MÉMORISÉES</Text>
+              {groups.memo.map((c) => (
+                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
+              ))}
+            </>
           )}
 
           {groups.past.length > 0 && (
@@ -109,7 +150,7 @@ export function PenseesScreen() {
                 </Text>
                 <Ionicons name={showPast ? 'chevron-up' : 'chevron-down'} size={16} color={theme.inkSoft} />
               </Pressable>
-              {showPast && groups.past.map((c) => <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openInCalendar(c.pensee.date)} muted />)}
+              {showPast && groups.past.map((c) => <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} muted />)}
             </>
           )}
         </>
@@ -133,8 +174,10 @@ function PenseeRow({ card, theme, onPress, muted }: { card: PenseeCard; theme: a
 }
 
 const styles = StyleSheet.create({
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   h1: { fontSize: 24, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2, marginBottom: 8 },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   clearFilterBtn: { marginTop: 4, marginBottom: 8, alignSelf: 'flex-start' },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 10 },

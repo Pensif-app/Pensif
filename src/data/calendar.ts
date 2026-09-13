@@ -134,15 +134,6 @@ export function contactName(contacts: Contact[], id: string) {
   return c ? `${c.prenom} ${c.nom}`.trim() : '';
 }
 
-export const reminderLabels: Record<string, string> = {
-  '0': 'le jour J',
-  '1': '1 jour avant',
-  '3': '3 jours avant',
-  '7': '1 semaine avant',
-  '14': '2 semaines avant',
-  custom: 'à définir',
-};
-
 /** Formate un délai personnalisé (en minutes) en "X sem Y j Z h W min avant" (ignore les unités nulles). */
 export function formatCustomOffset(totalMinutes: number): string {
   const weeks = Math.floor(totalMinutes / (7 * 24 * 60));
@@ -238,11 +229,15 @@ export function nextFamilyFeteDate(label: string, today: Date, maxDaysAhead = 40
   return null;
 }
 
+export type PeriodPensee = Pensee & { date: string; endDate: string };
+
 /** Pensées de période (surlignage) qui touchent au moins un jour du mois affiché. */
-export function periodsInMonth(pensees: Pensee[], year: number, month: number): Pensee[] {
+export function periodsInMonth(pensees: Pensee[], year: number, month: number): PeriodPensee[] {
   const monthStart = isoOf(year, month, 1);
   const monthEnd = isoOf(year, month, daysInMonth(year, month));
-  return pensees.filter((p): p is Pensee & { endDate: string } => Boolean(p.endDate) && p.date <= monthEnd && p.endDate! >= monthStart);
+  return pensees.filter(
+    (p): p is PeriodPensee => Boolean(p.date) && Boolean(p.endDate) && p.date! <= monthEnd && p.endDate! >= monthStart,
+  );
 }
 
 /** Écart en jours (calendaires, pas d'heures) entre une date ISO 'YYYY-MM-DD' quelconque et
@@ -255,28 +250,130 @@ export function daysBetween(iso: string, today: Date): number {
   return Math.round((target.getTime() - todayMid.getTime()) / 86400000);
 }
 
+/**
+ * Ancre calendrier effective d'une pensée (CHANTIER PENSÉES V2) : la période/le jour explicite
+ * (`date`/`endDate`) si présent, sinon le jour du rappel s'il y en a un (`reminderAt`), sinon
+ * `null` — une pensée purement mémorisée (aucun jour précis, aucun rappel) n'a AUCUNE ancre et
+ * n'apparaît donc dans aucune vue temporelle (Calendrier/Accueil), seulement dans l'onglet Pensées.
+ * Centralisé ici pour qu'Accueil/Calendrier/Pensées appliquent tous la même règle plutôt que de la
+ * recoder séparément.
+ */
+export function penseeAnchor(p: Pensee): { date: string; endDate: string | null } | null {
+  if (p.date) return { date: p.date, endDate: p.endDate ?? null };
+  if (p.reminderAt) return { date: p.reminderAt.slice(0, 10), endDate: null };
+  return null;
+}
+
 /** Une pensée (ponctuelle ou de période) est-elle "active" un jour ISO donné ? Même définition
- *  utilisée par l'Accueil (homeAttention.ts) et par un futur écran Pensées — centralisée ici pour
- *  ne pas être recodée séparément à chaque endroit qui doit le savoir. */
+ *  utilisée par l'Accueil (homeAttention.ts) et l'écran Pensées — centralisée ici pour ne pas être
+ *  recodée séparément à chaque endroit qui doit le savoir. Toujours `false` pour une pensée sans
+ *  ancre (voir penseeAnchor) : elle n'est "active" aucun jour en particulier. */
 export function isPenseeActiveOn(p: Pensee, iso: string): boolean {
-  return p.endDate ? p.date <= iso && iso <= p.endDate : p.date === iso;
+  const anchor = penseeAnchor(p);
+  if (!anchor) return false;
+  return anchor.endDate ? anchor.date <= iso && iso <= anchor.endDate : anchor.date === iso;
 }
 
 /** Une pensée (ponctuelle ou de période) est-elle définitivement terminée à la date `todayIso` ?
- *  Vrai pour une pensée ponctuelle déjà passée, ou une période dont `endDate` est révolue. */
+ *  Vrai pour une pensée ponctuelle déjà passée, ou une période dont `endDate` est révolue. Une
+ *  pensée SANS ancre (voir penseeAnchor) n'est JAMAIS "terminée" — elle reste un élément mémorisé
+ *  indéfiniment, jamais reléguée en "passée" simplement parce qu'elle vieillit (CHANTIER PENSÉES V2).
+ */
 export function isPenseeEnded(p: Pensee, todayIso: string): boolean {
-  return p.endDate ? p.endDate < todayIso : p.date < todayIso;
+  const anchor = penseeAnchor(p);
+  if (!anchor) return false;
+  return anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
 }
 
-/** Sous-titre lisible d'une pensée : "Du X au Y" pour une période, sinon la date seule — avec le
- *  nom du proche lié en suffixe s'il y en a un. Même formatage utilisé par l'Accueil et un futur
- *  écran Pensées, centralisé ici pour n'exister qu'à un seul endroit. */
+/** Sous-titre lisible d'une pensée : "Du X au Y" pour une période, la date seule pour une pensée
+ *  ancrée à un jour, ou "Notée le J" (date de création) pour une pensée purement mémorisée sans
+ *  aucune ancre — toujours avec le nom du proche lié en suffixe s'il y en a un. Même formatage
+ *  utilisé par l'Accueil et l'écran Pensées, centralisé ici pour n'exister qu'à un seul endroit. */
 export function penseeSubtitle(p: Pensee, contacts: Contact[]): string {
   const linkedName = p.contactId ? contactName(contacts, p.contactId) : '';
-  if (p.endDate) {
-    return `Du ${frDate(p.date)} au ${frDate(p.endDate)}${linkedName ? ` · ${linkedName}` : ''}`;
+  const anchor = penseeAnchor(p);
+  if (anchor?.endDate) {
+    return `Du ${frDate(anchor.date)} au ${frDate(anchor.endDate)}${linkedName ? ` · ${linkedName}` : ''}`;
   }
-  return linkedName ? `${frDate(p.date)} · ${linkedName}` : frDate(p.date);
+  if (anchor) {
+    return linkedName ? `${frDate(anchor.date)} · ${linkedName}` : frDate(anchor.date);
+  }
+  const created = frDate(p.createdAt.slice(0, 10));
+  return linkedName ? `Notée le ${created} · ${linkedName}` : `Notée le ${created}`;
+}
+
+/** Libellé court d'un rappel absolu (ex. "9h00", ou "3 sept. à 9h00" si son jour diffère de celui
+ *  passé en référence — typiquement le jour de l'événement affiché à l'écran). */
+export function reminderAtLabel(reminderAt: string, referenceDayIso?: string): string {
+  const d = new Date(reminderAt);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const time = mm === '00' ? `${d.getHours()}h` : `${hh}h${mm}`;
+  const reminderDayIso = isoOf(d.getFullYear(), d.getMonth(), d.getDate());
+  if (referenceDayIso && reminderDayIso !== referenceDayIso) {
+    return `${frDate(reminderDayIso)} à ${time}`;
+  }
+  return time;
+}
+
+/**
+ * Soustrait `offsetMinutes` d'une date via les champs locaux (heures/minutes), pas une simple
+ * différence de millisecondes — un décalage fixe en ms ignore un changement d'heure (DST) tombant
+ * dans l'intervalle et peut décaler le résultat d'une heure, voire faire déborder sur le mauvais
+ * jour. `setMinutes` accepte nativement des valeurs hors 0-59 et recalcule la date résultante en
+ * tenant compte du fuseau/DST en vigueur POUR CETTE DATE. Partagé entre la saisie d'un rappel
+ * personnalisé (CalendarScreen.tsx) et la normalisation d'anciennes pensées (normalizePensee
+ * ci-dessous), d'où sa présence ici plutôt que dans notificationPlanning.ts.
+ */
+export function subtractMinutesLocal(date: Date, minutes: number): Date {
+  const result = new Date(date);
+  result.setMinutes(result.getMinutes() - minutes);
+  return result;
+}
+
+/**
+ * Reconstruit un `reminderAt` absolu à partir de l'ancien couple remind/customOffsetMinutes d'une
+ * pensée créée avant CHANTIER PENSÉES V2 — même calcul que faisait autrefois
+ * notificationPlanning.ts au moment de programmer la notification, mais fait une seule fois ici, à
+ * la lecture, pour que le reste de l'app ne connaisse plus qu'un rappel absolu et unique.
+ */
+function legacyReminderAt(raw: { date?: string | null; remind?: string; customOffsetMinutes?: number | null }): string | null {
+  if (!raw.date || !raw.remind) return null;
+  const parts = raw.date.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  if (raw.remind === 'custom') {
+    if (raw.customOffsetMinutes == null) return null;
+    const endOfDay = new Date(y, m, d, 23, 59, 59);
+    return subtractMinutesLocal(endOfDay, raw.customOffsetMinutes).toISOString();
+  }
+  const days = parseInt(raw.remind, 10);
+  if (Number.isNaN(days)) return null;
+  const target = new Date(y, m, d, 9, 0, 0);
+  target.setDate(target.getDate() - days);
+  return target.toISOString();
+}
+
+/**
+ * Comble les champs absents sur une pensée créée avant CHANTIER PENSÉES V2 (ancien cache
+ * AsyncStorage, ou ligne Supabase pas encore migrée) — SEUL endroit du code qui doit connaître
+ * l'ancienne forme (`date` obligatoire, `remind`/`customOffsetMinutes`), même principe que
+ * normalizeQuizProfile (quiz.ts)/normalizeRelation (FicheScreen.tsx). `raw` est volontairement typé
+ * `any` : il peut porter des champs qui n'existent plus dans `Pensee` (remind, customOffsetMinutes).
+ */
+export function normalizePensee(raw: any): Pensee {
+  const reminderAt: string | null =
+    raw.reminderAt !== undefined ? raw.reminderAt : legacyReminderAt(raw);
+  return {
+    id: raw.id,
+    texte: raw.texte,
+    contactId: raw.contactId ?? null,
+    createdAt: raw.createdAt ?? (raw.date ? `${raw.date}T00:00:00.000Z` : new Date(0).toISOString()),
+    date: raw.date ?? null,
+    endDate: raw.endDate ?? null,
+    reminderAt,
+  };
 }
 
 export function getDayEvents(
@@ -316,15 +413,17 @@ export function getDayEvents(
   }
 
   pensees.forEach((p) => {
-    const isPeriod = Boolean(p.endDate);
-    const inRange = isPeriod ? iso >= p.date && iso <= p.endDate! : p.date === iso;
+    const isPeriod = Boolean(p.date) && Boolean(p.endDate);
+    // Une pensée sans `date` (aucune ancre calendrier, voir penseeAnchor) n'apparaît jamais dans le
+    // Calendrier jour par jour — seulement dans l'onglet Pensées.
+    const inRange = !p.date ? false : isPeriod ? iso >= p.date && iso <= p.endDate! : p.date === iso;
     if (inRange) {
       const extra = p.contactId ? ` · liée à ${contactName(contacts, p.contactId)}` : '';
-      const remindLabel =
-        p.remind === 'custom' && p.customOffsetMinutes != null
-          ? formatCustomOffset(p.customOffsetMinutes)
-          : reminderLabels[p.remind];
-      const periodLabel = isPeriod ? `Du ${frDate(p.date)} au ${frDate(p.endDate!)}` : `Pensée · rappel ${remindLabel}`;
+      const periodLabel = isPeriod
+        ? `Du ${frDate(p.date!)} au ${frDate(p.endDate!)}`
+        : p.reminderAt
+        ? `Pensée · rappel ${reminderAtLabel(p.reminderAt, iso)}`
+        : 'Pensée';
       list.push({
         type: 'pensee',
         label: p.texte,

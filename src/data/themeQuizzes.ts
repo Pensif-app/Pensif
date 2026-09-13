@@ -298,7 +298,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         // sécurité/suivi) le fait déjà (voir audit Phase 3A : éviter de poser une question qui ne
         // réduit jamais le pool de candidats).
         id: 'lieu',
-        prompt: 'Il s’entraîne surtout…',
+        prompt: '{Il} s’entraîne surtout…',
         type: 'choice',
         options: [
           { key: 'maison', label: 'À la maison' },
@@ -413,7 +413,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'transport',
-        prompt: 'Il voyage surtout…',
+        prompt: '{Il} voyage surtout…',
         type: 'choice',
         options: [
           { key: 'avion', label: 'En avion' },
@@ -436,7 +436,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'style',
-        prompt: 'Il voyage plutôt…',
+        prompt: '{Il} voyage plutôt…',
         type: 'choice',
         options: [
           { key: 'leger', label: 'Léger' },
@@ -453,18 +453,18 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'format',
-        prompt: 'Il lit surtout…',
+        prompt: '{Il} lit surtout…',
         type: 'choice',
         options: [
           { key: 'papier', label: 'Sur papier' },
           { key: 'numerique', label: 'Sur liseuse numérique' },
           { key: 'audio', label: 'En livre audio' },
-          { key: 'ecriture', label: 'Il écrit aussi' },
+          { key: 'ecriture', label: '{Il} écrit aussi' },
         ],
       },
       {
         id: 'contexte',
-        prompt: 'Il lit surtout…',
+        prompt: '{Il} lit surtout…',
         type: 'choice',
         options: [
           { key: 'maison', label: 'À la maison' },
@@ -516,7 +516,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'usage',
-        prompt: 'Il aime surtout…',
+        prompt: '{Il} aime surtout…',
         type: 'choice',
         options: [
           { key: 'acheter', label: 'Acheter de nouvelles pièces' },
@@ -606,7 +606,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         type: 'choice',
         options: [
           { key: 'utilitaire', label: 'Juste un moyen de transport' },
-          { key: 'aime-conduire', label: 'Il aime conduire' },
+          { key: 'aime-conduire', label: '{Il} aime conduire' },
           { key: 'entretien', label: 'Attentif à l’entretien' },
           { key: 'passionne', label: 'Un vrai passionné' },
         ],
@@ -632,7 +632,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       // pas déjà capturé par `besoin`.
       {
         id: 'frequence',
-        prompt: 'Il prend la voiture…',
+        prompt: '{Il} prend la voiture…',
         type: 'choice',
         options: [
           { key: 'quotidien', label: 'Tous les jours' },
@@ -642,7 +642,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'diy',
-        prompt: 'Il bricole sa voiture lui-même ?',
+        prompt: '{Il} bricole sa voiture {lui}-même ?',
         type: 'choice',
         options: [
           { key: 'oui', label: 'Oui, complètement' },
@@ -659,7 +659,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'activite',
-        prompt: 'Il aime la nature plutôt…',
+        prompt: '{Il} aime la nature plutôt…',
         type: 'choice',
         options: [
           { key: 'randonnee', label: 'En randonnée' },
@@ -671,7 +671,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'niveau',
-        prompt: 'Il sort en nature…',
+        prompt: '{Il} sort en nature…',
         type: 'choice',
         options: [
           { key: 'occasionnel', label: 'Occasionnellement' },
@@ -710,7 +710,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'contenu',
-        prompt: 'Il regarde plutôt…',
+        prompt: '{Il} regarde plutôt…',
         type: 'choice',
         options: [
           { key: 'films', label: 'Des films' },
@@ -720,7 +720,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'contexte',
-        prompt: 'Il regarde surtout…',
+        prompt: '{Il} regarde surtout…',
         type: 'choice',
         options: [
           { key: 'cinema', label: 'Au cinéma' },
@@ -753,7 +753,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'pratique',
-        prompt: 'Il pratique plutôt…',
+        prompt: '{Il} pratique plutôt…',
         type: 'choice',
         options: [
           { key: 'dessin', label: 'Dessin' },
@@ -776,7 +776,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'support',
-        prompt: 'Il crée plutôt…',
+        prompt: '{Il} crée plutôt…',
         type: 'choice',
         options: [
           { key: 'manuel', label: 'À la main' },
@@ -821,7 +821,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       // pour la satisfaire.
       {
         id: 'frequence',
-        prompt: 'Il en aurait l’usage…',
+        prompt: '{Il} en aurait l’usage…',
         type: 'choice',
         options: [
           { key: 'quotidien', label: 'Au quotidien' },
@@ -840,7 +840,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'parfum',
-        prompt: 'Il aime les objets parfumés ?',
+        prompt: '{Il} aime les objets parfumés ?',
         type: 'choice',
         options: [
           { key: 'oui', label: 'Oui' },
@@ -882,7 +882,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'besoin',
-        prompt: 'Il aime plutôt lui offrir…',
+        prompt: '{Il} aime plutôt lui offrir…',
         type: 'choice',
         options: [
           { key: 'jeu', label: 'Des jouets' },
@@ -914,7 +914,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         // Filtre DUR potentiel : une recharge/accessoire compatible seulement avec un type
         // d'appareil (ex. films Instax) disparaît si {il} n'a pas cet appareil précis.
         id: 'appareil',
-        prompt: 'Il photographie surtout avec…',
+        prompt: '{Il} photographie surtout avec…',
         type: 'choice',
         options: [
           { key: 'smartphone', label: 'Son smartphone' },
@@ -925,7 +925,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'usage',
-        prompt: 'Il aime surtout…',
+        prompt: '{Il} aime surtout…',
         type: 'choice',
         options: [
           { key: 'prise-de-vue', label: 'Prendre des photos' },
@@ -965,7 +965,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'lieu',
-        prompt: 'Il jardine plutôt…',
+        prompt: '{Il} jardine plutôt…',
         type: 'choice',
         options: [
           { key: 'interieur', label: 'À l’intérieur' },
@@ -1016,7 +1016,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'univers',
-        prompt: 'Il bricole plutôt…',
+        prompt: '{Il} bricole plutôt…',
         type: 'choice',
         options: [
           { key: 'maison', label: 'Réparations à la maison' },
@@ -1038,7 +1038,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'outil',
-        prompt: 'Il préfère plutôt…',
+        prompt: '{Il} préfère plutôt…',
         type: 'choice',
         options: [
           { key: 'manuel', label: 'L’outillage manuel' },
@@ -1067,7 +1067,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     questions: [
       {
         id: 'usage',
-        prompt: 'Il danse plutôt…',
+        prompt: '{Il} danse plutôt…',
         type: 'choice',
         options: [
           { key: 'sport', label: 'Comme sport' },
@@ -1078,7 +1078,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'lieu',
-        prompt: 'Il danse surtout…',
+        prompt: '{Il} danse surtout…',
         type: 'choice',
         options: [
           { key: 'maison', label: 'À la maison' },
