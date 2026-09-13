@@ -11,7 +11,6 @@ import {
   nextFamilyFeteDate,
   nextOccurrenceDate,
   normalizeName,
-  reminderLabels,
 } from '../data/calendar';
 import { isQuizComplete } from '../data/quiz';
 import { HomeAttentionAction, birthdayCTA } from '../data/homeAttention';
@@ -29,7 +28,10 @@ export type NotificationTapData =
   | { kind: 'birthday'; contactId: string }
   | { kind: 'fete-prenom'; contactId: string }
   | { kind: 'fete-familiale'; contactId: string }
-  | { kind: 'pensee'; focusDate: string }
+  // CHANTIER NAVIGATION NOTIFICATION PENSÉES V2 : `penseeId` remplace l'ancien `focusDate` — une
+  // pensée peut n'avoir aucune `date`/`endDate` (voir Pensee.reminderAt, types.ts), le Calendrier
+  // n'est donc plus une destination fiable. Le tap ouvre désormais directement la pensée elle-même.
+  | { kind: 'pensee'; penseeId: string }
   | { kind: 'none' };
 
 export type NotificationCandidate = {
@@ -41,20 +43,6 @@ export type NotificationCandidate = {
   body: string;
   data: NotificationTapData;
 };
-
-/**
- * Soustrait `offsetMinutes` d'une date via les champs locaux (heures/minutes), pas une simple
- * différence de millisecondes — un décalage fixe en ms ignore un changement d'heure (DST) tombant
- * dans l'intervalle et peut décaler le résultat d'une heure, voire faire déborder sur le mauvais
- * jour. `setMinutes` accepte nativement des valeurs hors 0-59 et recalcule la date résultante en
- * tenant compte du fuseau/DST en vigueur POUR CETTE DATE — même principe que `setDate` déjà utilisé
- * pour le rappel non-custom ci-dessous, juste au niveau de la minute plutôt que du jour.
- */
-export function subtractMinutesLocal(date: Date, minutes: number): Date {
-  const result = new Date(date);
-  result.setMinutes(result.getMinutes() - minutes);
-  return result;
-}
 
 /**
  * Construit TOUS les candidats possibles (sans filtrer les dates passées ni appliquer de budget —
@@ -138,28 +126,18 @@ export function buildCandidates(contacts: Contact[], pensees: Pensee[], today: D
   }
 
   // Pensées — un seul cycle : ni période ni pensée ponctuelle ne se répètent d'une année sur
-  // l'autre, donc toujours tier 0. Une pensée de PÉRIODE n'a qu'UNE notification, au début de la
-  // période (voir §10) — l'Accueil, lui, continue de l'afficher comme active chaque jour de la
-  // période ; ce sont deux responsabilités différentes assumées volontairement différemment ici.
+  // l'autre, donc toujours tier 0. `reminderAt` est désormais une date/heure ABSOLUE et autonome
+  // (CHANTIER PENSÉES V2, voir types.ts) — calculée une fois à la saisie (Calendrier ou fiche
+  // pensée), jamais recalculée ici à partir d'un couple remind/date. Une pensée sans `reminderAt`
+  // n'a simplement aucune notification (comportement voulu : le rappel est entièrement facultatif).
+  // Une pensée de PÉRIODE garde UNE seule notification, au début de la période — l'Accueil, lui,
+  // continue de l'afficher comme active chaque jour de la période ; ce sont deux responsabilités
+  // différentes assumées volontairement différemment ici.
   for (const p of pensees) {
-    const parts = p.date.split('-');
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    let reminder: Date;
-    let body: string;
-    if (p.remind === 'custom') {
-      if (p.customOffsetMinutes == null) continue;
-      const endOfDay = new Date(year, month, day, 23, 59, 59);
-      reminder = subtractMinutesLocal(endOfDay, p.customOffsetMinutes);
-      body = p.texte;
-    } else {
-      const target = new Date(year, month, day, 9, 0, 0);
-      reminder = new Date(target);
-      reminder.setDate(reminder.getDate() - parseInt(p.remind, 10));
-      body = `${p.texte} (rappel ${reminderLabels[p.remind]})`;
-    }
-    list.push({ triggerAt: reminder, tier: 0, title: '💭 Pensée', body, data: { kind: 'pensee', focusDate: p.date } });
+    if (!p.reminderAt) continue;
+    // `penseeId` (pas `focusDate`) — voir NotificationTapData et resolveNotificationAction :
+    // navigation directe vers la pensée elle-même (CHANTIER NAVIGATION NOTIFICATION PENSÉES V2).
+    list.push({ triggerAt: new Date(p.reminderAt), tier: 0, title: '💭 Pensée', body: p.texte, data: { kind: 'pensee', penseeId: p.id } });
   }
 
   return list;
@@ -180,12 +158,14 @@ export function selectCandidatesToSchedule(candidates: NotificationCandidate[], 
 
 /**
  * Traduit le payload d'une notification en décision de navigation, avec l'état LIVE des contacts
- * au moment du tap (jamais l'état figé au moment où la notification a été programmée — un rappel
- * anniversaire programmé il y a 2 semaines doit refléter l'avancement RÉEL du quiz/cadeau tapé
- * aujourd'hui). Réutilise `birthdayCTA` de homeAttention.ts au lieu de recoder cette petite machine
- * à états une deuxième fois (voir §8 du chantier).
+ * (et, depuis CHANTIER NAVIGATION NOTIFICATION PENSÉES V2, des pensées) au moment du tap — jamais
+ * l'état figé au moment où la notification a été programmée. Réutilise `birthdayCTA` de
+ * homeAttention.ts au lieu de recoder cette petite machine à états une deuxième fois (voir §8 du
+ * chantier). Une pensée supprimée entre la programmation et le tap suit exactement le même principe
+ * qu'un contact supprimé (`birthday`/`fete-*` ci-dessous) : aucune navigation plutôt qu'un écran
+ * cassé — voir aussi le garde-fou symétrique dans PenseeDetailScreen.tsx (défense en profondeur).
  */
-export function resolveNotificationAction(dataRaw: unknown, contacts: Contact[], today: Date): HomeAttentionAction | null {
+export function resolveNotificationAction(dataRaw: unknown, contacts: Contact[], pensees: Pensee[], today: Date): HomeAttentionAction | null {
   const data = dataRaw as NotificationTapData | undefined;
   if (!data) return null;
   switch (data.kind) {
@@ -200,8 +180,10 @@ export function resolveNotificationAction(dataRaw: unknown, contacts: Contact[],
       const exists = contacts.some((c) => c.id === data.contactId);
       return exists ? { kind: 'fiche', contactId: data.contactId } : null;
     }
-    case 'pensee':
-      return { kind: 'calendar', focusDate: data.focusDate };
+    case 'pensee': {
+      const exists = pensees.some((p) => p.id === data.penseeId);
+      return exists ? { kind: 'pensee-detail', penseeId: data.penseeId } : null;
+    }
     case 'none':
     default:
       return null;

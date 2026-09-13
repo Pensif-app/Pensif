@@ -5,43 +5,48 @@
 // calculs de base (pensée active aujourd'hui, pensée terminée, sous-titre) sont partagés via
 // calendar.ts plutôt que recodés une 2e fois.
 import { Contact, Pensee } from './types';
-import { daysBetween, dIso, formatCustomOffset, isPenseeActiveOn, isPenseeEnded, penseeSubtitle, reminderLabels } from './calendar';
+import { daysBetween, dIso, isPenseeActiveOn, isPenseeEnded, penseeAnchor, penseeSubtitle, reminderAtLabel } from './calendar';
 
-export type PenseeBucket = 'today' | 'upcoming' | 'past';
+// 'memo' — CHANTIER PENSÉES V2 : une pensée sans aucune ancre calendrier ni rappel (voir
+// penseeAnchor, calendar.ts) n'est ni "à venir" ni "passée", elle reste un élément mémorisé — elle
+// ne devient JAMAIS "passée" simplement parce qu'elle vieillit.
+export type PenseeBucket = 'today' | 'upcoming' | 'past' | 'memo';
 
 export type PenseeCard = {
   id: string;
   pensee: Pensee;
   subtitle: string;
-  /** null si aucun rappel exploitable (ex. rappel custom sans customOffsetMinutes renseigné). */
+  /** null si la pensée n'a aucun rappel programmé (entièrement facultatif désormais). */
   reminderLabel: string | null;
   bucket: PenseeBucket;
   /** Sert uniquement au tri : 0 = active aujourd'hui, positif = jours avant, négatif = jours après
-   *  (pensée passée). Jamais affiché tel quel, jamais utilisé comme priorité/score. */
+   *  (pensée passée), 0 par convention pour une pensée "memo" (non utilisé pour son tri, voir
+   *  groupPenseeCards). Jamais affiché tel quel, jamais utilisé comme priorité/score. */
   daysFromToday: number;
 };
 
-function reminderLabelFor(p: Pensee): string | null {
-  if (p.remind === 'custom') {
-    return p.customOffsetMinutes != null ? `Rappel ${formatCustomOffset(p.customOffsetMinutes)}` : null;
-  }
-  return `Rappel ${reminderLabels[p.remind]}`;
-}
-
 /** Construit une carte par pensée, sans filtrer ni trier — voir groupPenseeCards pour la répartition
- *  en 3 sections attendue par l'écran. */
+ *  en groupes attendue par l'écran. */
 export function buildPenseeCards(pensees: Pensee[], contacts: Contact[], today: Date): PenseeCard[] {
   const todayIso = dIso(today);
   return pensees.map((p) => {
+    const anchor = penseeAnchor(p);
+    // Référence le jour de l'ancre (event/période) pour n'afficher l'heure seule que si le rappel
+    // tombe ce même jour — sinon (ex. rappel "la veille") le jour du rappel est précisé en plus.
+    const reminderLabel = p.reminderAt ? `Rappel ${reminderAtLabel(p.reminderAt, anchor?.date)}` : null;
+    if (!anchor) {
+      // Purement mémorisée : jamais "passée", triée par date de création (voir groupPenseeCards).
+      return { id: p.id, pensee: p, subtitle: penseeSubtitle(p, contacts), reminderLabel, bucket: 'memo' as const, daysFromToday: 0 };
+    }
     const activeToday = isPenseeActiveOn(p, todayIso);
     const ended = isPenseeEnded(p, todayIso);
-    const daysFromToday = activeToday ? 0 : daysBetween(p.date, today);
+    const daysFromToday = activeToday ? 0 : daysBetween(anchor.date, today);
     const bucket: PenseeBucket = activeToday ? 'today' : ended ? 'past' : 'upcoming';
     return {
       id: p.id,
       pensee: p,
       subtitle: penseeSubtitle(p, contacts),
-      reminderLabel: reminderLabelFor(p),
+      reminderLabel,
       bucket,
       daysFromToday,
     };
@@ -49,15 +54,19 @@ export function buildPenseeCards(pensees: Pensee[], contacts: Contact[], today: 
 }
 
 /**
- * Répartit les cartes déjà construites en 3 groupes, chacun trié comme demandé (§6 du chantier) :
- * "à venir" du plus proche au plus lointain, "passées" de la plus récente à la plus ancienne.
- * Aucun scoring — un tri chronologique simple dans chaque groupe, rien d'autre.
+ * Répartit les cartes déjà construites en groupes, chacun trié comme demandé (§6 du chantier) :
+ * "à venir" du plus proche au plus lointain, "passées" de la plus récente à la plus ancienne,
+ * "mémorisées" (sans ancre) de la plus récemment créée à la plus ancienne. Aucun scoring — un tri
+ * chronologique simple dans chaque groupe, rien d'autre.
  */
-export function groupPenseeCards(cards: PenseeCard[]): { today: PenseeCard[]; upcoming: PenseeCard[]; past: PenseeCard[] } {
+export function groupPenseeCards(
+  cards: PenseeCard[],
+): { today: PenseeCard[]; upcoming: PenseeCard[]; past: PenseeCard[]; memo: PenseeCard[] } {
   const today = cards.filter((c) => c.bucket === 'today');
   const upcoming = cards.filter((c) => c.bucket === 'upcoming').sort((a, b) => a.daysFromToday - b.daysFromToday);
   // daysFromToday est négatif pour une pensée passée (ex. -1 = hier, -30 = il y a un mois) — trier
   // en DÉCROISSANT ramène donc la plus récente (la moins négative) en premier.
   const past = cards.filter((c) => c.bucket === 'past').sort((a, b) => b.daysFromToday - a.daysFromToday);
-  return { today, upcoming, past };
+  const memo = cards.filter((c) => c.bucket === 'memo').sort((a, b) => b.pensee.createdAt.localeCompare(a.pensee.createdAt));
+  return { today, upcoming, past, memo };
 }

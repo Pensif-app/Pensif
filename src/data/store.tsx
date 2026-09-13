@@ -1,12 +1,24 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Contact, Pensee } from './types';
 import { seedContacts, seedPensees } from './seed';
-import { occurrenceYear } from './calendar';
+import { normalizePensee, occurrenceYear } from './calendar';
+import { resolveBootData } from './storeInit';
+import {
+  Outbox,
+  OutboxOp,
+  drainOutbox,
+  enqueueDeleteContact,
+  enqueueDeletePensee,
+  enqueueUpsertContact,
+  enqueueUpsertPensee,
+  migrateLegacyPendingDeletes,
+} from './outbox';
 import { generateId } from '../lib/id';
 import { rescheduleAllReminders, cancelAllReminders, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { subscribeToConnectivityRestored } from '../lib/netInfo';
 import {
   deleteContactRemote,
   deletePenseeRemote,
@@ -14,8 +26,8 @@ import {
   insertContactRemote,
   insertPenseeRemote,
   loadRemoteData,
-  setGiftSentRemote,
   updateContactRemote,
+  updatePenseeRemote,
 } from '../lib/supabaseRepo';
 
 const KEYS = {
@@ -24,6 +36,9 @@ const KEYS = {
   userName: 'pensif.userName',
   themePref: 'pensif.themePref',
   notificationsEnabled: 'pensif.notificationsEnabled',
+  outbox: 'pensif.outbox',
+  // Legacy (CHANTIER SYNC OFFLINE→SUPABASE) : lues une seule fois au boot pour migration vers
+  // l'outbox (voir migrateLegacyPendingDeletes), plus jamais écrites ensuite.
   pendingDeleteContacts: 'pensif.pendingDeleteContacts',
   pendingDeletePensees: 'pensif.pendingDeletePensees',
 };
@@ -43,6 +58,7 @@ type Store = {
   upsertContact: (contact: Contact) => void;
   deleteContact: (contactId: string) => void;
   addPensee: (pensee: Omit<Pensee, 'id'>) => void;
+  updatePensee: (pensee: Pensee) => void;
   deletePensee: (penseeId: string) => void;
   toggleGiftSent: (contactId: string) => void;
   themePref: ThemePref;
@@ -56,19 +72,138 @@ const StoreContext = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>(seedContacts);
-  const [pensees, setPensees] = useState<Pensee[]>(seedPensees);
+  // Un véritable nouvel utilisateur commence à zéro — les seeds ne servent plus que de données de
+  // démo explicites (bouton Réglages en mode local) ou de fixtures pour les scripts de test, jamais
+  // d'état initial implicite (voir CHANTIER PRÉ-BÊTA 1 §2).
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [pensees, setPensees] = useState<Pensee[]>([]);
   const [userName, setUserNameState] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [themePref, setThemePrefState] = useState<ThemePref>('system');
   const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
-  // Suppressions dont la confirmation serveur n'est pas encore arrivée — sans ça, un delete distant
-  // qui échoue silencieusement (réseau coupé pile à ce moment, etc.) faisait réapparaître le
-  // contact/la pensée "supprimé·e" au lancement suivant, puisque loadRemoteData() fait alors
-  // autorité et le retrouve toujours en base. Persisté pour survivre à un redémarrage.
-  const [pendingDeleteContactIds, setPendingDeleteContactIds] = useState<string[]>([]);
-  const [pendingDeletePenseeIds, setPendingDeletePenseeIds] = useState<string[]>([]);
+  // CHANTIER SYNC OFFLINE→SUPABASE : mutations pas encore confirmées côté serveur (create/update/
+  // delete, contacts ET pensées) — remplace l'ancien duo pendingDeleteContactIds (explicite, deletes
+  // seulement) / diff d'ids au boot (implicite, incapable de représenter une simple modification).
+  // Persistée pour survivre à un redémarrage complet de l'app (voir l'effet de persistance plus bas).
+  const [outbox, setOutbox] = useState<Outbox>([]);
+  // Source de vérité EN MÉMOIRE, tenue à jour de façon SYNCHRONE à chaque enqueue/drain (jamais via
+  // un effet réagissant à `outbox`, qui accuserait un cycle de retard sur un `setOutbox` tout juste
+  // appelé — un drain déclenché juste après un enqueue doit voir cet enqueue immédiatement).
+  // `outbox`/`setOutbox` restent le canal de persistance AsyncStorage + de reactivité React.
+  const outboxRef = useRef<Outbox>([]);
+  // Empêche deux drains de tourner en parallèle (boot + retour réseau quasi simultanés, etc.) — un
+  // drain lit/écrit l'outbox de bout en bout, deux en parallèle pourraient se marcher dessus.
+  const drainingRef = useRef(false);
+  const userIdRef = useRef<string | null>(null);
+  // BUG SYNC OFFLINE : évite deux tentatives de restauration de session en parallèle (NetInfo et
+  // AppState → active peuvent se déclencher quasi simultanément au retour réseau).
+  const sessionRestoringRef = useRef(false);
+
+  /** Exécute UNE opération outbox contre Supabase. Toute erreur (réseau ou autre) est traitée de
+   *  façon identique : l'opération est conservée pour un prochain essai — Pensif n'a actuellement
+   *  aucun moyen fiable de distinguer une vraie erreur applicative d'une coupure réseau, et ce n'est
+   *  pas le rôle de ce chantier d'introduire cette classification (voir le §"pas de système complexe
+   *  de conflits" de la consigne). */
+  async function executeOutboxOp(op: OutboxOp): Promise<{ ok: true } | { ok: false }> {
+    // Pas de session Supabase établie (jamais bootée en ligne, ou boot hors ligne) : inutile de
+    // tenter quoi que ce soit, y compris un update/delete qui n'a pas besoin de userId pour son
+    // payload — sans session, la requête serait de toute façon rejetée côté serveur (RLS). Même
+    // condition de garde que l'ancien `isSupabaseConfigured && userId` avant l'outbox.
+    if (!userIdRef.current) return { ok: false };
+    try {
+      if (op.kind === 'contact') {
+        if (op.action === 'delete') {
+          await deleteContactRemote(op.entityId);
+        } else if (op.isNew) {
+          const { initials, color, ...rest } = op.payload;
+          const created = await insertContactRemote(userIdRef.current, rest);
+          setContacts((prev) => prev.map((c) => (c.id === op.entityId ? created : c)));
+        } else {
+          await updateContactRemote(op.payload);
+        }
+      } else {
+        if (op.action === 'delete') {
+          await deletePenseeRemote(op.entityId);
+        } else if (op.isNew) {
+          const created = await insertPenseeRemote(userIdRef.current, op.payload);
+          setPensees((prev) => prev.map((p) => (p.id === op.entityId ? created : p)));
+        } else {
+          await updatePenseeRemote(op.payload);
+        }
+      }
+      return { ok: true };
+    } catch (e) {
+      console.warn('[Pensif] opération outbox échouée, conservée pour un prochain essai', op.kind, op.action, e);
+      return { ok: false };
+    }
+  }
+
+  /** Draine l'outbox — déclenchée au boot connecté, au retour au premier plan (drain de sécurité),
+   *  au retour réseau détecté (NetInfo), et juste après chaque enqueue (tentative immédiate). Un
+   *  seul drain à la fois (`drainingRef`) ; ne retire de l'outbox QUE les opérations confirmées
+   *  réussies entre-temps, jamais un remplacement intégral qui écraserait un enqueue survenu pendant
+   *  le drain (voir le commentaire sur `outboxRef` plus haut). */
+  async function drainNow() {
+    if (!isSupabaseConfigured) return;
+    if (drainingRef.current) return;
+    drainingRef.current = true;
+    try {
+      const snapshot = outboxRef.current;
+      if (snapshot.length === 0) return;
+      const result = await drainOutbox(snapshot, executeOutboxOp);
+      const succeededOpIds = new Set(
+        snapshot.filter((op) => !result.outbox.some((o) => o.opId === op.opId)).map((op) => op.opId),
+      );
+      if (succeededOpIds.size === 0) return;
+      const next = outboxRef.current.filter((op) => !succeededOpIds.has(op.opId));
+      outboxRef.current = next;
+      setOutbox(next);
+    } finally {
+      drainingRef.current = false;
+    }
+  }
+
+  /** Applique un enqueue (create/update/delete) de façon SYNCHRONE sur `outboxRef`, avant de
+   *  répercuter vers l'état React (persistance + re-render) et de tenter un drain immédiat. */
+  function enqueueAndDrain(mutate: (prev: Outbox) => Outbox) {
+    const next = mutate(outboxRef.current);
+    outboxRef.current = next;
+    setOutbox(next);
+    void drainNow();
+  }
+
+  /**
+   * BUG SYNC OFFLINE — COLD START : un cold start hors ligne peut échouer à charger `loadRemoteData`
+   * (réseau requis) alors que `ensureAnonSession()` réussit (session persistée localement, voir
+   * supabase.ts `persistSession: true`) — l'ancien code jetait quand même la session obtenue car il
+   * exigeait les deux à la fois (voir le commentaire du bloc de boot plus bas). Si `userIdRef` n'est
+   * TOUJOURS pas renseigné (session jamais obtenue, y compris localement — device jamais connecté,
+   * ou token expiré nécessitant un vrai refresh réseau), on retente ICI `ensureAnonSession()` avant
+   * de drainer. Ne fait RIEN à l'outbox en cas d'échec (elle reste intacte, retentée au prochain
+   * déclencheur) ; ne bloque jamais rien d'autre (pas d'await côté appelant).
+   */
+  async function restoreSessionThenDrain() {
+    if (!isSupabaseConfigured) return;
+    if (!userIdRef.current) {
+      if (sessionRestoringRef.current) return;
+      sessionRestoringRef.current = true;
+      try {
+        const session = await ensureAnonSession();
+        if (session) {
+          userIdRef.current = session.userId;
+          setUserId(session.userId);
+        }
+      } catch (e) {
+        console.warn('[Pensif] session Supabase toujours indisponible — nouvel essai au prochain retour réseau', e);
+        return;
+      } finally {
+        sessionRestoringRef.current = false;
+      }
+      if (!userIdRef.current) return; // ensureAnonSession a résolu `null` (pas d'exception) — rien à drainer
+    }
+    void drainNow();
+  }
 
   useEffect(() => {
     (async () => {
@@ -87,71 +222,76 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // perdue, colonne manquante, coupure réseau juste après la création…), il ne doit pas
         // disparaître silencieusement au prochain lancement simplement parce que le serveur ne le
         // connaît pas encore.
-        const [cachedContactsRaw, cachedPenseesRaw, pendingDelContactsRaw, pendingDelPenseesRaw] = await Promise.all([
+        const [cachedContactsRaw, cachedPenseesRaw, outboxRaw, legacyPendingDelContactsRaw, legacyPendingDelPenseesRaw] = await Promise.all([
           AsyncStorage.getItem(KEYS.contacts),
           AsyncStorage.getItem(KEYS.pensees),
+          AsyncStorage.getItem(KEYS.outbox),
           AsyncStorage.getItem(KEYS.pendingDeleteContacts),
           AsyncStorage.getItem(KEYS.pendingDeletePensees),
         ]);
         const cachedContacts: Contact[] = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
-        const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw) : [];
-        const pendingDelContacts: string[] = pendingDelContactsRaw ? JSON.parse(pendingDelContactsRaw) : [];
-        const pendingDelPensees: string[] = pendingDelPenseesRaw ? JSON.parse(pendingDelPenseesRaw) : [];
-        if (pendingDelContacts.length) setPendingDeleteContactIds(pendingDelContacts);
-        if (pendingDelPensees.length) setPendingDeletePenseeIds(pendingDelPensees);
+        // normalizePensee comble createdAt/reminderAt absents sur une pensée mise en cache avant
+        // CHANTIER PENSÉES V2 (voir calendar.ts) — le reste de l'app ne doit jamais voir l'ancienne
+        // forme (remind/customOffsetMinutes, date obligatoire).
+        const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw).map(normalizePensee) : [];
 
+        // CHANTIER SYNC OFFLINE→SUPABASE : migration ponctuelle des anciennes listes pending-delete
+        // vers l'outbox, pour ne perdre aucune suppression déjà en attente. Idempotente (un id déjà
+        // représenté dans l'outbox n'est jamais dupliqué) — les deux clés legacy ne sont plus jamais
+        // réécrites après ce boot, elles peuvent rester à zéro dans AsyncStorage sans conséquence.
+        let loadedOutbox: Outbox = outboxRaw ? JSON.parse(outboxRaw) : [];
+        const legacyPendingDelContacts: string[] = legacyPendingDelContactsRaw ? JSON.parse(legacyPendingDelContactsRaw) : [];
+        const legacyPendingDelPensees: string[] = legacyPendingDelPenseesRaw ? JSON.parse(legacyPendingDelPenseesRaw) : [];
+        if (legacyPendingDelContacts.length || legacyPendingDelPensees.length) {
+          loadedOutbox = migrateLegacyPendingDeletes(
+            loadedOutbox,
+            legacyPendingDelContacts,
+            legacyPendingDelPensees,
+            generateId,
+            new Date().toISOString(),
+          );
+        }
+        outboxRef.current = loadedOutbox;
+        setOutbox(loadedOutbox);
+
+        // Le cache local est déjà lu à ce stade (cachedContacts/cachedPensees ci-dessus) : il sert
+        // de repli garanti quel que soit le sort de l'appel Supabase — voir resolveBootData
+        // (storeInit.ts) et CHANTIER PRÉ-BÊTA 1 §1.
+        //
+        // BUG SYNC OFFLINE — COLD START : `ensureAnonSession()` et `loadRemoteData()` ont CHACUN
+        // leur propre try/catch, et surtout ne sont PLUS jamais conditionnés l'un à l'autre pour
+        // renseigner `userIdRef` : `ensureAnonSession()` peut réussir hors ligne (session persistée
+        // localement, voir supabase.ts) alors que `loadRemoteData()` échoue forcément (vraie requête
+        // réseau) — l'ancien code exigeait les deux (`if (remote && sessionUserId)`) et jetait donc
+        // une session pourtant valide, empêchant tout drain futur y compris après retour réseau.
+        let remote: { contacts: Contact[]; pensees: Pensee[] } | null = null;
         if (isSupabaseConfigured) {
-          const session = await ensureAnonSession();
-          if (session) {
-            const { userId: uid, isNewAccount } = session;
-            setUserId(uid);
-            const remote = await loadRemoteData(uid, isNewAccount);
-
-            // Écarte tout ce qui a été supprimé localement mais dont le delete serveur n'a jamais
-            // été confirmé — sinon ça revient d'entre les morts à chaque lancement tant que la
-            // suppression distante n'a pas fini par réussir (voir deleteContact/deletePensee).
-            const pendingDelContactSet = new Set(pendingDelContacts);
-            const pendingDelPenseeSet = new Set(pendingDelPensees);
-            const remoteContacts = remote.contacts.filter((c) => !pendingDelContactSet.has(c.id));
-            const remotePensees = remote.pensees.filter((p) => !pendingDelPenseeSet.has(p.id));
-
-            const remoteContactIds = new Set(remoteContacts.map((c) => c.id));
-            const pendingContacts = cachedContacts.filter((c) => !remoteContactIds.has(c.id) && !pendingDelContactSet.has(c.id));
-            const remotePenseeIds = new Set(remotePensees.map((p) => p.id));
-            const pendingPensees = cachedPensees.filter((p) => !remotePenseeIds.has(p.id) && !pendingDelPenseeSet.has(p.id));
-
-            setContacts([...remoteContacts, ...pendingContacts]);
-            setPensees([...remotePensees, ...pendingPensees]);
-
-            // Retente l'envoi de ce qui n'était jamais arrivé côté serveur, plutôt que de laisser
-            // l'échec silencieux d'origine se reproduire indéfiniment.
-            pendingContacts.forEach((c) => {
-              const { initials, color, ...rest } = c;
-              insertContactRemote(uid, rest).catch((e) => console.warn('[Pensif] nouvelle tentative de synchro du contact échouée', e));
-            });
-            pendingPensees.forEach((p) => {
-              insertPenseeRemote(uid, p).catch((e) => console.warn('[Pensif] nouvelle tentative de synchro de la pensée échouée', e));
-            });
-            // Retente les suppressions restées en attente.
-            pendingDelContacts.forEach((id) => {
-              deleteContactRemote(id)
-                .then(() => setPendingDeleteContactIds((prev) => prev.filter((x) => x !== id)))
-                .catch((e) => console.warn('[Pensif] nouvelle tentative de suppression du contact échouée', e));
-            });
-            pendingDelPensees.forEach((id) => {
-              deletePenseeRemote(id)
-                .then(() => setPendingDeletePenseeIds((prev) => prev.filter((x) => x !== id)))
-                .catch((e) => console.warn('[Pensif] nouvelle tentative de suppression de la pensée échouée', e));
-            });
-            return;
+          try {
+            const session = await ensureAnonSession();
+            if (session) {
+              setUserId(session.userId);
+              userIdRef.current = session.userId;
+              try {
+                remote = await loadRemoteData(session.userId, session.isNewAccount);
+              } catch (e) {
+                console.warn('[Pensif] données distantes indisponibles au démarrage — cache local utilisé', e);
+              }
+            }
+          } catch (e) {
+            console.warn('[Pensif] session Supabase indisponible au démarrage — cache local utilisé', e);
           }
         }
 
-        // Pas de Supabase configuré (ou échec de connexion) : on reste sur le cache local lu plus haut.
-        if (cachedContactsRaw) setContacts(cachedContacts);
-        if (cachedPenseesRaw) setPensees(cachedPensees);
+        const resolved = resolveBootData({ cachedContacts, cachedPensees, outbox: loadedOutbox, remote });
+        setContacts(resolved.contacts);
+        setPensees(resolved.pensees);
+
+        // Boot avec une session obtenue (en ligne, ou hors ligne via une session déjà persistée) :
+        // drain immédiat — reprend toute mutation restée en attente d'un précédent lancement.
+        if (userIdRef.current) void drainNow();
       } catch {
-        // stockage/réseau indisponible — on continue avec les données de démo en mémoire
+        // stockage totalement indisponible (AsyncStorage lui-même en échec) — on reste sur l'état
+        // initial vide, jamais sur des seeds (voir CHANTIER PRÉ-BÊTA 1 §2).
       } finally {
         setReady(true);
       }
@@ -166,11 +306,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (ready) AsyncStorage.setItem(KEYS.pensees, JSON.stringify(pensees)).catch(() => {});
   }, [pensees, ready]);
   useEffect(() => {
-    if (ready) AsyncStorage.setItem(KEYS.pendingDeleteContacts, JSON.stringify(pendingDeleteContactIds)).catch(() => {});
-  }, [pendingDeleteContactIds, ready]);
-  useEffect(() => {
-    if (ready) AsyncStorage.setItem(KEYS.pendingDeletePensees, JSON.stringify(pendingDeletePenseeIds)).catch(() => {});
-  }, [pendingDeletePenseeIds, ready]);
+    if (ready) AsyncStorage.setItem(KEYS.outbox, JSON.stringify(outbox)).catch(() => {});
+  }, [outbox, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -203,6 +340,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [ready, contacts, pensees, userName, notificationsEnabled]);
 
+  // CHANTIER SYNC OFFLINE→SUPABASE — deux déclencheurs de drain INDÉPENDANTS de la logique
+  // notifications ci-dessus (effet séparé, ne touche à aucune des deux dépendances/logique du
+  // dessus) :
+  // 1. AppState → active : drain "de sécurité" (couvre le cas où l'app était déjà en arrière-plan
+  //    quand le réseau est revenu, sans qu'aucun événement NetInfo n'ait pu être observé pendant
+  //    qu'elle n'était pas au premier plan sur certains appareils).
+  // 2. Retour réseau détecté par NetInfo, piloté par événements (jamais de polling) : couvre
+  //    spécifiquement le cas demandé — l'app déjà ouverte, au premier plan, hors ligne, et
+  //    l'utilisateur réactive Internet SANS jamais mettre l'app en arrière-plan (AppState ne
+  //    changerait alors jamais).
+  useEffect(() => {
+    if (!ready) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void restoreSessionThenDrain();
+    });
+    const unsubscribeNetInfo = subscribeToConnectivityRestored(() => void restoreSessionThenDrain());
+    return () => {
+      sub.remove();
+      unsubscribeNetInfo();
+    };
+  }, [ready]);
+
   const value = useMemo<Store>(
     () => {
       const today = new Date();
@@ -223,71 +382,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setNamePromptOpen(false);
         AsyncStorage.setItem(KEYS.userName, name).catch(() => {});
       },
+      // CHANTIER SYNC OFFLINE→SUPABASE : les 6 mutations suivent toutes le même principe —
+      // 1. état local optimiste (inchangé, comme avant) ; 2. enqueue/coalesce dans l'outbox AVANT
+      // de considérer la mutation durable ; 3. tentative de drain immédiate (best-effort, jamais
+      // bloquant). Plus aucun appel `insert/update/delete*Remote` direct ici — tout passe par
+      // `executeOutboxOp`, seul point qui parle à Supabase pour ces 6 mutations.
       upsertContact: (contact: Contact) => {
         const isNew = !contacts.some((c) => c.id === contact.id);
-        // Mise à jour optimiste : l'écran reflète le changement immédiatement, qu'on soit en
-        // local ou branché sur Supabase — la confirmation réseau vient juste réconcilier ensuite.
         setContacts((prev) => (isNew ? [...prev, contact] : prev.map((c) => (c.id === contact.id ? contact : c))));
-        if (isSupabaseConfigured && userId) {
-          if (isNew) {
-            const { initials, color, ...rest } = contact;
-            insertContactRemote(userId, rest)
-              .then((created) => setContacts((prev) => prev.map((c) => (c.id === contact.id ? created : c))))
-              .catch((e) => {
-                // Ne PAS retirer le contact localement : il reste dans `contacts` et dans le cache
-                // AsyncStorage (voir l'effet de persistance ci-dessus), et sera retenté au prochain
-                // lancement de l'app (voir la logique de fusion dans le useEffect d'init).
-                console.warn('[Pensif] échec de synchronisation du contact, retenté au prochain lancement', e);
-              });
-          } else {
-            updateContactRemote(contact).catch(() => {});
-          }
-        }
+        enqueueAndDrain((prev) => enqueueUpsertContact(prev, contact, isNew, generateId(), new Date().toISOString()));
       },
       deleteContact: (contactId: string) => {
         // Optimiste ici aussi, et on détache les pensées qui pointaient vers ce contact
         // plutôt que de les supprimer — la base fait pareil (contact_id passe à null).
         setContacts((prev) => prev.filter((c) => c.id !== contactId));
         setPensees((prev) => prev.map((p) => (p.contactId === contactId ? { ...p, contactId: null } : p)));
-        if (isSupabaseConfigured && userId) {
-          deleteContactRemote(contactId).catch((e) => {
-            // Si ce delete n'aboutit jamais côté serveur, le contact reviendrait au prochain
-            // lancement (loadRemoteData ferait autorité) — on mémorise donc la suppression en
-            // attente pour la filtrer/la retenter au boot (voir le useEffect d'init).
-            console.warn('[Pensif] échec de suppression du contact, retentée au prochain lancement', e);
-            setPendingDeleteContactIds((prev) => (prev.includes(contactId) ? prev : [...prev, contactId]));
-          });
-        }
+        enqueueAndDrain((prev) => enqueueDeleteContact(prev, contactId, generateId(), new Date().toISOString()));
       },
       addPensee: (pensee: Omit<Pensee, 'id'>) => {
         const withId: Pensee = { ...pensee, id: generateId() };
         setPensees((prev) => [...prev, withId]);
-        if (isSupabaseConfigured && userId) {
-          insertPenseeRemote(userId, withId)
-            .then((created) => setPensees((prev) => prev.map((p) => (p.id === withId.id ? created : p))))
-            .catch((e) => {
-              console.warn('[Pensif] échec de synchronisation de la pensée, retentée au prochain lancement', e);
-            });
-        }
+        enqueueAndDrain((prev) => enqueueUpsertPensee(prev, withId, true, generateId(), new Date().toISOString()));
+      },
+      // Modification d'une pensée existante (texte/proche lié/rappel — voir PenseeDetailScreen,
+      // CHANTIER PENSÉES V2). Optimiste comme upsertContact ; passe par `setPensees`, ce qui
+      // redéclenche l'effet de reprogrammation ci-dessous — l'ancienne notification est donc
+      // toujours annulée (cancelAllScheduledNotificationsAsync) avant qu'une nouvelle ne soit
+      // programmée à partir du rappel à jour, jamais les deux en même temps.
+      updatePensee: (pensee: Pensee) => {
+        setPensees((prev) => prev.map((p) => (p.id === pensee.id ? pensee : p)));
+        // `isNewIfFirstTime: false` — si cette pensée a en réalité une création encore en attente
+        // dans l'outbox (jamais confirmée), enqueueUpsertPensee préserve `isNew: true` tout seul.
+        enqueueAndDrain((prev) => enqueueUpsertPensee(prev, pensee, false, generateId(), new Date().toISOString()));
       },
       deletePensee: (penseeId: string) => {
         setPensees((prev) => prev.filter((p) => p.id !== penseeId));
-        if (isSupabaseConfigured && userId) {
-          deletePenseeRemote(penseeId).catch((e) => {
-            console.warn('[Pensif] échec de suppression de la pensée, retentée au prochain lancement', e);
-            setPendingDeletePenseeIds((prev) => (prev.includes(penseeId) ? prev : [...prev, penseeId]));
-          });
-        }
+        enqueueAndDrain((prev) => enqueueDeletePensee(prev, penseeId, generateId(), new Date().toISOString()));
       },
       toggleGiftSent: (contactId: string) => {
         const contact = contacts.find((c) => c.id === contactId);
         if (!contact) return;
         const year = occurrenceYear(contact.date, today);
         const nextYear = contact.giftPreparedYear === year ? null : year;
-        if (isSupabaseConfigured && userId) {
-          setGiftSentRemote(contactId, nextYear != null).catch(() => {});
-        }
-        setContacts((prev) => prev.map((c) => (c.id === contactId ? { ...c, giftPreparedYear: nextYear } : c)));
+        const updated: Contact = { ...contact, giftPreparedYear: nextYear };
+        setContacts((prev) => prev.map((c) => (c.id === contactId ? updated : c)));
+        // Réutilise le même chemin qu'un upsertContact classique (updateContactRemote écrit déjà
+        // toutes les colonnes du contact, pas seulement `gift_sent` — voir supabaseRepo.ts) : ce
+        // bouton avait exactement le même bug (aucun retry en cas d'échec réseau) avant l'outbox.
+        enqueueAndDrain((prev) => enqueueUpsertContact(prev, updated, false, generateId(), new Date().toISOString()));
       },
       themePref,
       setThemePref: (pref: ThemePref) => {

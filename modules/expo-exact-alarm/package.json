@@ -1,0 +1,7 @@
+{
+  "name": "expo-exact-alarm",
+  "version": "1.0.0",
+  "description": "Module local Pensif — vérifie/ouvre le réglage Android \"Alarmes et rappels\" (SCHEDULE_EXACT_ALARM), pour des rappels programmés à l'heure exacte plutôt qu'en mode inexact (batché par le système).",
+  "main": "src/index.ts",
+  "sideEffects": false
+}

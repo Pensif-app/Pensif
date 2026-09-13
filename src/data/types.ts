@@ -104,19 +104,34 @@ export type Contact = {
   birthdayReminderDays: number | null;
 };
 
+/** Choix rapide utilisé au moment de LA SAISIE d'un rappel (Calendrier/Fiche pensée) — jamais
+ *  persisté tel quel sur une `Pensee` (voir CHANTIER PENSÉES V2) : traduit en `reminderAt`, une
+ *  date/heure absolue, dès l'enregistrement. */
 export type ReminderOffset = '0' | '1' | '3' | '7' | '14' | 'custom';
 
 export type Pensee = {
   id: string;
-  /** Format 'YYYY-MM-DD' — début de la période pour une pensée de période. */
-  date: string;
+  texte: string;
+  contactId: string | null;
+  /** Horodatage ISO de création — informatif uniquement, jamais une date de rappel ni utilisé pour
+   *  le classement (voir CHANTIER PENSÉES V2 §"séparer une pensée de sa temporalité"). Toujours
+   *  renseigné pour une pensée créée depuis cette version ; une pensée plus ancienne sans ce champ
+   *  est normalisée à la lecture (voir normalizePensee, calendar.ts) — ne jamais lire ce champ sans
+   *  être passé par elle en dehors de la couche de persistance (store.tsx/supabaseRepo.ts).
+   */
+  createdAt: string;
+  /** Format 'YYYY-MM-DD' — ancre calendrier explicite (jour choisi dans le Calendrier, ou début de
+   *  période). Absente pour une pensée créée sans jour précis (note générique, éventuellement liée
+   *  à un proche mais pas à une date) : elle n'apparaît alors dans aucune vue du Calendrier,
+   *  seulement dans l'onglet Pensées — voir CHANTIER PENSÉES V2. */
+  date?: string | null;
   /** Format 'YYYY-MM-DD', inclusive — renseigné seulement pour une pensée de période (surlignage). */
   endDate?: string | null;
-  texte: string;
-  remind: ReminderOffset;
-  /** Délai personnalisé avant l'événement, en minutes — uniquement quand remind === 'custom'. */
-  customOffsetMinutes?: number | null;
-  contactId: string | null;
+  /** Date/heure ABSOLUE et autonome du rappel (ISO complet), ou `null`/absente = aucun rappel.
+   *  Remplace l'ancien couple remind/customOffsetMinutes, qui dérivait toujours un rappel relatif à
+   *  `date` — une pensée sans `date` peut désormais avoir un rappel tout comme une pensée avec
+   *  `date`, les deux notions sont indépendantes. */
+  reminderAt?: string | null;
 };
 
 export type CalEventType = 'anniv' | 'pensee' | 'fete' | 'civil';

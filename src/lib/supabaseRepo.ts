@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { Contact, Pensee } from '../data/types';
 import { seedContacts, seedPensees } from '../data/seed';
-import { occurrenceYear } from '../data/calendar';
+import { normalizePensee, occurrenceYear } from '../data/calendar';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
 
@@ -49,16 +49,27 @@ function rowToContact(row: any, today: Date): Contact {
   };
 }
 
+/**
+ * CHANTIER PENSÉES V2 : passe par normalizePensee (calendar.ts) pour que la ligne distante soit
+ * comprise qu'elle porte déjà `reminder_at`/`created_at` (migration appliquée) ou encore l'ancien
+ * couple `remind_offset`/`custom_offset_minutes` avec `date_evenement` obligatoire (migration SQL
+ * pas encore exécutée — voir supabase/schema.sql) : dans les deux cas, le reste de l'app ne
+ * manipule plus qu'un `Pensee` déjà normalisé.
+ */
 function rowToPensee(row: any): Pensee {
-  return {
+  return normalizePensee({
     id: row.id,
-    date: row.date_evenement,
-    endDate: row.end_date,
+    date: row.date_evenement ?? null,
+    endDate: row.end_date ?? null,
     texte: row.texte,
+    contactId: row.contact_id,
+    // `undefined` (colonne absente, migration pas encore appliquée) déclenche la dérivation
+    // legacy dans normalizePensee ; une valeur explicite (y compris `null`) est utilisée telle quelle.
+    reminderAt: 'reminder_at' in row ? row.reminder_at : undefined,
     remind: row.remind_offset,
     customOffsetMinutes: row.custom_offset_minutes,
-    contactId: row.contact_id,
-  };
+    createdAt: row.created_at,
+  });
 }
 
 export type AnonSession = { userId: string; isNewAccount: boolean };
@@ -77,8 +88,11 @@ export async function ensureAnonSession(): Promise<AnonSession | null> {
   return { userId: signInData.session.user.id, isNewAccount: true };
 }
 
-/** Peuple le compte avec les données de démo la toute première fois (table vide). */
-async function seedRemote(userId: string) {
+/** Peuple un compte avec les données de démo — DÉLIBÉRÉMENT plus appelé automatiquement à la
+ *  création d'un compte (voir CHANTIER PRÉ-BÊTA 1 §2 : un vrai nouvel utilisateur commence à zéro
+ *  proche/pensée). Conservée pour un éventuel mode démo explicite futur — non câblée nulle part
+ *  pour l'instant. */
+export async function seedRemote(userId: string) {
   if (!supabase) return { contacts: [] as Contact[], pensees: [] as Pensee[] };
 
   const { data: contactRows, error: contactErr } = await supabase
@@ -112,10 +126,11 @@ async function seedRemote(userId: string) {
     .insert(
       seedPensees.map((p) => ({
         user_id: userId,
-        date_evenement: p.date,
+        date_evenement: p.date ?? null,
         texte: p.texte,
-        remind_offset: p.remind,
+        reminder_at: p.reminderAt ?? null,
         contact_id: p.contactId ? idMap[p.contactId] : null,
+        created_at: p.createdAt,
       })),
     )
     .select();
@@ -135,10 +150,10 @@ export async function loadRemoteData(userId: string, isNewAccount: boolean) {
   if (cErr) throw cErr;
   if (pErr) throw pErr;
 
-  // Ne peuple les contacts de démo QUE pour un compte tout juste créé — une table vide parce que
-  // l'utilisateur a supprimé tous ses contacts est un état légitime, pas un signal de "première
-  // ouverture" (sinon "Papa"/"Léa"/etc. ressuscitaient à chaque fois que la liste retombait à zéro).
-  if (isNewAccount && (contactRows ?? []).length === 0) return seedRemote(userId);
+  // Un compte tout juste créé démarre à zéro proche/pensée, comme un utilisateur local sans
+  // Supabase (voir CHANTIER PRÉ-BÊTA 1 §2) — `isNewAccount` n'est plus utilisé pour peupler quoi que
+  // ce soit automatiquement, il ne sert plus qu'à documenter l'intention de l'appelant.
+  void isNewAccount;
 
   const today = new Date();
   return { contacts: (contactRows ?? []).map((r) => rowToContact(r, today)), pensees: (penseeRows ?? []).map(rowToPensee) };
@@ -218,15 +233,36 @@ export async function insertPenseeRemote(userId: string, pensee: Pensee): Promis
     .insert({
       id: pensee.id,
       user_id: userId,
-      date_evenement: pensee.date,
+      date_evenement: pensee.date ?? null,
       end_date: pensee.endDate ?? null,
       texte: pensee.texte,
-      remind_offset: pensee.remind,
-      custom_offset_minutes: pensee.customOffsetMinutes ?? null,
+      reminder_at: pensee.reminderAt ?? null,
       contact_id: pensee.contactId,
+      created_at: pensee.createdAt,
     })
     .select()
     .single();
   if (error || !data) throw error;
   return rowToPensee(data);
+}
+
+/**
+ * CHANTIER PENSÉES V2 : la fiche pensée (édition) peut désormais modifier le texte, le proche lié
+ * et le rappel d'une pensée existante — il fallait donc un update distant, qui n'existait pas
+ * encore pour les pensées (seuls insert/delete existaient jusqu'ici, voir updateContactRemote pour
+ * le même besoin côté contacts).
+ */
+export async function updatePenseeRemote(pensee: Pensee): Promise<void> {
+  if (!supabase) throw new Error('Supabase non configuré');
+  const { error } = await supabase
+    .from('pensees')
+    .update({
+      date_evenement: pensee.date ?? null,
+      end_date: pensee.endDate ?? null,
+      texte: pensee.texte,
+      reminder_at: pensee.reminderAt ?? null,
+      contact_id: pensee.contactId,
+    })
+    .eq('id', pensee.id);
+  if (error) throw error;
 }

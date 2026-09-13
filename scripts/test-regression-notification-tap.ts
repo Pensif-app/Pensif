@@ -1,15 +1,34 @@
-// Tests de non-régression — VÉRIFICATION FINALE NOTIFICATIONS (cold start). Couvre les deux petits
-// mécanismes purs ajoutés dans notificationPlanning.ts : déduplication par identifiant
-// (consumeNotificationResponseOnce) et file d'attente d'une action jusqu'à ce que la navigation/le
-// store soient prêts (createPendingOnce). `notifications.ts` lui-même (registerNotificationTapHandler)
-// ne peut pas être chargé sous ts-node dans cet environnement (dépendance transitive à `expo`, déjà
-// constaté lors du chantier précédent) — les deux mécanismes qu'il utilise sont donc testés
-// directement, à l'identique de leur usage réel. Lecture seule. Assertions dures : lève une
-// exception (code de sortie non-nul) si une régression est détectée.
+// Tests de non-régression — VÉRIFICATION FINALE NOTIFICATIONS (cold start) + CHANTIER NAVIGATION
+// NOTIFICATION PENSÉES V2. Couvre les deux petits mécanismes purs ajoutés dans
+// notificationPlanning.ts : déduplication par identifiant (consumeNotificationResponseOnce) et file
+// d'attente d'une action jusqu'à ce que la navigation/le store soient prêts (createPendingOnce), et
+// désormais aussi la résolution complète de la destination d'un tap sur une notification de pensée
+// (resolveNotificationAction + navigateToAttention) : existante, sans date, supprimée entre-temps,
+// et le scénario cold start bout en bout. `notifications.ts` lui-même
+// (registerNotificationTapHandler) ne peut pas être chargé sous ts-node dans cet environnement
+// (dépendance transitive à `expo`, déjà constaté lors du chantier précédent) — les mécanismes/
+// fonctions qu'il orchestre sont donc testés directement, à l'identique de leur usage réel. Lecture
+// seule. Assertions dures : lève une exception (code de sortie non-nul) si une régression est
+// détectée.
 //
 // Usage : npx ts-node --compiler-options '{"module":"commonjs"}' scripts/test-regression-notification-tap.ts
 
-import { consumeNotificationResponseOnce, createPendingOnce } from '../src/lib/notificationPlanning';
+import { Pensee } from '../src/data/types';
+import { consumeNotificationResponseOnce, createPendingOnce, resolveNotificationAction } from '../src/lib/notificationPlanning';
+import { navigateToAttention } from '../src/data/homeAttention';
+
+function makePensee(overrides: Partial<Pensee>): Pensee {
+  return {
+    id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
+    texte: 'Une pensée',
+    contactId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    date: null,
+    endDate: null,
+    reminderAt: null,
+    ...overrides,
+  };
+}
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -93,6 +112,79 @@ function check(label: string, condition: boolean, detail?: string) {
   // déduplication par identifiant, elle, l'est directement).
   const shouldProcessAgainLater = consumeNotificationResponseOnce(responseIdentifier, handled);
   check('la même réponse relue plus tard (identifiant identique) n’est pas retraitée une 2e fois', shouldProcessAgainLater === false);
+}
+
+// --- CHANTIER NAVIGATION NOTIFICATION PENSÉES V2 ------------------------------------------------
+// Tap sur une notification de pensée → PenseeDetailScreen (plus le Calendrier, qui n'est plus une
+// destination fiable depuis qu'une pensée peut n'avoir aucune date/période, voir Pensee.reminderAt).
+
+// --- 4. Pensée existante (avec date) → détail de la pensée --------------------------------------
+{
+  console.log('\n[4] Pensée existante (avec date) → action pensee-detail, PAS calendar');
+  const p = makePensee({ id: 'p-avec-date', date: '2026-03-01', reminderAt: new Date(2026, 2, 1, 9, 0, 0).toISOString() });
+  const action = resolveNotificationAction({ kind: 'pensee', penseeId: 'p-avec-date' }, [], [p], new Date(2026, 0, 1));
+  check('action = pensee-detail', action?.kind === 'pensee-detail', JSON.stringify(action));
+  check('penseeId correct', (action as any)?.penseeId === 'p-avec-date', JSON.stringify(action));
+
+  const calls: { name: string; params?: object }[] = [];
+  const navigate = (name: string, params?: object) => calls.push({ name, params });
+  navigateToAttention(navigate, action!);
+  check('navigue vers PenseeDetail avec le bon penseeId (pas Tabs/Calendrier)', calls.length === 1 && calls[0].name === 'PenseeDetail', JSON.stringify(calls));
+  check('params corrects', JSON.stringify(calls[0].params) === JSON.stringify({ penseeId: 'p-avec-date' }), JSON.stringify(calls[0].params));
+}
+
+// --- 5. Pensée existante SANS aucune date (note générique) → détail de la pensée aussi ------------
+{
+  console.log('\n[5] Pensée sans date ni période (note générique) → même destination : action pensee-detail');
+  const p = makePensee({ id: 'p-sans-date', date: null, endDate: null, reminderAt: new Date(2026, 0, 2, 9, 0, 0).toISOString() });
+  const action = resolveNotificationAction({ kind: 'pensee', penseeId: 'p-sans-date' }, [], [p], new Date(2026, 0, 1));
+  check('action = pensee-detail même sans date/endDate sur la pensée', action?.kind === 'pensee-detail', JSON.stringify(action));
+  check('penseeId correct', (action as any)?.penseeId === 'p-sans-date', JSON.stringify(action));
+}
+
+// --- 6. Pensée supprimée avant le tap → fallback sûr, jamais de crash/écran vide -------------------
+{
+  console.log('\n[6] Pensée supprimée entre la programmation et le tap → aucune navigation (fallback sûr)');
+  const action = resolveNotificationAction({ kind: 'pensee', penseeId: 'p-disparue' }, [], [], new Date(2026, 0, 1));
+  check('aucune action résolue (pas de navigation vers une pensée qui n’existe plus)', action === null);
+
+  const calls: { name: string; params?: object }[] = [];
+  const navigate = (name: string, params?: object) => calls.push({ name, params });
+  if (action) navigateToAttention(navigate, action);
+  check('navigateToAttention jamais appelée dans ce cas (comportement de l’appelant réel, voir notifications.ts)', calls.length === 0);
+}
+
+// --- 7. Cold start : même résolution qu’à chaud, une fois store/navigation prêts -----------------
+{
+  console.log('\n[7] Cold start (app fermée → tap → boot → store pas prêt → puis prêt) → même destination pensee-detail');
+  const pending = createPendingOnce<unknown>();
+  const handled = new Set<string>();
+  const penseesAtBoot: Pensee[] = []; // store pas encore chargé au moment du tap
+  const penseesLive: Pensee[] = [makePensee({ id: 'p-cold-start', date: null, reminderAt: new Date(2026, 0, 2, 9, 0, 0).toISOString() })];
+
+  const responseIdentifier = 'boot-notification-pensee';
+  check('réponse de démarrage acceptée (première fois)', consumeNotificationResponseOnce(responseIdentifier, handled) === true);
+  pending.set({ kind: 'pensee', penseeId: 'p-cold-start' });
+
+  let storeReady = false;
+  const isReady = () => storeReady;
+
+  const tooEarly = pending.consumeIfReady(isReady);
+  check('rien résolu tant que le store n’est pas prêt', tooEarly === undefined && pending.hasPending() === true);
+
+  // Le store finit de charger — SEULEMENT MAINTENANT les pensées réelles sont disponibles : la
+  // résolution doit utiliser get PENSÉES LIVE (penseesLive), jamais l'état vide figé au moment du tap.
+  storeReady = true;
+  const data = pending.consumeIfReady(isReady);
+  const action = resolveNotificationAction(data, [], penseesLive, new Date(2026, 0, 1));
+  check('action résolue avec les données LIVE (pas l’état vide du boot)', action?.kind === 'pensee-detail' && (action as any).penseeId === 'p-cold-start', JSON.stringify(action));
+
+  const calls: { name: string; params?: object }[] = [];
+  const navigate = (name: string, params?: object) => calls.push({ name, params });
+  navigateToAttention(navigate, action!);
+  check('même destination qu’à chaud : PenseeDetail avec le bon penseeId', calls.length === 1 && calls[0].name === 'PenseeDetail' && JSON.stringify(calls[0].params) === JSON.stringify({ penseeId: 'p-cold-start' }), JSON.stringify(calls));
+
+  check('la même réponse ne sera pas retraitée à un lancement normal ultérieur', consumeNotificationResponseOnce(responseIdentifier, handled) === false);
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

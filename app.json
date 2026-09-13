@@ -7,16 +7,25 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yomic.pensif",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.yomic.pensif",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#1A1437",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -46,7 +55,22 @@
             "backgroundColor": "#111124"
           }
         }
-      ]
-    ]
+      ],
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Pensif a besoin du micro pour enregistrer une pensée dictée à voix haute.",
+          "enableBackgroundRecording": false
+        }
+      ],
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "187aaa37-eded-40c5-a12e-1c0053579bbc"
+      }
+    },
+    "owner": "yomic"
   }
 }

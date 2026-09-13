@@ -16,11 +16,10 @@ import {
   buildCandidates,
   selectCandidatesToSchedule,
   resolveNotificationAction,
-  subtractMinutesLocal,
   MAX_SCHEDULED_NOTIFICATIONS,
   NotificationCandidate,
 } from '../src/lib/notificationPlanning';
-import { familyFetes, addDays, dIso } from '../src/data/calendar';
+import { familyFetes, addDays, dIso, subtractMinutesLocal } from '../src/data/calendar';
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -57,8 +56,9 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
     id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
     date: '2026-01-01',
     texte: 'Une pensée',
-    remind: '0',
     contactId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    reminderAt: null,
     ...overrides,
   };
 }
@@ -128,7 +128,7 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
 // --- 6. Priorité aux notifications proches (une pensée proche n'est jamais évincée) --------------
 {
   console.log('\n[6] Priorité : une pensée proche (tier 0) n’est jamais évincée par des anniversaires tier 1 lointains');
-  const nearPensee: NotificationCandidate = { triggerAt: addDays(TODAY, 2), tier: 0, title: 'Pensée proche', body: '', data: { kind: 'pensee', focusDate: '2026-01-17' } };
+  const nearPensee: NotificationCandidate = { triggerAt: addDays(TODAY, 2), tier: 0, title: 'Pensée proche', body: '', data: { kind: 'pensee', penseeId: 'p-near' } };
   const farBirthdays: NotificationCandidate[] = Array.from({ length: MAX_SCHEDULED_NOTIFICATIONS }, (_, i) => ({
     triggerAt: new Date(2027, 0, 1 + i),
     tier: 1 as const,
@@ -164,16 +164,20 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
   check('les 4 items non fautifs sont bien "programmés" malgré l’échec du 3e', succeeded.length === 4 && !succeeded.includes(3), `${succeeded}`);
 }
 
-// --- 8-8e. Pensée presets 0/1/3/7/14 --------------------------------------------------------------
+// --- 8. Pensée avec reminderAt absolu → passthrough exact (CHANTIER PENSÉES V2) -----------------
 {
-  console.log('\n[8] Pensée presets 0/1/3/7/14 jours');
+  console.log('\n[8] Pensée avec reminderAt absolu (calculé à la saisie, ex. presets 0/1/3/7/14 j avant un jour donné) → passthrough exact');
+  // reminderAt est désormais calculé UNE FOIS à la saisie (CalendarScreen/PenseeDetailScreen), plus
+  // jamais dérivé ici d'un couple remind/date — buildCandidates se contente de le transmettre tel
+  // quel. Ce test vérifie ce passthrough pour les mêmes décalages qu'avant (0/1/3/7/14 j avant 9h),
+  // désormais exprimés directement en date absolue par l'appelant.
   for (const days of [0, 1, 3, 7, 14] as const) {
-    const p = makePensee({ id: `preset-${days}`, date: '2026-02-01', remind: String(days) as Pensee['remind'] });
-    const candidates = buildCandidates([], [p], new Date(2026, 0, 1));
-    const cand = candidates.find((c) => c.data.kind === 'pensee' && (c.data as any).focusDate === '2026-02-01');
     const expected = new Date(2026, 1, 1, 9, 0, 0);
     expected.setDate(expected.getDate() - days);
-    check(`preset ${days} → rappel le ${expected.toDateString()} 9h`, cand?.triggerAt.getTime() === expected.getTime(), cand?.triggerAt.toString());
+    const p = makePensee({ id: `preset-${days}`, date: '2026-02-01', reminderAt: expected.toISOString() });
+    const candidates = buildCandidates([], [p], new Date(2026, 0, 1));
+    const cand = candidates.find((c) => c.data.kind === 'pensee' && (c.data as any).penseeId === p.id);
+    check(`preset ${days} → rappel le ${expected.toDateString()} 9h transmis tel quel`, cand?.triggerAt.getTime() === expected.getTime(), cand?.triggerAt.toString());
   }
 }
 
@@ -204,18 +208,35 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
 // --- 10. Pensée passée jamais programmée -----------------------------------------------------------
 {
   console.log('\n[10] Pensée passée jamais programmée');
-  const p = makePensee({ id: 'p-past', date: '2026-01-01', remind: '0' }); // 14 jours avant TODAY
+  const p = makePensee({ id: 'p-past', date: '2026-01-01', reminderAt: new Date(2026, 0, 1, 9, 0, 0).toISOString() }); // 14 jours avant TODAY
   const candidates = buildCandidates([], [p], TODAY);
   const scheduled = selectCandidatesToSchedule(candidates, TODAY);
-  check('candidat construit (pour trace) mais jamais retenu dans le lot programmé', !scheduled.some((c) => c.data.kind === 'pensee' && (c.data as any).focusDate === '2026-01-01'));
+  check('candidat construit (pour trace) mais jamais retenu dans le lot programmé', !scheduled.some((c) => c.data.kind === 'pensee' && (c.data as any).penseeId === p.id));
+}
+
+// --- 10b. Pensée SANS reminderAt (rappel désactivé, CHANTIER PENSÉES V2) → aucune notification -----
+{
+  console.log('\n[10b] Pensée sans reminderAt (rappel entièrement facultatif, désactivé) → aucune notification générée');
+  const p = makePensee({ id: 'p-no-reminder', date: '2026-02-20', reminderAt: null });
+  const candidates = buildCandidates([], [p], TODAY);
+  check('aucun candidat pour une pensée sans rappel', !candidates.some((c) => c.data.kind === 'pensee' && (c.data as any).penseeId === p.id));
+}
+
+// --- 10c. Pensée sans AUCUNE date (note générique) mais avec un rappel → notifiable quand même ---
+{
+  console.log('\n[10c] Pensée générique sans ancre calendrier, avec un rappel explicite → notification quand même programmée (penseeId)');
+  const p = makePensee({ id: 'p-generic', date: null, reminderAt: new Date(2026, 5, 10, 9, 0, 0).toISOString() });
+  const candidates = buildCandidates([], [p], TODAY);
+  const cand = candidates.find((c) => c.data.kind === 'pensee' && (c.data as any).penseeId === p.id);
+  check('candidat présent, identifié par penseeId (pas de `date` requise)', !!cand, JSON.stringify(candidates.map((c) => c.data)));
 }
 
 // --- 11. Pensée de période → une seule notification, au début -------------------------------------
 {
   console.log('\n[11] Pensée de période → une seule notification, au début de la période');
-  const p = makePensee({ id: 'p-period', date: '2026-03-01', endDate: '2026-03-10', remind: '0' });
+  const p = makePensee({ id: 'p-period', date: '2026-03-01', endDate: '2026-03-10', reminderAt: new Date(2026, 2, 1, 9, 0, 0).toISOString() });
   const candidates = buildCandidates([], [p], new Date(2026, 1, 1));
-  const forThisPensee = candidates.filter((c) => c.data.kind === 'pensee' && (c.data as any).focusDate === '2026-03-01');
+  const forThisPensee = candidates.filter((c) => c.data.kind === 'pensee' && (c.data as any).penseeId === p.id);
   check('exactement une notification pour cette période', forThisPensee.length === 1, `${forThisPensee.length}`);
   check('datée au début de la période (9h le 1er mars), pas à la fin ni chaque jour', forThisPensee[0]?.triggerAt.getTime() === new Date(2026, 2, 1, 9, 0, 0).getTime());
 }
@@ -277,21 +298,32 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
     date: '1990-01-15', // jour J
     quiz: { answers: [], interests: [], avoid: [], wish: '', completedAt: new Date().toISOString(), budget: null, themeAnswers: {}, feedback: [], recommendationHistory: [] },
   });
-  const actionBday = resolveNotificationAction({ kind: 'birthday', contactId: 'nav-1' }, [contactDone], TODAY);
+  const actionBday = resolveNotificationAction({ kind: 'birthday', contactId: 'nav-1' }, [contactDone], [], TODAY);
   check('anniversaire jour J → action message', actionBday?.kind === 'message', JSON.stringify(actionBday));
 
-  const actionPensee = resolveNotificationAction({ kind: 'pensee', focusDate: '2026-03-01' }, [], TODAY);
-  check('pensée → action calendar avec focusDate', actionPensee?.kind === 'calendar' && (actionPensee as any).focusDate === '2026-03-01', JSON.stringify(actionPensee));
+  // CHANTIER NAVIGATION NOTIFICATION PENSÉES V2 : penseeId (pas focusDate) → 'pensee-detail'. Voir
+  // test-regression-notification-tap.ts pour la couverture complète (existante/sans date/supprimée/
+  // cold start) de ce changement.
+  const penseeDone = makePensee({ id: 'p-nav', date: null, reminderAt: new Date(2026, 2, 1, 9, 0, 0).toISOString() });
+  const actionPensee = resolveNotificationAction({ kind: 'pensee', penseeId: 'p-nav' }, [], [penseeDone], TODAY);
+  check(
+    'pensée existante → action pensee-detail avec le bon penseeId',
+    actionPensee?.kind === 'pensee-detail' && (actionPensee as any).penseeId === 'p-nav',
+    JSON.stringify(actionPensee),
+  );
 
   const actionFeteContact = makeContact({ id: 'nav-2' });
-  const actionFete = resolveNotificationAction({ kind: 'fete-prenom', contactId: 'nav-2' }, [actionFeteContact], TODAY);
+  const actionFete = resolveNotificationAction({ kind: 'fete-prenom', contactId: 'nav-2' }, [actionFeteContact], [], TODAY);
   check('fête de prénom → action fiche avec le bon contactId', actionFete?.kind === 'fiche' && (actionFete as any).contactId === 'nav-2', JSON.stringify(actionFete));
 
-  const actionFamiliale = resolveNotificationAction({ kind: 'fete-familiale', contactId: 'nav-2' }, [actionFeteContact], TODAY);
+  const actionFamiliale = resolveNotificationAction({ kind: 'fete-familiale', contactId: 'nav-2' }, [actionFeteContact], [], TODAY);
   check('fête familiale → action fiche avec le bon contactId', actionFamiliale?.kind === 'fiche' && (actionFamiliale as any).contactId === 'nav-2', JSON.stringify(actionFamiliale));
 
-  const actionDeleted = resolveNotificationAction({ kind: 'birthday', contactId: 'ghost' }, [], TODAY);
+  const actionDeleted = resolveNotificationAction({ kind: 'birthday', contactId: 'ghost' }, [], [], TODAY);
   check('contact supprimé entre-temps → aucune navigation (pas de crash)', actionDeleted === null);
+
+  const actionPenseeDeleted = resolveNotificationAction({ kind: 'pensee', penseeId: 'ghost-pensee' }, [], [], TODAY);
+  check('pensée supprimée entre-temps → aucune navigation (pas de crash)', actionPenseeDeleted === null);
 }
 
 // --- 17. Permissions refusées sans crash (documenté — non exécutable ici, voir notifications.ts) ---

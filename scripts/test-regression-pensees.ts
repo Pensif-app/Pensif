@@ -7,6 +7,7 @@
 import { Contact, Pensee } from '../src/data/types';
 import { buildPenseeCards, groupPenseeCards } from '../src/data/penseesView';
 import { navigateToAttention } from '../src/data/homeAttention';
+import { subtractMinutesLocal } from '../src/data/calendar';
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -43,8 +44,9 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
     id: overrides.id ?? `p-${Math.random().toString(36).slice(2)}`,
     date: '2026-01-01',
     texte: 'Une pensée',
-    remind: '0',
     contactId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    reminderAt: null,
     ...overrides,
   };
 }
@@ -136,22 +138,43 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
   check('sous-titre propre, sans "undefined"/"null"', !card.subtitle.includes('undefined') && !card.subtitle.includes('null'), card.subtitle);
 }
 
-// --- Rappel preset → bon libellé -------------------------------------------------------------------
+// --- Rappel un autre jour que l'ancre → libellé avec la date --------------------------------------
 {
-  console.log('\n[10] Rappel preset → bon libellé (reminderLabels)');
-  const p = makePensee({ id: 'p-preset', date: '2026-01-20', remind: '7' });
+  console.log('\n[10] Rappel absolu un autre jour que l’ancre (ex. "la veille") → libellé avec la date');
+  const reminderAt = new Date(2026, 0, 13, 9, 0, 0); // 1 semaine avant le 2026-01-20, 9h
+  const p = makePensee({ id: 'p-preset', date: '2026-01-20', reminderAt: reminderAt.toISOString() });
   const cards = buildPenseeCards([p], [], TODAY);
   const card = cards.find((c) => c.id === 'p-preset')!;
-  check('libellé "1 semaine avant"', card.reminderLabel === 'Rappel 1 semaine avant', card.reminderLabel ?? 'null');
+  check('libellé "Rappel 13 jan à 9h"', card.reminderLabel === 'Rappel 13 jan à 9h', card.reminderLabel ?? 'null');
 }
 
-// --- Rappel custom → bon libellé --------------------------------------------------------------------
+// --- Rappel le même jour que l'ancre → libellé heure seule -------------------------------------------
 {
-  console.log('\n[11] Rappel custom → bon libellé (formatCustomOffset)');
-  const p = makePensee({ id: 'p-custom', date: '2026-01-20', remind: 'custom', customOffsetMinutes: 90 });
+  console.log('\n[11] Rappel absolu le même jour que l’ancre → libellé heure seule');
+  const reminderAt = subtractMinutesLocal(new Date(2026, 0, 20, 23, 59, 59), 90); // 22h29 le même jour
+  const p = makePensee({ id: 'p-custom', date: '2026-01-20', reminderAt: reminderAt.toISOString() });
   const cards = buildPenseeCards([p], [], TODAY);
   const card = cards.find((c) => c.id === 'p-custom')!;
-  check('libellé formaté (1h30)', card.reminderLabel === 'Rappel 1 h 30 min avant', card.reminderLabel ?? 'null');
+  check('libellé "Rappel 22h29"', card.reminderLabel === 'Rappel 22h29', card.reminderLabel ?? 'null');
+}
+
+// --- Pensée générique sans aucune date ni rappel → bucket "memo", jamais "past" ---------------------
+{
+  console.log('\n[12] Pensée sans date ni rappel (note générique, CHANTIER PENSÉES V2) → bucket "memo", jamais "passée"');
+  const p = makePensee({ id: 'p-memo', date: null, createdAt: '2020-01-01T00:00:00.000Z' }); // très ancienne création
+  const groups = groupPenseeCards(buildPenseeCards([p], [], TODAY));
+  check('dans "memo"', groups.memo.some((c) => c.id === 'p-memo'));
+  check('jamais dans "past" malgré une création très ancienne', !groups.past.some((c) => c.id === 'p-memo'));
+  check('aucun rappel affiché', groups.memo.find((c) => c.id === 'p-memo')?.reminderLabel === null);
+}
+
+// --- Pensée générique avec un rappel explicite mais aucune ancre → n'est plus "memo" ------------------
+{
+  console.log('\n[13] Pensée sans date mais avec un rappel explicite → classée par son rappel, pas "memo"');
+  const p = makePensee({ id: 'p-generic-reminder', date: null, reminderAt: new Date(2026, 0, 16, 9, 0, 0).toISOString() });
+  const groups = groupPenseeCards(buildPenseeCards([p], [], TODAY));
+  check('dans "upcoming" (rappel demain)', groups.upcoming.some((c) => c.id === 'p-generic-reminder'));
+  check('pas dans "memo"', !groups.memo.some((c) => c.id === 'p-generic-reminder'));
 }
 
 // --- Tap pensée → Calendrier + focusDate -------------------------------------------------------------

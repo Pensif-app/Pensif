@@ -8,6 +8,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
 import { NamePromptModal } from './src/components/NamePromptModal';
 import { SplashOverlay } from './src/components/SplashOverlay';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { useTheme } from './src/theme';
 import { registerNotificationTapHandler } from './src/lib/notifications';
 
@@ -16,15 +17,21 @@ import { registerNotificationTapHandler } from './src/lib/notifications';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function AppShell() {
-  const { ready, userName, namePromptOpen, setUserName, contacts } = useStore();
+  const { ready, userName, namePromptOpen, setUserName, contacts, pensees } = useStore();
   const theme = useTheme();
 
-  // Toujours lire les contacts À JOUR au moment du tap (pas ceux du rendu où le listener a été
-  // enregistré) — le listener lui-même n'est branché qu'une fois, voir registerNotificationTapHandler.
+  // Toujours lire les contacts/pensées À JOUR au moment du tap (pas ceux du rendu où le listener a
+  // été enregistré) — le listener lui-même n'est branché qu'une fois, voir
+  // registerNotificationTapHandler. `penseesRef` sert à resolveNotificationAction pour vérifier
+  // qu'une pensée existe encore avant d'y naviguer (CHANTIER NAVIGATION NOTIFICATION PENSÉES V2).
   const contactsRef = useRef(contacts);
   useEffect(() => {
     contactsRef.current = contacts;
   }, [contacts]);
+  const penseesRef = useRef(pensees);
+  useEffect(() => {
+    penseesRef.current = pensees;
+  }, [pensees]);
 
   // Distinct de `ready` (store) : le NavigationContainer a son propre cycle de montage, signalé par
   // son `onReady` (voir RootNavigator). Une navigation reçue avant que les DEUX ne soient prêts (cas
@@ -54,6 +61,7 @@ function AppShell() {
       safeNavigate,
       () => contactsRef.current,
       () => navReadyRef.current && navigationRef.isReady() && readyRef.current,
+      () => penseesRef.current,
     );
     return tapHandlerRef.current.unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,12 +86,14 @@ function AppShell() {
 
 export default function App() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StoreProvider>
-          <AppShell />
-        </StoreProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StoreProvider>
+            <AppShell />
+          </StoreProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
