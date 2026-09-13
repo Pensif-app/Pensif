@@ -2,7 +2,7 @@
 // un CaptureResult (contrat backend) en cartes éditables, décide de leur validité et du calcul
 // "à vérifier", et construit la Pensee finale via le flux normal de création (jamais d'écriture
 // Supabase directe). Pur (aucun import react-native/expo/AsyncStorage), testable sous ts-node.
-import { Pensee } from './types';
+import { Contact, Pensee } from './types';
 import { CaptureResult, ExtractedPensee } from './captureTypes';
 import { ContactMatchResult } from './contactMatching';
 
@@ -18,6 +18,28 @@ export type CaptureCard = {
   /** Hint d'affichage seulement (résultat du matching au moment de l'extraction) — jamais revalidé
    *  après une édition manuelle de `contactId` par l'utilisateur. */
   contactMatch: ContactMatchResult;
+  /** Nom brut tel qu'entendu par le LLM (voir captureTypes.ts) — conservé À L'IDENTIQUE, jamais
+   *  modifié après coup : sert uniquement de trace/historique (débogage, tests). Ce n'est PAS ce
+   *  champ qui pilote les remplacements successifs (voir `currentContactNameInText`) : après un
+   *  premier remplacement, `heardContactName` ne se retrouve plus dans `texte`, et le rechercher à
+   *  nouveau ne trouverait donc plus rien — c'est exactement le bug qui bloquait un second
+   *  changement de contact. */
+  heardContactName: string | null;
+  /** Nom ACTUELLEMENT présent dans `texte` à la place du proche — initialisé à `heardContactName`,
+   *  puis mis à jour au prénom canonique après CHAQUE remplacement réussi (voir
+   *  replaceContactNameOccurrence). C'est CE champ (pas `heardContactName`) que
+   *  confirmContactForCard recherche pour savoir quelle occurrence corriger : permet de changer de
+   *  contact autant de fois que nécessaire (Joanne → Yohan → Léa → Micka...), chaque remplacement
+   *  ciblant l'occurrence laissée par le précédent. `null` si aucun nom n'a jamais pu être identifié
+   *  dans le texte (rien à suivre). */
+  currentContactNameInText: string | null;
+  /** Classification ORIGINALE du matching (avant toute action utilisateur) — `contactMatch.kind`
+   *  est réécrit à `'exact'` dès qu'un contact est confirmé/choisi (voir confirmContactForCard),
+   *  donc ce champ est le seul moyen fiable de savoir si la normalisation du texte est autorisée
+   *  pour cette carte : 'exact' et 'fuzzy_high_confidence' seulement (voir §RÈGLES) — jamais pour
+   *  'ambiguous'/'exact_ambiguous'/'unmatched'/'none', même si l'utilisateur choisit ensuite un
+   *  contact précis pour ces cas-là. */
+  originalContactMatchKind: ContactMatchResult['kind'];
   /** Purement informatif — jamais écrit dans Pensee.date/endDate (voir captureTypes.ts). */
   eventHint: { date: string | null; heardExpression: string | null } | null;
   reminderEnabled: boolean;
@@ -55,17 +77,67 @@ function nextCardId(): string {
   return `capture-card-${Date.now()}-${cardIdCounter}`;
 }
 
-function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: ContactMatchResult): CaptureCard {
+/**
+ * Remplace, dans `texte`, la SEULE occurrence de `nameToReplace` par `canonicalFirstName` — jamais
+ * un replace global naïf : `\b...\b` limite la recherche à un mot entier (n'altère jamais un mot
+ * qui contiendrait la chaîne en substring, ex. "Mikael" quand on cherche "Mika"), insensible à la
+ * casse (une transcription STT peut différer en casse), et `String.replace` sans flag `g` ne
+ * touche que la PREMIÈRE occurrence — jamais les autres mots de la phrase. `replaced` indique si
+ * une occurrence a réellement été trouvée (sert à savoir si `currentContactNameInText` doit
+ * avancer, voir buildCardFromExtracted/confirmContactForCard) — sans quoi rien n'est modifié.
+ */
+function replaceContactNameOccurrence(
+  texte: string,
+  nameToReplace: string | null,
+  canonicalFirstName: string,
+): { texte: string; replaced: boolean } {
+  if (!nameToReplace || !nameToReplace.trim()) return { texte, replaced: false };
+  const escaped = nameToReplace.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
+  if (!pattern.test(texte)) return { texte, replaced: false };
+  return { texte: texte.replace(pattern, canonicalFirstName), replaced: true };
+}
+
+/**
+ * Version simple (chaîne uniquement) de `replaceContactNameOccurrence`, exportée pour les appelants
+ * qui n'ont pas besoin de savoir si un remplacement a eu lieu (tests, usages ponctuels). La logique
+ * de carte (buildCardFromExtracted/confirmContactForCard) utilise directement
+ * `replaceContactNameOccurrence` pour faire avancer `currentContactNameInText`.
+ */
+export function normalizeHeardContactName(texte: string, heardContactName: string | null, canonicalFirstName: string): string {
+  return replaceContactNameOccurrence(texte, heardContactName, canonicalFirstName).texte;
+}
+
+function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: ContactMatchResult, contacts: Contact[]): CaptureCard {
   // CHANTIER MATCHING V2 : 'exact' ET 'fuzzy_high_confidence' pré-sélectionnent le proche — la
   // distinction (confirmation nécessaire ou non) est portée par `needsReview`, pas par ce choix
   // de pré-remplissage. 'exact_ambiguous'/'ambiguous'/'unmatched' ne pré-sélectionnent jamais rien.
   const matchedContactId =
     contactMatch.kind === 'exact' || contactMatch.kind === 'fuzzy_high_confidence' ? contactMatch.contactId : null;
+  // Cohérence texte/contact (voir §RÈGLES) : un match 'exact' est déjà suffisamment sûr pour
+  // corriger tout de suite le prénom entendu par le prénom canonique — 'fuzzy_high_confidence'
+  // attend une confirmation explicite de l'utilisateur (voir confirmContactForCard), jamais
+  // automatique ici.
+  let texte = extracted.texte;
+  let currentContactNameInText = extracted.heardContactName;
+  if (contactMatch.kind === 'exact') {
+    const contact = contacts.find((c) => c.id === contactMatch.contactId);
+    if (contact) {
+      const result = replaceContactNameOccurrence(texte, currentContactNameInText, contact.prenom);
+      if (result.replaced) {
+        texte = result.texte;
+        currentContactNameInText = contact.prenom;
+      }
+    }
+  }
   return {
     cardId: nextCardId(),
-    texte: extracted.texte,
+    texte,
     contactId: matchedContactId,
     contactMatch,
+    heardContactName: extracted.heardContactName,
+    currentContactNameInText,
+    originalContactMatchKind: contactMatch.kind,
     eventHint: extracted.event.hasDate ? { date: extracted.event.date, heardExpression: extracted.event.heardExpression } : null,
     reminderEnabled: extracted.reminder.hasReminder,
     reminderDate: parseIsoDate(extracted.reminder.date),
@@ -84,6 +156,7 @@ function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: Contac
 export function buildInitialCards(
   result: CaptureResult,
   matchContact: (heardContactName: string | null) => ContactMatchResult,
+  contacts: Contact[],
 ): CaptureCard[] {
   if (result.parseError || result.pensees.length === 0) {
     return [
@@ -92,6 +165,9 @@ export function buildInitialCards(
         texte: result.transcript,
         contactId: null,
         contactMatch: { kind: 'none' },
+        heardContactName: null,
+        currentContactNameInText: null,
+        originalContactMatchKind: 'none',
         eventHint: null,
         reminderEnabled: false,
         reminderDate: null,
@@ -102,7 +178,49 @@ export function buildInitialCards(
       },
     ];
   }
-  return result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName)));
+  return result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName), contacts));
+}
+
+/**
+ * Sélection/confirmation explicite d'un contact par l'utilisateur sur une carte (chip "Aucun" ou
+ * un proche précis) — centralise à la fois la mise à jour de `contactId`/`contactMatch` (déjà
+ * fait avant dans CaptureScreen.tsx) ET la normalisation du texte (§RÈGLES) :
+ *
+ * - `contactId === null` ("Aucun") → jamais de normalisation, rien à corriger (juste le lien
+ *   contact qui disparaît) — `currentContactNameInText` n'est PAS remis à zéro : si l'utilisateur
+ *   choisit un autre contact juste après, il doit encore pouvoir corriger la même occurrence.
+ * - Un contact choisi EXPLICITEMENT par l'utilisateur (peu importe `originalContactMatchKind` —
+ *   exact, fuzzy_high_confidence, ambiguous, exact_ambiguous, unmatched) est une confirmation
+ *   FORTE : corrige l'occurrence de `currentContactNameInText` (PAS `heardContactName` — voir le
+ *   champ, c'est ce qui permet de changer de contact plusieurs fois de suite : Joanne → Yohan →
+ *   Léa → Micka, chaque remplacement ciblant l'occurrence laissée par le précédent) par le prénom
+ *   canonique du contact désormais choisi, et fait avancer `currentContactNameInText` à ce nouveau
+ *   prénom UNIQUEMENT si une occurrence a réellement été trouvée et remplacée.
+ * - Exception : `originalContactMatchKind === 'none'` (carte de repli sans aucune extraction, voir
+ *   buildInitialCards) OU `currentContactNameInText` absent/vide → JAMAIS de réécriture, on ne sait
+ *   alors deviner aucun mot précis à remplacer.
+ *
+ * `replaceContactNameOccurrence` reste la seule fonction qui touche au texte : jamais de replace
+ * global, jamais de fuzzy matching dans le texte lui-même — uniquement l'occurrence exacte de
+ * `currentContactNameInText` (limite de mot, insensible à la casse).
+ */
+export function confirmContactForCard(card: CaptureCard, contactId: string | null, contacts: Contact[]): CaptureCard {
+  if (!contactId) {
+    return { ...card, contactId: null, contactMatch: { kind: 'none' } };
+  }
+  let texte = card.texte;
+  let currentContactNameInText = card.currentContactNameInText;
+  if (card.originalContactMatchKind !== 'none' && currentContactNameInText) {
+    const contact = contacts.find((c) => c.id === contactId);
+    if (contact) {
+      const result = replaceContactNameOccurrence(texte, currentContactNameInText, contact.prenom);
+      if (result.replaced) {
+        texte = result.texte;
+        currentContactNameInText = contact.prenom;
+      }
+    }
+  }
+  return { ...card, contactId, contactMatch: { kind: 'exact', contactId }, texte, currentContactNameInText };
 }
 
 /**

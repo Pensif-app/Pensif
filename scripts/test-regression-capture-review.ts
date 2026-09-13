@@ -7,6 +7,7 @@
 
 import { CaptureResult, ExtractedPensee } from '../src/data/captureTypes';
 import { ContactMatchResult } from '../src/data/contactMatching';
+import { Contact } from '../src/data/types';
 import {
   CaptureCard,
   buildInitialCards,
@@ -42,6 +43,7 @@ function makeExtracted(overrides: Partial<ExtractedPensee>): ExtractedPensee {
 }
 
 const noMatch = (): ContactMatchResult => ({ kind: 'none' });
+const NO_CONTACTS: Contact[] = [];
 const FUTURE_NOW = new Date(2020, 0, 1); // ancre fixe : toutes les dates de test (2026) sont "futures" relativement à ça
 
 console.log('\n[event/reminder séparés — DÉCISION CAPTURE V1] Une pensée datée (event) sans rappel écrit Pensee.date, sans reminderAt');
@@ -56,7 +58,7 @@ console.log('\n[event/reminder séparés — DÉCISION CAPTURE V1] Une pensée d
     ],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, noMatch);
+  const [card] = buildInitialCards(result, noMatch, NO_CONTACTS);
   check('eventHint renseigné', card.eventHint?.date === '2026-09-20');
   check('reminderEnabled resté false (event ≠ reminder)', card.reminderEnabled === false);
   check('carte valide (pas de rappel à valider)', isCardValid(card, FUTURE_NOW));
@@ -73,7 +75,7 @@ console.log('\n[event sans date] event.hasDate=false → Pensee.date reste null'
     pensees: [makeExtracted({ texte: 'Micka aime le café' })],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, noMatch);
+  const [card] = buildInitialCards(result, noMatch, NO_CONTACTS);
   check('eventHint absent', card.eventHint === null);
   const pensee = buildPenseeFromCard(card);
   check('Pensee.date reste null', pensee.date === null);
@@ -91,7 +93,7 @@ console.log('\n[heure jamais inventée] reminder.hasReminder=true, date connue, 
     ],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, noMatch);
+  const [card] = buildInitialCards(result, noMatch, NO_CONTACTS);
   check('reminderDate renseignée', card.reminderDate !== null);
   check('reminderTime resté null (jamais d’heure par défaut inventée)', card.reminderTime === null);
   check('carte invalide tant que l’heure manque', !isCardValid(card, FUTURE_NOW));
@@ -105,6 +107,9 @@ console.log('\n[carte invalide] reminder activé mais date manquante → invalid
     texte: 'x',
     contactId: null,
     contactMatch: { kind: 'none' },
+    heardContactName: null,
+    currentContactNameInText: null,
+    originalContactMatchKind: 'none' as const,
     eventHint: null,
     reminderEnabled: true,
     reminderDate: null,
@@ -124,7 +129,7 @@ console.log('\n[proche ambigu] "Aucun" choisi explicitement (contactId=null) →
     parseError: null,
   };
   const ambiguous = (): ContactMatchResult => ({ kind: 'ambiguous', candidateContactIds: ['a', 'b'] });
-  const [card] = buildInitialCards(result, ambiguous);
+  const [card] = buildInitialCards(result, ambiguous, NO_CONTACTS);
   check('contactId reste null (pas de choix automatique)', card.contactId === null);
   check('needsReview = true (ambiguïté non résolue)', needsReview(card));
   check('carte tout de même VALIDE (peut être enregistrée avec "Aucun")', isCardValid(card, FUTURE_NOW));
@@ -133,7 +138,7 @@ console.log('\n[proche ambigu] "Aucun" choisi explicitement (contactId=null) →
 console.log('\n[repli transcript brut] parseError non nul → une seule carte, texte = transcript, rien perdu');
 {
   const result: CaptureResult = { transcript: 'audio incompréhensible', pensees: [], parseError: 'invalid JSON from LLM' };
-  const cards = buildInitialCards(result, noMatch);
+  const cards = buildInitialCards(result, noMatch, NO_CONTACTS);
   check('exactement une carte', cards.length === 1);
   check('texte = transcript brut', cards[0].texte === 'audio incompréhensible');
   check('carte valide (simple mémo)', isCardValid(cards[0], FUTURE_NOW));
@@ -146,6 +151,9 @@ console.log('\n["Tout enregistrer"] activé seulement si toutes les cartes pendi
     texte: 'ok',
     contactId: null,
     contactMatch: { kind: 'none' },
+    heardContactName: null,
+    currentContactNameInText: null,
+    originalContactMatchKind: 'none' as const,
     eventHint: null,
     reminderEnabled: false,
     reminderDate: null,
@@ -172,6 +180,9 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       texte: 'A',
       contactId: null,
       contactMatch: { kind: 'none' },
+      heardContactName: null,
+      currentContactNameInText: null,
+      originalContactMatchKind: 'none' as const,
       eventHint: null,
       reminderEnabled: false,
       reminderDate: null,
@@ -185,6 +196,9 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       texte: 'B',
       contactId: null,
       contactMatch: { kind: 'none' },
+      heardContactName: null,
+      currentContactNameInText: null,
+      originalContactMatchKind: 'none' as const,
       eventHint: null,
       reminderEnabled: false,
       reminderDate: null,
@@ -208,8 +222,8 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
 console.log('\n[discardCard] supprime uniquement la carte visée');
 {
   const cards: CaptureCard[] = [
-    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
-    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
+    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
+    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
   ];
   const next = discardCard(cards, 'x');
   check('carte x retirée', !next.some((c) => c.cardId === 'x'));

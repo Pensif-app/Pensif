@@ -54,7 +54,7 @@ console.log('\n[A] "Micka aime le café" → 1 carte, aucun event, aucun reminde
     pensees: [makeExtracted({ texte: 'Mika aime le café.', heardContactName: 'Mika' })],
     parseError: null,
   };
-  const cards = buildInitialCards(result, matchReal);
+  const cards = buildInitialCards(result, matchReal, contacts);
   check('exactement 1 carte', cards.length === 1);
   check('aucun event', cards[0].eventHint === null);
   check('aucun reminder', cards[0].reminderEnabled === false);
@@ -75,7 +75,7 @@ console.log('\n[B] "Rappelle-moi demain à 18h d\'appeler Micka" → 1 carte, re
     ],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, matchReal);
+  const [card] = buildInitialCards(result, matchReal, contacts);
   check('reminderEnabled = true', card.reminderEnabled === true);
   check('reminderDate = 2026-09-14', card.reminderDate?.year === 2026 && card.reminderDate?.month === 8 && card.reminderDate?.day === 14);
   check('reminderTime = 18:00', card.reminderTime?.hour === 18 && card.reminderTime?.minute === 0);
@@ -99,7 +99,7 @@ console.log('\n[C] "Micka aime les LEGO et rappelle-moi vendredi à 19h de lui �
     ],
     parseError: null,
   };
-  const cards = buildInitialCards(result, matchReal);
+  const cards = buildInitialCards(result, matchReal, contacts);
   check('exactement 2 cartes', cards.length === 2);
   check('carte 1 : pas de reminder', cards[0].reminderEnabled === false);
   check('carte 2 : reminder activé', cards[1].reminderEnabled === true);
@@ -120,7 +120,7 @@ console.log('\n[D] "Sofia a son entretien vendredi" → 1 carte, Pensee.date = v
     ],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, matchReal);
+  const [card] = buildInitialCards(result, matchReal, contacts);
   check('reminderEnabled = false', card.reminderEnabled === false);
   const pensee = buildPenseeFromCard(card);
   check('Pensee.date = 2026-09-18 (vendredi)', pensee.date === '2026-09-18');
@@ -139,7 +139,7 @@ console.log('\n[E] reminder.hasReminder=true avec time=null → carte invalide, 
     ],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, matchReal);
+  const [card] = buildInitialCards(result, matchReal, contacts);
   check('reminderTime reste null (jamais inventée)', card.reminderTime === null);
   check('carte invalide', !isCardValid(card, FUTURE_NOW));
   check('"Tout enregistrer" désactivé', !canSaveAll([card], FUTURE_NOW));
@@ -152,7 +152,7 @@ console.log('\n[F] fuzzy_high_confidence → contact préselectionné, needsRevi
     pensees: [makeExtracted({ texte: 'Mika aime le café', heardContactName: 'Mika' })],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, matchReal);
+  const [card] = buildInitialCards(result, matchReal, contacts);
   check('contact préselectionné (Micka)', card.contactId === micka.id);
   check('needsReview = true avant confirmation', needsReview(card));
   // Confirmation utilisateur (tap explicite sur le chip déjà présélectionné, voir CaptureScreen) :
@@ -170,7 +170,7 @@ console.log('\n[G] ambiguous → aucun contact auto-sélectionné');
     pensees: [makeExtracted({ texte: 'x', heardContactName: 'Micka' })],
     parseError: null,
   };
-  const [card] = buildInitialCards(result, ambiguous);
+  const [card] = buildInitialCards(result, ambiguous, contacts);
   check('contactId reste null', card.contactId === null);
   check('needsReview = true', needsReview(card));
 }
@@ -182,7 +182,7 @@ console.log('\n[H] échec sauvegarde carte 2 → carte 1 reste saved, carte 2 fa
     pensees: [makeExtracted({ texte: 'Carte 1' }), makeExtracted({ texte: 'Carte 2' })],
     parseError: null,
   };
-  let cards = buildInitialCards(result, matchReal);
+  let cards = buildInitialCards(result, matchReal, contacts);
   const [c1, c2] = cards;
   cards = markSaving(cards, c1.cardId);
   cards = markSaved(cards, c1.cardId);

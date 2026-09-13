@@ -251,16 +251,24 @@ export function daysBetween(iso: string, today: Date): number {
 }
 
 /**
- * Ancre calendrier effective d'une pensée (CHANTIER PENSÉES V2) : la période/le jour explicite
- * (`date`/`endDate`) si présent, sinon le jour du rappel s'il y en a un (`reminderAt`), sinon
+ * Ancre calendrier effective d'une pensée (CHANTIER PENSÉES V2, étendu au fallback reminderAt-only
+ * — voir "corriger l'affichage Calendrier") : la période/le jour explicite (`date`/`endDate`) si
+ * présent — toujours prioritaire, `reminderAt` ne fait alors que porter l'heure de notification,
+ * jamais déplacer l'ancre — sinon le jour LOCAL du rappel s'il y en a un (`reminderAt`), sinon
  * `null` — une pensée purement mémorisée (aucun jour précis, aucun rappel) n'a AUCUNE ancre et
  * n'apparaît donc dans aucune vue temporelle (Calendrier/Accueil), seulement dans l'onglet Pensées.
  * Centralisé ici pour qu'Accueil/Calendrier/Pensées appliquent tous la même règle plutôt que de la
- * recoder séparément.
+ * recoder séparément — Calendrier (getDayEvents ci-dessous) est passé par ce même helper.
+ *
+ * BUG CORRIGÉ : `reminderAt` est stocké en ISO absolu (`.toISOString()`, donc UTC) — en prendre les
+ * 10 premiers caractères bruts donnait la date UTC, pas la date LOCALE de l'utilisateur, et pouvait
+ * décaler l'ancre d'un jour (ex. un rappel local à 00h30 en UTC+1/+2 tombe la veille en UTC). On
+ * passe donc par `new Date(...)` puis `dIso`, qui lit les composants LOCAUX (getFullYear/getMonth/
+ * getDate) — même discipline que le reste de l'app pour un instant absolu saisi par l'utilisateur.
  */
 export function penseeAnchor(p: Pensee): { date: string; endDate: string | null } | null {
   if (p.date) return { date: p.date, endDate: p.endDate ?? null };
-  if (p.reminderAt) return { date: p.reminderAt.slice(0, 10), endDate: null };
+  if (p.reminderAt) return { date: dIso(new Date(p.reminderAt)), endDate: null };
   return null;
 }
 
@@ -413,14 +421,17 @@ export function getDayEvents(
   }
 
   pensees.forEach((p) => {
-    const isPeriod = Boolean(p.date) && Boolean(p.endDate);
-    // Une pensée sans `date` (aucune ancre calendrier, voir penseeAnchor) n'apparaît jamais dans le
-    // Calendrier jour par jour — seulement dans l'onglet Pensées.
-    const inRange = !p.date ? false : isPeriod ? iso >= p.date && iso <= p.endDate! : p.date === iso;
+    // Ancre calendrier centralisée (voir penseeAnchor) — inclut désormais le fallback reminderAt
+    // (date locale) quand `date` est absente. Une pensée sans aucune ancre n'apparaît jamais dans
+    // le Calendrier jour par jour — seulement dans l'onglet Pensées.
+    const anchor = penseeAnchor(p);
+    if (!anchor) return;
+    const isPeriod = Boolean(anchor.endDate);
+    const inRange = isPeriod ? iso >= anchor.date && iso <= anchor.endDate! : anchor.date === iso;
     if (inRange) {
       const extra = p.contactId ? ` · liée à ${contactName(contacts, p.contactId)}` : '';
       const periodLabel = isPeriod
-        ? `Du ${frDate(p.date!)} au ${frDate(p.endDate!)}`
+        ? `Du ${frDate(anchor.date)} au ${frDate(anchor.endDate!)}`
         : p.reminderAt
         ? `Pensée · rappel ${reminderAtLabel(p.reminderAt, iso)}`
         : 'Pensée';

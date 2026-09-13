@@ -123,7 +123,7 @@ export function CaptureDebugScreen() {
       const captureResult = await uploadAudioForCapture(recordedInfo);
       setLatencyMs(Date.now() - start);
       setResult(captureResult);
-      setDebugCards(buildInitialCards(captureResult, (heard) => matchContactByHeardName(heard, contacts)));
+      setDebugCards(buildInitialCards(captureResult, (heard) => matchContactByHeardName(heard, contacts), contacts));
     } catch (e) {
       setLatencyMs(Date.now() - start);
       setUploadError(e instanceof CaptureApiError ? `${e.message}${e.status ? ` (HTTP ${e.status})` : ''}` : String(e));

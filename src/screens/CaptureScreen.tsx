@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Easing,
   Image,
   Linking,
   PanResponder,
@@ -41,13 +42,14 @@ import { matchContactByHeardName } from '../data/contactMatching';
 import { toLocalDateTimeParts } from '../data/reminderDate';
 import { isPressTooShort } from '../data/pushToTalk';
 import { isCaptureExploitable } from '../data/captureExploitability';
-import { VoiceActivityAccumulator } from '../data/voiceActivity';
+import { VoiceActivityAccumulator, STRONG_PEAK_THRESHOLD_DB } from '../data/voiceActivity';
 import {
   CaptureCard,
   LocalDate,
   buildInitialCards,
   buildPenseeFromCard,
   canSaveAll,
+  confirmContactForCard,
   discardCard,
   isCardValid,
   markFailed,
@@ -60,6 +62,22 @@ type Phase = 'idle' | 'listening' | 'processing' | 'review' | 'error' | 'unclear
 
 // Bouton principal ~3-4x plus grand que l'ancien micro (84px) — voir mockup validé.
 const BUTTON_SIZE = 280;
+
+// "Concentric listening ripples" (principe d'interaction générique — bouton stable + ondes
+// concentriques successives pendant l'écoute — jamais un asset/design propriétaire copié) : 4
+// ondes indépendantes, décalées dans le temps, chacune naît au contour du bouton et grandit vers
+// l'extérieur en se dissipant. Cycle purement TEMPOREL — voir §IMPORTANT AUDIO : ne dépend plus du
+// metering, continue même sur du silence pour signaler "le micro écoute".
+const RIPPLE_COUNT = 4;
+const RIPPLE_STAGGER_MS = 300;
+const RIPPLE_DURATION_MS = 1400;
+// Relatif au diamètre du bouton (scale 1 = contour du bouton). Les valeurs 1.8-2.3x suggérées
+// resteraient très larges à ce BUTTON_SIZE (280px, déjà 3-4x un bouton micro classique) — mais
+// l'opacité retombe à 0 bien avant d'atteindre ce rayon maximal (voir RIPPLE_OPACITY_START), donc
+// le débordement visuel réel au bord de l'écran est négligeable (quasi invisible à ce stade).
+const RIPPLE_MAX_SCALE = 2.0;
+const RIPPLE_OPACITY_START = 0.5; // "relativement visible" à la naissance, près du bouton
+const RIPPLE_MASTER_FADE_MS = 200; // disparition propre au relâchement (dans la fourchette 150-250ms)
 
 // Dégradé du bouton inspiré du mockup validé : survol lavande clair en haut à gauche → violet →
 // bleu-violet profond en bas à droite, plus riche qu'un dégradé à deux teintes plates. Le premier
@@ -176,12 +194,30 @@ export function CaptureScreen() {
   const [cards, setCards] = useState<CaptureCard[]>([]);
   const [openPicker, setOpenPicker] = useState<{ cardId: string; kind: 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'eventDate' } | null>(null);
 
-  // Respiration douce du bouton — active pendant l'écoute (léger, réagit au niveau audio via
-  // `level` ci-dessous) ET pendant le traitement (animation "douce de processing" demandée).
+  // Respiration douce du bouton — active pendant le traitement (animation "douce de processing"
+  // demandée). Complètement DISTINCTE de `pressScale` ci-dessous (feedback immédiat du geste) : ce
+  // sont deux animations séparées, jamais combinées sur la même transition d'état.
   const pulse = useRef(new Animated.Value(1)).current;
+  // Feedback tactile immédiat du press-and-hold — scale idle 1.0 → ~0.96 → ~1.01 → retour 1.0,
+  // ~150-200ms au total. Piloté DIRECTEMENT par onPanResponderGrant/Release/Terminate (voir
+  // animateButtonPressIn/Out plus bas) — jamais une boucle autonome, se déclenche uniquement sur le
+  // geste utilisateur, avant même que l'audio soit démarré.
+  const pressScale = useRef(new Animated.Value(1)).current;
   // Niveau audio normalisé (0..1), piloté par le vrai metering expo-audio — voir l'effet dédié plus
-  // bas. Anime les anneaux autour du bouton pendant l'écoute.
+  // bas. NE PILOTE PLUS les grandes ondes (désormais purement temporelles, voir `ripples`
+  // ci-dessous) : sert uniquement à une variation TRÈS SUBTILE du halo proche du bouton (§IMPORTANT
+  // AUDIO — si une réaction au son est conservée, elle doit être séparée et minime).
   const level = useRef(new Animated.Value(0)).current;
+  // "Concentric listening ripples" — RIPPLE_COUNT progressions indépendantes (0..1 chacune),
+  // rejouées en boucle avec un décalage de départ (voir startRipples/stopRipples). Purement
+  // décoratif, jamais lu par la logique métier. `ripplesMasterOpacity` permet une disparition
+  // rapide et propre de TOUTES les ondes en cours au relâchement, sans dépendre de l'état
+  // individuel (souvent différent) de chacune.
+  const ripples = useRef(Array.from({ length: RIPPLE_COUNT }, () => new Animated.Value(0))).current;
+  const ripplesMasterOpacity = useRef(new Animated.Value(0)).current;
+  const ripplesActiveRef = useRef(false);
+  const rippleAnimRef = useRef<(Animated.CompositeAnimation | null)[]>(Array(RIPPLE_COUNT).fill(null));
+  const rippleTimerRef = useRef<(ReturnType<typeof setTimeout> | null)[]>(Array(RIPPLE_COUNT).fill(null));
   // Progression du remplissage du cœur (0..1), pilotée par la durée d'enregistrement — purement
   // visuel, aucune lecture de cette valeur par la logique métier.
   const heartFill = useRef(new Animated.Value(0)).current;
@@ -267,6 +303,11 @@ export function CaptureScreen() {
         recorder.stop().catch(() => {});
       }
       setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+      // Ripples : aucune animation/timer ne doit continuer à tourner après le démontage de l'écran
+      // (§PERFORMANCE — nettoyer toutes les animations au release/unmount).
+      ripplesActiveRef.current = false;
+      rippleTimerRef.current.forEach((t) => t && clearTimeout(t));
+      rippleAnimRef.current.forEach((a) => a?.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -394,10 +435,17 @@ export function CaptureScreen() {
     }
 
     // GARDE-FOU NIVEAU 1 (avant STT) — voir voiceActivity.ts. Un maintien assez long pour passer le
-    // seuil anti-tap (>=400ms) mais sans voix réelle détectée (silence, bruit lointain) ne doit
+    // seuil anti-tap (>=400ms) mais sans voix probable détectée (silence, bruit lointain) ne doit
     // JAMAIS être envoyé au backend : ni uploadAudioForCapture, ni donc Groq — cas réel corrigé,
-    // le STT "hallucinait" une phrase sur du silence maintenu plusieurs secondes.
-    if (!voiceActivityRef.current.hasDetectedVoice()) {
+    // le STT "hallucinait" une phrase sur du silence maintenu plusieurs secondes. Volontairement
+    // permissif (voir voiceActivity.ts) : le but est d'éviter les faux négatifs (rejeter une vraie
+    // voix), le filtre post-STT (captureExploitability.ts) reste la seconde sécurité.
+    if (__DEV__) {
+      // Logs DEBUG temporaires (dev uniquement) — pour calibrer les seuils avec de vrais tests
+      // iPhone. Ne journalise aucune donnée audio elle-même, uniquement les métriques dérivées.
+      console.log('[Pensif][voice-guard]', voiceActivityRef.current.debugSnapshot());
+    }
+    if (!voiceActivityRef.current.hasLikelySpeech()) {
       setPhase('silence');
       return;
     }
@@ -411,14 +459,24 @@ export function CaptureScreen() {
     try {
       // 6) envoyer le fichier au backend comme aujourd'hui — chemin STT/LLM/matching inchangé.
       const result = await uploadAudioForCapture({ uri, filename, mimeType });
+      // RÈGLE DE SÉCURITÉ (combine les deux niveaux) : si l'audio local n'a montré aucun pic franc
+      // (ou si le metering n'était pas assez fiable pour trancher), le filtre texte devient plus
+      // strict sur la langue — un unique marqueur français isolé ne suffit plus. Avec une vraie
+      // voix détectée (pic franc), on reste aussi permissif qu'avant.
+      const voiceSnapshot = voiceActivityRef.current.debugSnapshot();
+      const weakAudioEvidence =
+        voiceSnapshot.meteringUnreliable || voiceSnapshot.peakDb === null || voiceSnapshot.peakDb < STRONG_PEAK_THRESHOLD_DB;
+      if (__DEV__) {
+        console.log('[Pensif][exploitability-guard]', { weakAudioEvidence, transcript: result.transcript });
+      }
       // Garde-fou "aucune parole exploitable" — AVANT toute carte/sauvegarde : du bruit transcrit
       // en texte incohérent (ou une capture vide/hors-français) ne doit jamais atteindre Review.
-      if (!isCaptureExploitable(result)) {
+      if (!isCaptureExploitable(result, { weakAudioEvidence })) {
         setPhase('unclear');
         return;
       }
       setTranscript(result.transcript);
-      setCards(buildInitialCards(result, (heard) => matchContactByHeardName(heard, contacts)));
+      setCards(buildInitialCards(result, (heard) => matchContactByHeardName(heard, contacts), contacts));
       setPhase('review');
     } catch (e) {
       setErrorMessage(
@@ -447,19 +505,88 @@ export function CaptureScreen() {
   // interruption système (`onPanResponderTerminate`, ex. appel entrant) arrête l'enregistrement.
   // `onPanResponderTerminationRequest: () => false` : on garde la main tant qu'on enregistre, pour
   // ne jamais perdre le relâchement au profit d'un autre responder.
+  // Feedback tactile immédiat (voir `pressScale` plus haut) — 3 temps très courts (~150-200ms au
+  // total) : enfoncement rapide, léger rebond au-dessus de 1, retour à 1.0 — se déclenche AVANT
+  // tout, dès `onPanResponderGrant`, indépendant du démarrage réel de l'enregistrement
+  // (permission/prepare asynchrones), donc perçu instantanément par l'utilisateur même si l'audio
+  // met encore quelques dizaines de ms à démarrer. L'identité "écoute" est désormais portée par les
+  // ripples (voir startRipples), pas par un maintien du scale du bouton.
+  function animateButtonPressIn() {
+    Animated.sequence([
+      Animated.timing(pressScale, { toValue: 0.96, duration: 70, useNativeDriver: true }),
+      Animated.timing(pressScale, { toValue: 1.01, duration: 70, useNativeDriver: true }),
+      Animated.timing(pressScale, { toValue: 1, duration: 60, useNativeDriver: true }),
+    ]).start();
+  }
+  // Retour fluide si le relâchement interrompt la séquence en cours — léger spring, sans rebond
+  // excessif (bounciness faible).
+  function animateButtonPressOut() {
+    Animated.spring(pressScale, { toValue: 1, speed: 14, bounciness: 4, useNativeDriver: true }).start();
+  }
+
+  /** Démarre le cycle d'une onde à l'index `i` : grandit/se dissipe une fois, puis se relance
+   *  immédiatement depuis le centre (valeur remise à 0, jamais une animation retour visible) tant
+   *  que `ripplesActiveRef` reste vrai — c'est ce qui donne un FLUX d'ondes successives indépendantes
+   *  plutôt que N anneaux qui respirent ensemble. */
+  function runRippleCycle(i: number) {
+    if (!ripplesActiveRef.current) return;
+    ripples[i].setValue(0);
+    const anim = Animated.timing(ripples[i], {
+      toValue: 1,
+      duration: RIPPLE_DURATION_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    rippleAnimRef.current[i] = anim;
+    anim.start(({ finished }) => {
+      if (finished && ripplesActiveRef.current) runRippleCycle(i);
+    });
+  }
+
+  /** Démarre les 4 ondes, chacune avec son propre délai de départ (0/300/600/900ms) — voir
+   *  RIPPLE_STAGGER_MS. Purement temporel, jamais piloté par le metering (§IMPORTANT AUDIO). */
+  function startRipples() {
+    ripplesActiveRef.current = true;
+    Animated.timing(ripplesMasterOpacity, { toValue: 1, duration: 80, useNativeDriver: true }).start();
+    for (let i = 0; i < RIPPLE_COUNT; i++) {
+      ripples[i].setValue(0);
+      rippleTimerRef.current[i] = setTimeout(() => runRippleCycle(i), i * RIPPLE_STAGGER_MS);
+    }
+  }
+
+  /** Arrête net toute nouvelle onde, fait disparaître proprement celles en cours (fondu commun
+   *  ~200ms, plutôt qu'une coupure brutale) et nettoie toutes les animations/timers en vol — voir
+   *  §PERFORMANCE. Appelée au relâchement ET au démontage de l'écran. */
+  function stopRipples() {
+    ripplesActiveRef.current = false;
+    rippleTimerRef.current.forEach((t) => t && clearTimeout(t));
+    rippleTimerRef.current = Array(RIPPLE_COUNT).fill(null);
+    rippleAnimRef.current.forEach((a) => a?.stop());
+    rippleAnimRef.current = Array(RIPPLE_COUNT).fill(null);
+    Animated.timing(ripplesMasterOpacity, { toValue: 0, duration: RIPPLE_MASTER_FADE_MS, useNativeDriver: true }).start(() => {
+      ripples.forEach((v) => v.setValue(0));
+    });
+  }
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
+        animateButtonPressIn();
+        startRipples();
         handlePressIn();
       },
       onPanResponderMove: () => {},
       onPanResponderRelease: () => {
+        animateButtonPressOut();
+        stopRipples();
         handlePressOut();
       },
       onPanResponderTerminate: () => {
         // Interruption système (appel entrant, alerte, etc.) — traité comme un relâchement réel,
         // jamais un recorder laissé actif silencieusement.
+        animateButtonPressOut();
+        stopRipples();
         handlePressOut();
       },
       onPanResponderTerminationRequest: () => false,
@@ -474,7 +601,10 @@ export function CaptureScreen() {
     // Toute sélection explicite (y compris re-confirmer le proche déjà présélectionné par un match
     // fuzzy) devient une confirmation utilisateur — le hint de matching n'est plus jamais revalidé
     // après cette intervention manuelle (voir contactMatching.ts / captureReview.ts).
-    patchCard(cardId, { contactId, contactMatch: contactId ? { kind: 'exact', contactId } : { kind: 'none' } });
+    // confirmContactForCard centralise aussi la cohérence texte/contact (§RÈGLES) : ne corrige le
+    // texte que pour un match originellement exact/fuzzy_high_confidence, jamais pour un cas
+    // ambigu/non résolu — voir captureReview.ts.
+    setCards((prev) => prev.map((c) => (c.cardId === cardId ? confirmContactForCard(c, contactId, contacts) : c)));
   }
 
   function clearEventDate(cardId: string) {
@@ -585,61 +715,54 @@ export function CaptureScreen() {
           <View style={styles.buttonWrap} {...panResponder.panHandlers}>
             {/* Halo à deux couches (glow dégradé plus doux, façon mockup) — une simple teinte plate
                 rendait le contour trop net ; deux cercles superposés d'opacité décroissante
-                approchent un flou radial sans dépendance supplémentaire. */}
-            <Animated.View
-              pointerEvents="none"
-              style={[styles.haloOuter, { backgroundColor: theme.accent, transform: [{ scale: pulse }] }]}
-            />
-            <Animated.View
-              pointerEvents="none"
-              style={[styles.haloInner, { backgroundColor: theme.accent, transform: [{ scale: pulse }] }]}
-            />
-            {/* Anneaux d'onde — présents mais parfaitement immobiles au repos (level reste à 0 hors
-                écoute, voir l'effet dédié) : seule l'écoute les anime, avec le VRAI niveau audio,
-                jamais de fausse réaction périodique. Trois anneaux, plus espacés (façon mockup). */}
+                approchent un flou radial sans dépendance supplémentaire. Réaction audio TRÈS
+                SUBTILE conservée ici uniquement (§IMPORTANT AUDIO) — jamais sur les grandes ondes,
+                voir plus bas — parfaitement immobile au repos (`level` reste à 0 hors écoute). */}
             <Animated.View
               pointerEvents="none"
               style={[
-                styles.ring,
-                {
-                  width: BUTTON_SIZE + 32,
-                  height: BUTTON_SIZE + 32,
-                  borderRadius: (BUTTON_SIZE + 32) / 2,
-                  borderColor: theme.accent,
-                  transform: [{ scale: level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] }) }],
-                  opacity: level.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.65] }),
-                },
+                styles.haloOuter,
+                { backgroundColor: theme.accent, transform: [{ scale: isListening ? level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] }) : pulse }] },
               ]}
             />
             <Animated.View
               pointerEvents="none"
               style={[
-                styles.ring,
-                {
-                  width: BUTTON_SIZE + 68,
-                  height: BUTTON_SIZE + 68,
-                  borderRadius: (BUTTON_SIZE + 68) / 2,
-                  borderColor: theme.accent,
-                  transform: [{ scale: level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.13] }) }],
-                  opacity: level.interpolate({ inputRange: [0, 1], outputRange: [0.26, 0.5] }),
-                },
+                styles.haloInner,
+                { backgroundColor: theme.accent, transform: [{ scale: isListening ? level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] }) : pulse }] },
               ]}
             />
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.ring,
-                {
-                  width: BUTTON_SIZE + 110,
-                  height: BUTTON_SIZE + 110,
-                  borderRadius: (BUTTON_SIZE + 110) / 2,
-                  borderColor: theme.accent,
-                  transform: [{ scale: level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.2] }) }],
-                  opacity: level.interpolate({ inputRange: [0, 1], outputRange: [0.14, 0.34] }),
-                },
-              ]}
-            />
-            <View style={styles.buttonHitArea}>
+            {/* "Concentric listening ripples" — 4 ondes indépendantes, purement temporelles (voir
+                startRipples/RIPPLE_* plus haut) : chacune naît au contour du bouton (scale 1,
+                opacity RIPPLE_OPACITY_START) et grandit en se dissipant jusqu'à disparition
+                complète (scale RIPPLE_MAX_SCALE, opacity 0). `ripplesMasterOpacity` (0 au repos, 1
+                pendant l'écoute) garantit qu'aucune onde n'est jamais visible en idle, et permet une
+                disparition commune propre au relâchement plutôt qu'une coupure brutale. */}
+            {ripples.map((progress, i) => {
+              const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, RIPPLE_MAX_SCALE] });
+              const opacity = Animated.multiply(
+                progress.interpolate({ inputRange: [0, 1], outputRange: [RIPPLE_OPACITY_START, 0] }),
+                ripplesMasterOpacity,
+              );
+              return (
+                <Animated.View
+                  key={i}
+                  pointerEvents="none"
+                  style={[
+                    styles.ripple,
+                    {
+                      width: BUTTON_SIZE,
+                      height: BUTTON_SIZE,
+                      borderRadius: BUTTON_SIZE / 2,
+                      backgroundColor: theme.accent,
+                      transform: [{ scale }],
+                      opacity,
+                    },
+                  ]}
+                />
+              );
+            })}
+            <Animated.View style={[styles.buttonHitArea, { transform: [{ scale: pressScale }] }]}>
               <LinearGradient
                 colors={[BUTTON_GRADIENT_HIGHLIGHT, theme.accent, theme.accentStrong]}
                 start={{ x: 0.12, y: 0.05 }}
@@ -648,16 +771,19 @@ export function CaptureScreen() {
               >
                 <LogoWithHeart progress={heartFill} fillColor={theme.plum} />
               </LinearGradient>
-            </View>
+            </Animated.View>
           </View>
           {isListening ? (
             <Text style={[styles.duration, { color: theme.inkSoft }]}>{(recorderState.durationMillis / 1000).toFixed(0)}s</Text>
           ) : (
             <View style={{ height: 13 + 18 }} />
           )}
-          {/* Plus petit que le spacer du dessus (flex:1) : remonte le texte de confidentialité
-              nettement au-dessus du bord, sans le recoller au bouton. */}
-          <View style={{ flex: 0.55 }} />
+          {/* BUG CORRIGÉ : un ratio différent du spacer du dessus ne rapprochait PAS la
+              confidentialité du bord (sa position dépend seulement des hauteurs fixes + de
+              paddingBottom, pas de ce ratio) — ça ne faisait que pousser le bouton vers le bas de
+              façon non désirée. Même flex que le spacer du dessus : bouton vraiment centré dans
+              l'espace disponible. */}
+          <View style={{ flex: 1 }} />
 
           <View style={styles.privacyRow}>
             <Ionicons name="lock-closed-outline" size={13} color={theme.inkSoft} />
@@ -692,7 +818,7 @@ export function CaptureScreen() {
               </LinearGradient>
             </View>
           </Animated.View>
-          <View style={{ flex: 0.55 }} />
+          <View style={{ flex: 1 }} />
 
           <View style={styles.privacyRow}>
             <Ionicons name="lock-closed-outline" size={13} color={theme.inkSoft} />
@@ -1094,7 +1220,9 @@ const styles = StyleSheet.create({
   // plus visible) pour approcher un flou radial façon mockup, sans dépendance supplémentaire.
   haloOuter: { position: 'absolute', width: BUTTON_SIZE * 1.38, height: BUTTON_SIZE * 1.38, borderRadius: (BUTTON_SIZE * 1.38) / 2, opacity: 0.1 },
   haloInner: { position: 'absolute', width: BUTTON_SIZE * 1.14, height: BUTTON_SIZE * 1.14, borderRadius: (BUTTON_SIZE * 1.14) / 2, opacity: 0.22 },
-  ring: { position: 'absolute', borderWidth: 1.5 },
+  // Disque plein (pas un simple contour) : au scale/opacity de départ, se fond avec le bouton —
+  // c'est la variation d'opacity qui donne l'impression d'onde, pas un anneau creux qui grossirait.
+  ripple: { position: 'absolute' },
   buttonHitArea: { width: BUTTON_SIZE, height: BUTTON_SIZE, borderRadius: BUTTON_SIZE / 2 },
   gradientCircle: { flex: 1, borderRadius: BUTTON_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   logoBox: { width: LOGO_WIDTH, height: LOGO_HEIGHT },
