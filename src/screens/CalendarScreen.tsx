@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -67,6 +67,16 @@ export function CalendarScreen() {
   const [highlightMode, setHighlightMode] = useState(false);
   const [dragRange, setDragRange] = useState<{ start: number; end: number } | null>(null);
   const [periodModal, setPeriodModal] = useState<{ start: number; end: number } | null>(null);
+  // CHANTIER AUDIT PRÉ-BÊTA §1 — gardes anti-double-tap pour saveThought()/savePeriod(). Contrairement
+  // à FicheScreen/PenseeDetailScreen (qui NAVIGUENT hors de l'écran au succès, donc ne libèrent jamais
+  // la garde sur ce chemin), ce composant reste MONTÉ après un enregistrement (le formulaire/la modale
+  // se referme, l'écran Calendrier persiste) — la garde doit donc être libérée pour permettre une
+  // PROCHAINE saisie légitime. Elle est libérée au moment où le formulaire/la modale est RÉOUVERT
+  // (voir les points d'usage : bouton "+ Ajouter une pensée" et finalizeDrag), jamais via un
+  // setTimeout arbitraire — ce qui protège aussi tout le temps que l'écran reste dans sa transition
+  // de fermeture (encore montré, potentiellement encore tapable) après un tap réussi.
+  const savingThoughtRef = useRef(false);
+  const savingPeriodRef = useRef(false);
   const [periodText, setPeriodText] = useState('');
   const [gridWidth, setGridWidth] = useState(0);
 
@@ -303,7 +313,10 @@ export function CalendarScreen() {
         // Laisse le geste de glissement (sur la grille) relâcher complètement la zone tactile
         // avant d'ouvrir la fenêtre — sans ce court délai, le premier tap sur "Enregistrer" ne
         // s'enregistrait pas (il fallait taper deux fois).
-        setTimeout(() => setPeriodModal({ start, end }), 80);
+        setTimeout(() => {
+          savingPeriodRef.current = false; // nouvelle session de saisie → garde anti-double-tap réarmée
+          setPeriodModal({ start, end });
+        }, 80);
       }
       return null;
     });
@@ -403,22 +416,42 @@ export function CalendarScreen() {
   }
 
   function savePeriod() {
+    if (savingPeriodRef.current) return; // enregistrement déjà en cours (ou déjà réussi) — ignore un second tap
     if (!periodModal || !periodText.trim()) {
       Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
       return;
     }
-    addPensee({
-      date: isoOf(view.year, view.month, periodModal.start),
-      endDate: periodModal.start === periodModal.end ? null : isoOf(view.year, view.month, periodModal.end),
-      texte: periodText.trim(),
-      // Notification unique au tout début de la période, à 9h — même comportement par défaut
-      // qu'avant CHANTIER PENSÉES V2 (remind: '0'), désormais exprimé comme un rappel absolu.
-      reminderAt: new Date(view.year, view.month, periodModal.start, 9, 0, 0).toISOString(),
-      contactId: null,
-      createdAt: new Date().toISOString(),
-    });
-    setPeriodText('');
-    setPeriodModal(null);
+    const startIso = isoOf(view.year, view.month, periodModal.start);
+    const endIso = periodModal.start === periodModal.end ? null : isoOf(view.year, view.month, periodModal.end);
+    // CHANTIER AUDIT PRÉ-BÊTA §3 — `finalizeDrag` normalise déjà start/end (Math.min/Math.max) donc
+    // ce cas n'est pas atteignable aujourd'hui par le geste de sélection réel, mais `savePeriod` ne
+    // doit pas en dépendre implicitement : toute date de fin antérieure à la date de début est
+    // refusée explicitement ici, sans jamais rien écrire dans le store. `endIso === startIso`
+    // n'arrive jamais (`start === end` produit `endIso: null`, pas une égalité de chaînes) — seul
+    // `endIso > startIso` ou `endIso === null` (pas de période, un seul jour) sont acceptés.
+    if (endIso !== null && endIso < startIso) {
+      Alert.alert('Période invalide', 'La date de fin ne peut pas être avant la date de début.');
+      return;
+    }
+    savingPeriodRef.current = true;
+    try {
+      addPensee({
+        date: startIso,
+        endDate: endIso,
+        texte: periodText.trim(),
+        // Notification unique au tout début de la période, à 9h — même comportement par défaut
+        // qu'avant CHANTIER PENSÉES V2 (remind: '0'), désormais exprimé comme un rappel absolu.
+        reminderAt: new Date(view.year, view.month, periodModal.start, 9, 0, 0).toISOString(),
+        contactId: null,
+        createdAt: new Date().toISOString(),
+      });
+      setPeriodText('');
+      setPeriodModal(null);
+    } catch (e) {
+      // La modale reste ouverte (pas de reprise via finalizeDrag) — l'utilisateur doit pouvoir réessayer.
+      savingPeriodRef.current = false;
+      throw e;
+    }
   }
 
   const selectedEvents = getDayEvents(selected.year, selected.month, selected.day, contacts, pensees, today, userName);
@@ -439,6 +472,7 @@ export function CalendarScreen() {
   }
 
   function saveThought() {
+    if (savingThoughtRef.current) return; // enregistrement déjà en cours (ou déjà réussi) — ignore un second tap
     if (!texte.trim()) {
       Alert.alert('Champ vide', "Écris un mot avant d'enregistrer.");
       return;
@@ -459,19 +493,26 @@ export function CalendarScreen() {
           ? subtractMinutesLocal(new Date(selected.year, selected.month, selected.day, 23, 59, 59), customOffsetMinutes).toISOString()
           : presetReminderDate(parseInt(reminderChoice, 10)).toISOString();
     }
-    addPensee({
-      date: isoOf(selected.year, selected.month, selected.day),
-      texte: texte.trim(),
-      reminderAt,
-      contactId: linkedContact,
-      createdAt: new Date().toISOString(),
-    });
-    setTexte('');
-    setLinkedContact(null);
-    setReminderEnabled(false);
-    setReminderChoice('1');
-    setCustomDuration({ weeks: 0, days: 1, hours: 0, minutes: 0 });
-    closeForm();
+    savingThoughtRef.current = true;
+    try {
+      addPensee({
+        date: isoOf(selected.year, selected.month, selected.day),
+        texte: texte.trim(),
+        reminderAt,
+        contactId: linkedContact,
+        createdAt: new Date().toISOString(),
+      });
+      setTexte('');
+      setLinkedContact(null);
+      setReminderEnabled(false);
+      setReminderChoice('1');
+      setCustomDuration({ weeks: 0, days: 1, hours: 0, minutes: 0 });
+      closeForm();
+    } catch (e) {
+      // Le formulaire reste ouvert (pas de reprise via le bouton "+ Ajouter") — l'utilisateur doit pouvoir réessayer.
+      savingThoughtRef.current = false;
+      throw e;
+    }
   }
 
   return (
@@ -732,6 +773,7 @@ export function CalendarScreen() {
         onPress={() => {
           setReminderEnabled(false);
           setReminderChoice('1');
+          savingThoughtRef.current = false; // nouvelle session de saisie → garde anti-double-tap réarmée
           setFormOpen(true);
         }}
         style={[styles.addBtn, { borderColor: theme.line }]}
@@ -744,6 +786,12 @@ export function CalendarScreen() {
             GestureHandlerRootView ici, ni les gestes (react-native-gesture-handler) ni parfois
             le scroll normal ne fonctionnent correctement à l'intérieur. */}
         <GestureHandlerRootView style={{ flex: 1 }}>
+          {/* CHANTIER UX §1 (2026-09-15) — clavier iPhone masquant le formulaire : même
+              KeyboardAvoidingView que la modale "période" plus bas (behavior="padding" iOS
+              uniquement, offset FIXE mais petit et non lié à un modèle d'appareil précis — pas un
+              offset calculé pour un iPhone donné). Android n'a pas besoin de ce comportement
+              (redimensionnement de fenêtre géré nativement par l'OS, `behavior={undefined}`). */}
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
           {/* Fond assombri d'un coup (pas de transition dessus, demandé ainsi). La zone tap-pour-
               fermer est un Pressable SÉPARÉ qui ne couvre que l'espace vide au-dessus de la carte
               — la carte elle-même n'est plus enveloppée dans un Pressable, ce qui bloquait le
@@ -861,6 +909,7 @@ export function CalendarScreen() {
                 <PrimaryButton label="Enregistrer la pensée" onPress={saveThought} />
             </Animated.View>
           </View>
+          </KeyboardAvoidingView>
         </GestureHandlerRootView>
       </Modal>
 

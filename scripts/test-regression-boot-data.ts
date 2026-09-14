@@ -75,18 +75,24 @@ console.log('\n[2] Cache existant + Supabase indisponible au chargement → le c
   check('la pensée du cache est conservée', result.pensees.length === 1 && result.pensees[0].id === 'pensee-1');
 }
 
-console.log('\n[3] Supabase disponible → un contact local pas encore connu du distant est conservé en plus');
+console.log('\n[3] Supabase disponible → un contact local pas encore connu du distant, MAIS représenté par un upsert dans l’outbox, est conservé en plus');
 {
+  // CHANTIER SUPPRESSION/INTÉGRITÉ (2026-09-15) : ce cas ne repose plus sur une simple différence
+  // cache/distant (voir mergeCachedExtras, retiré — trop permissif, voir [SUPP-A]/[SUPP-B]
+  // ci-dessous) mais sur l’outbox, seule source fiable de "création locale pas encore synchronisée".
   const remoteAlice = makeContact({ id: 'alice', prenom: 'Alice (distant)' });
   const localOnlyCharlie = makeContact({ id: 'charlie', prenom: 'Charlie' }); // créé hors-ligne, pas encore sur le serveur
+  const outbox: Outbox = [
+    { opId: 'op-3', kind: 'contact', entityId: 'charlie', action: 'upsert', isNew: true, payload: localOnlyCharlie, enqueuedAt: '2026-01-01T00:00:00.000Z' },
+  ];
   const result = resolveBootData({
     cachedContacts: [remoteAlice, localOnlyCharlie],
     cachedPensees: [],
-    outbox: [],
+    outbox,
     remote: { contacts: [remoteAlice], pensees: [] },
   });
   check('le contact distant est présent', result.contacts.some((c) => c.id === 'alice'));
-  check('le contact local non-synchronisé est ajouté en plus', result.contacts.some((c) => c.id === 'charlie'));
+  check('le contact local non-synchronisé (protégé par l’outbox) est ajouté en plus', result.contacts.some((c) => c.id === 'charlie'));
 }
 
 console.log('\n[4] Suppression en attente (outbox) non confirmée → jamais résurrectée, ni depuis le cache ni depuis le distant');
@@ -150,6 +156,44 @@ console.log('\n[H] CHANTIER SYNC — delete pensée offline → boot avec l’en
     remote: { contacts: [], pensees: [stillOnRemote] },
   });
   check('la pensée supprimée ne réapparaît pas malgré sa présence distante', !result.pensees.some((p) => p.id === 'p-3'));
+}
+
+console.log('\n[SUPP-A] CHANTIER SUPPRESSION/INTÉGRITÉ — contact supprimé ailleurs (remote=[]), cache périmé, PAS d’outbox → ne doit JAMAIS réapparaître');
+{
+  const staleCachedContact = makeContact({ id: 'a', prenom: 'A' });
+  const result = resolveBootData({ cachedContacts: [staleCachedContact], cachedPensees: [], outbox: [], remote: { contacts: [], pensees: [] } });
+  check('contact A absent (remote fait autorité, aucun outbox ne le protège)', !result.contacts.some((c) => c.id === 'a'));
+}
+
+console.log('\n[SUPP-B] CHANTIER SUPPRESSION/INTÉGRITÉ — pensée supprimée ailleurs (remote=[]), cache périmé, PAS d’outbox → ne doit JAMAIS réapparaître');
+{
+  const staleCachedPensee = makePensee({ id: 'a', texte: 'Pensée supprimée ailleurs' });
+  const result = resolveBootData({ cachedContacts: [], cachedPensees: [staleCachedPensee], outbox: [], remote: { contacts: [], pensees: [] } });
+  check('pensée A absente (remote fait autorité, aucun outbox ne le protège)', !result.pensees.some((p) => p.id === 'a'));
+}
+
+console.log('\n[SUPP-C] CHANTIER SUPPRESSION/INTÉGRITÉ — contact local non synchronisé (remote=[], mais upsert en outbox) → doit rester présent');
+{
+  const localContact = makeContact({ id: 'a', prenom: 'A' });
+  const outbox: Outbox = [{ opId: 'op-supp-c', kind: 'contact', entityId: 'a', action: 'upsert', isNew: true, payload: localContact, enqueuedAt: '2026-01-01T00:00:00.000Z' }];
+  const result = resolveBootData({ cachedContacts: [localContact], cachedPensees: [], outbox, remote: { contacts: [], pensees: [] } });
+  check('contact A présent (protégé par l’outbox, pas par le cache)', result.contacts.some((c) => c.id === 'a'));
+}
+
+console.log('\n[SUPP-D] CHANTIER SUPPRESSION/INTÉGRITÉ — pensée locale non synchronisée (remote=[], mais upsert en outbox) → doit rester présente');
+{
+  const localPensee = makePensee({ id: 'a', texte: 'Pensée locale pas encore synchronisée' });
+  const outbox: Outbox = [{ opId: 'op-supp-d', kind: 'pensee', entityId: 'a', action: 'upsert', isNew: true, payload: localPensee, enqueuedAt: '2026-01-01T00:00:00.000Z' }];
+  const result = resolveBootData({ cachedContacts: [], cachedPensees: [localPensee], outbox, remote: { contacts: [], pensees: [] } });
+  check('pensée A présente (protégée par l’outbox, pas par le cache)', result.pensees.some((p) => p.id === 'a'));
+}
+
+console.log('\n[SUPP-E] CHANTIER SUPPRESSION/INTÉGRITÉ — delete offline existant (remote contient encore A, outbox = delete A) → A reste absent');
+{
+  const stillOnRemote = makeContact({ id: 'a', prenom: 'A' });
+  const outbox: Outbox = [{ opId: 'op-supp-e', kind: 'contact', entityId: 'a', action: 'delete', enqueuedAt: '2026-01-01T00:00:00.000Z' }];
+  const result = resolveBootData({ cachedContacts: [], cachedPensees: [], outbox, remote: { contacts: [stillOnRemote], pensees: [] } });
+  check('contact A reste absent malgré sa présence distante (delete pending prioritaire)', !result.contacts.some((c) => c.id === 'a'));
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

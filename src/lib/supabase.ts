@@ -5,14 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 const rawUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const rawAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-// Diagnostic temporaire — n'affiche jamais la clé elle-même, seulement sa présence/longueur.
-// À retirer une fois la valeur réellement injectée par Metro/EAS confirmée.
-console.log(
-  '[Supabase env]',
-  JSON.stringify(rawUrl),
-  rawAnonKey ? `key-present (${rawAnonKey.length})` : 'key-missing',
-);
-
 // Retire les caractères de contrôle (codes 0-31 et 127-159 — espaces insécables, retours à la
 // ligne, etc. qu'un `.trim()` seul ne retire pas toujours selon leur position) qu'une variable
 // d'environnement EAS/Metro peut injecter de façon invisible, avant de parser l'URL. Écrit via une

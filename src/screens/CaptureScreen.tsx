@@ -992,6 +992,16 @@ export function CaptureScreen() {
           ) : null}
           <View style={{ marginTop: 24, width: '100%', gap: 10 }}>
             <PrimaryButton label="Réessayer" onPress={resetToIdle} />
+            {/* CHANTIER UX §2 (2026-09-15) — alternative locale quand l'IA (qui nécessite Internet)
+                a échoué : ouvre directement la création manuelle d'une pensée, sans transcript ni
+                texte pré-rempli, sans aucun nouvel appel STT/LLM. `replace` (pas `navigate`) pour
+                quitter proprement le flow Capture — un retour depuis l'écran de création manuelle ne
+                doit jamais retomber sur cet écran d'erreur Capture. */}
+            <PrimaryButton
+              label="Ajouter une pensée manuellement"
+              onPress={() => navigation.replace('PenseeDetail', undefined)}
+              variant="secondary"
+            />
             <PrimaryButton label="Retour" onPress={() => navigation.goBack()} variant="secondary" />
           </View>
         </View>

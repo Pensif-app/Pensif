@@ -27,26 +27,27 @@ export type BootResult = {
   pensees: Pensee[];
 };
 
-function mergeCachedExtras<T extends { id: string }>(remoteItems: T[], cachedItems: T[]): T[] {
-  const remoteIds = new Set(remoteItems.map((i) => i.id));
-  const extras = cachedItems.filter((i) => !remoteIds.has(i.id));
-  return [...remoteItems, ...extras];
-}
-
 /**
  * Résout les listes définitives à afficher au démarrage. Comportement cible :
  * 1. le cache local, déjà lu avant tout appel réseau, constitue TOUJOURS un repli disponible ;
- * 2. si `remote` est fourni (Supabase configuré ET l'appel a réussi), il fait autorité, complété par
- *    ce qui n'existe que localement (filet de sécurité — normalement déjà représenté dans l'outbox,
- *    mais une entrée cache orpheline ne doit jamais disparaître silencieusement) ;
+ * 2. si `remote` est fourni (Supabase configuré ET l'appel a réussi), il fait AUTORITÉ SEUL — le
+ *    cache n'est PLUS jamais mélangé par-dessus dans ce cas (voir CHANTIER SUPPRESSION/INTÉGRITÉ,
+ *    2026-09-15 : l'ancien `mergeCachedExtras` réinjectait aveuglément toute entrée présente en
+ *    cache mais absente du distant — censé protéger une création locale pas encore synchronisée,
+ *    mais incapable de distinguer ce cas d'une entité RÉELLEMENT supprimée côté serveur par un autre
+ *    device, ou directement en base — ce qui pouvait la faire réapparaître indéfiniment après un
+ *    boot en ligne). Une création locale réellement en attente n'a pas besoin de ce filet : elle a
+ *    TOUJOURS un op `upsert` dans l'outbox (voir `store.tsx`, `enqueueAndDrain` appelé de façon
+ *    synchrone à chaque création), et c'est l'étape 4 ci-dessous qui la protège, correctement ciblée
+ *    par id plutôt que par une simple différence cache/distant ;
  * 3. si `remote` est `null` (Supabase non configuré OU en échec), le cache local est utilisé tel
  *    quel — jamais les seeds, jamais un état vide alors que le cache contient des données réelles ;
  * 4. dans tous les cas, l'outbox est appliquée EN DERNIER : un upsert en attente gagne contre la
  *    version distante (pas encore confirmée), un delete en attente empêche toute résurrection.
  */
 export function resolveBootData({ cachedContacts, cachedPensees, outbox, remote }: BootInput): BootResult {
-  const baseContacts = remote ? mergeCachedExtras(remote.contacts, cachedContacts) : cachedContacts;
-  const basePensees = remote ? mergeCachedExtras(remote.pensees, cachedPensees) : cachedPensees;
+  const baseContacts = remote ? remote.contacts : cachedContacts;
+  const basePensees = remote ? remote.pensees : cachedPensees;
   return {
     contacts: applyPendingToContacts(baseContacts, outbox),
     pensees: applyPendingToPensees(basePensees, outbox),

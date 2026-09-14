@@ -19,10 +19,15 @@ import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm
  * et rappel restent facultatifs, et le rappel (quand activé) est une date/heure ABSOLUE choisie
  * explicitement, jamais dérivée d'une date d'événement implicite (il n'y en a pas forcément).
  *
- * `date`/`endDate` (ancre calendrier — jour choisi ou période) ne sont volontairement PAS éditables
- * ici : elles ne sont écrites que depuis le Calendrier (création par jour/surlignage de période) et
- * restent inchangées lors d'une édition depuis cet écran — seuls texte/proche lié/rappel le sont,
- * exactement le périmètre demandé par CHANTIER PENSÉES V2.
+ * `date` (ancre calendrier, CHANTIER UX §4 2026-09-15) est désormais éditable ici, en plus du
+ * Calendrier qui reste un raccourci de création totalement distinct et inchangé (CalendarScreen a son
+ * propre formulaire inline, `saveThought`, qui renseigne `date` directement — jamais via cet écran).
+ * Toujours un simple JOUR, jamais d'heure (voir `Pensee.date`, `YYYY-MM-DD`) — le modèle Pensées V2
+ * (date/endDate/reminderAt/penseeAnchor) n'est pas modifié, seule cette valeur devient éditable
+ * depuis ce second point d'entrée. `endDate` (période, uniquement créée depuis le Calendrier — pas de
+ * surlignage de période possible ici) est TOUJOURS préservée telle quelle tant que `date` reste
+ * renseignée ; si `date` est retirée, `endDate` est remise à null avec elle (une période sans date de
+ * départ n'a pas de sens dans ce modèle).
  */
 export function PenseeDetailScreen() {
   const theme = useTheme();
@@ -35,6 +40,11 @@ export function PenseeDetailScreen() {
 
   const [texte, setTexte] = useState(existing?.texte ?? '');
   const [contactId, setContactId] = useState<string | null>(existing?.contactId ?? route.params?.contactId ?? null);
+  // CHANTIER UX §4 — Date optionnelle, un concept INDÉPENDANT du rappel (voir docstring). Aucune
+  // valeur par défaut : reste `null` tant que l'utilisateur ne choisit pas explicitement une date via
+  // le picker (jamais une date "silencieusement" écrite juste en activant un champ).
+  const [eventDate, setEventDate] = useState<string | null>(existing?.date ?? null);
+  const [showEventDatePicker, setShowEventDatePicker] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(Boolean(existing?.reminderAt));
   const [reminderDate, setReminderDate] = useState<Date>(() => {
     if (existing?.reminderAt) return new Date(existing.reminderAt);
@@ -54,6 +64,11 @@ export function PenseeDetailScreen() {
   // (pas des state) pour ne provoquer aucun re-rendu supplémentaire.
   const lastPickedDateRef = useRef<Date | null>(null);
   const lastPickedTimeRef = useRef<Date | null>(null);
+  // CHANTIER AUDIT PRÉ-BÊTA §1 — garde anti-double-tap sur save(), même principe qu'ailleurs dans
+  // FicheScreen.tsx (voir ce fichier pour le détail du raisonnement) : save() est synchrone, jamais
+  // déverrouillée sur le chemin de succès (navigation.goBack() démonte l'écran), déverrouillée
+  // uniquement si une exception a empêché la navigation.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     navigation.setOptions({ title: existing ? 'Modifier la pensée' : 'Nouvelle pensée' });
@@ -135,6 +150,7 @@ export function PenseeDetailScreen() {
   }
 
   function save() {
+    if (savingRef.current) return; // sauvegarde déjà en cours (ou déjà réussie) — ignore un second tap
     if (!texte.trim()) {
       Alert.alert('Contenu manquant', 'Écris au moins un mot pour enregistrer cette pensée.');
       return;
@@ -155,20 +171,40 @@ export function PenseeDetailScreen() {
     }
     const reminderAt = reminderEnabled ? reminderDate.toISOString() : null;
 
-    if (existing) {
-      const updated: Pensee = { ...existing, texte: texte.trim(), contactId, reminderAt };
-      updatePensee(updated);
-    } else {
-      addPensee({
-        texte: texte.trim(),
-        contactId,
-        reminderAt,
-        createdAt: new Date().toISOString(),
-        date: null,
-        endDate: null,
-      });
+    // Verrou posé ICI seulement — après TOUTE validation (un retour anticipé au-dessus n'a jamais
+    // engagé la garde, donc rien à libérer pour ces cas-là, voir FicheScreen.tsx pour le même
+    // raisonnement détaillé).
+    savingRef.current = true;
+    try {
+      if (existing) {
+        // `endDate` (période) n'a de sens qu'accompagnée d'une `date` de départ — si la date a été
+        // retirée, l'éventuelle période (créée depuis le Calendrier) est retirée avec elle plutôt que
+        // de laisser une `endDate` orpheline. Si `date` reste renseignée, l'`endDate` existante
+        // (période ou simple jour) est TOUJOURS préservée telle quelle (voir docstring en tête).
+        const updated: Pensee = {
+          ...existing,
+          texte: texte.trim(),
+          contactId,
+          reminderAt,
+          date: eventDate,
+          endDate: eventDate ? existing.endDate ?? null : null,
+        };
+        updatePensee(updated);
+      } else {
+        addPensee({
+          texte: texte.trim(),
+          contactId,
+          reminderAt,
+          createdAt: new Date().toISOString(),
+          date: eventDate,
+          endDate: null,
+        });
+      }
+      navigation.goBack();
+    } catch (e) {
+      savingRef.current = false;
+      throw e;
     }
-    navigation.goBack();
   }
 
   function remove() {
@@ -216,6 +252,46 @@ export function PenseeDetailScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      {/* CHANTIER UX §4 — Date OPTIONNELLE, indépendante du rappel (voir docstring en tête). Simple
+          chip Pressable (comme "Anniversaire" dans FicheScreen.tsx) plutôt qu'un Switch : aucune date
+          n'est écrite tant que le picker n'a pas explicitement renvoyé un choix (jamais de valeur par
+          défaut silencieuse), et retirer une date déjà choisie est un simple tap sur la croix. */}
+      <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>DATE (FACULTATIF)</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Pressable
+          onPress={() => setShowEventDatePicker(true)}
+          style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
+        >
+          <Text style={{ color: eventDate ? theme.ink : theme.inkSoft }}>
+            {eventDate ? eventDate.split('-').reverse().join('/') : 'Ajouter une date'}
+          </Text>
+          <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
+        </Pressable>
+        {eventDate && (
+          <Pressable onPress={() => setEventDate(null)} hitSlop={8} accessibilityLabel="Retirer la date">
+            <Ionicons name="close-circle-outline" size={22} color={theme.inkSoft} />
+          </Pressable>
+        )}
+      </View>
+      {showEventDatePicker && (
+        <DateTimePicker
+          value={eventDate ? new Date(`${eventDate}T00:00:00`) : new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+          onChange={(_, selected) => {
+            // Même discipline que FicheScreen.tsx (anniversaire) : composants locaux du Date choisi,
+            // jamais toISOString() qui déciderait en UTC et pourrait décaler le jour affiché.
+            setShowEventDatePicker(Platform.OS === 'ios');
+            if (selected) {
+              const y = selected.getFullYear();
+              const m = String(selected.getMonth() + 1).padStart(2, '0');
+              const d = String(selected.getDate()).padStart(2, '0');
+              setEventDate(`${y}-${m}-${d}`);
+            }
+          }}
+        />
+      )}
 
       <View style={[styles.reminderToggleRow, { marginTop: 16 }]}>
         <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>ME LE RAPPELER</Text>

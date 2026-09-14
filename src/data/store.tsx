@@ -104,7 +104,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    *  façon identique : l'opération est conservée pour un prochain essai — Pensif n'a actuellement
    *  aucun moyen fiable de distinguer une vraie erreur applicative d'une coupure réseau, et ce n'est
    *  pas le rôle de ce chantier d'introduire cette classification (voir le §"pas de système complexe
-   *  de conflits" de la consigne). */
+   *  de conflits" de la consigne).
+   *
+   *  DETTE TECHNIQUE MINEURE (identifiée CHANTIER SUPPRESSION/INTÉGRITÉ, 2026-09-15, volontairement
+   *  PAS corrigée maintenant) : si un `insert` (création, `op.isNew`) réussit réellement côté serveur
+   *  mais que la réponse réseau est perdue avant que le client ne le sache (coupure juste après
+   *  écriture), le retry suivant réutilise le même id client (voir insertContactRemote/
+   *  insertPenseeRemote) → conflit de clé primaire → catch ci-dessous → l'op reste dans l'outbox et
+   *  est retentée indéfiniment à chaque drain, sans jamais réussir ni jamais dupliquer de ligne (pas
+   *  une corruption de données, juste un retry perpétuel inutile). Explicitement PAS traité par un
+   *  catch générique "toute violation de clé unique = succès" : ce serait dangereux (masquerait aussi
+   *  un vrai conflit d'id entre deux entités distinctes). Une correction correcte nécessiterait de
+   *  distinguer précisément ce cas (ex. re-GET par id après un échec d'insert pour vérifier si la
+   *  ligne existe déjà ET correspond bien à CETTE création) — pas fait tant qu'aucun cas réel n'est
+   *  observé. */
   async function executeOutboxOp(op: OutboxOp): Promise<{ ok: true } | { ok: false }> {
     // Pas de session Supabase établie (jamais bootée en ligne, ou boot hors ligne) : inutile de
     // tenter quoi que ce soit, y compris un update/delete qui n'a pas besoin de userId pour son

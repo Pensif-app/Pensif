@@ -4,7 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 // L'API "par défaut" d'expo-contacts a basculé vers une nouvelle API à base de classes en SDK 57 ;
 // presentContactPickerAsync (fonction) n'existe que dans l'ancienne API, exposée via ce sous-chemin.
 import * as Contacts from 'expo-contacts/legacy';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
@@ -15,6 +15,7 @@ import { useTheme } from '../theme';
 import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
 import { birthdayCountdownLabel } from '../data/calendar';
 import { buildPenseeCards, groupPenseeCards } from '../data/penseesView';
+import { contactDeletionMessage } from '../data/contactDeletionMessage';
 import { RootStackParamList } from '../navigation/types';
 import { Contact, Genre } from '../data/types';
 import { generateId } from '../lib/id';
@@ -121,6 +122,15 @@ export function FicheScreen() {
   // uniquement au tap explicite sur le champ.
   const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios' && !existing);
 
+  // CHANTIER AUDIT PRÉ-BÊTA §1 — garde anti-double-tap sur save() : même principe que busyRef
+  // (CaptureScreen)/isTransitioning (QuizScreen), pas un debounce temporel arbitraire. `save()` est
+  // entièrement SYNCHRONE (aucun await) — verrouillée juste avant l'upsert/navigation.goBack(), elle
+  // n'est JAMAIS déverrouillée sur le chemin de succès (inutile : navigation.goBack() démonte cet
+  // écran, un second tap pendant la transition de sortie retombe donc toujours sur la garde déjà
+  // posée, jamais sur un second upsertContact). Déverrouillée UNIQUEMENT si une exception empêchait
+  // la navigation de se produire (l'utilisateur resterait alors sur l'écran, et doit pouvoir réessayer).
+  const savingRef = useRef(false);
+
   const avatarColor = existing?.color ?? AVATAR_COLORS[contacts.length % AVATAR_COLORS.length];
   const previewInitials = useMemo(() => {
     const i = `${prenom.trim()[0] ?? ''}${nom.trim()[0] ?? ''}`.toUpperCase();
@@ -146,6 +156,26 @@ export function FicheScreen() {
     });
   }, [existing, navigation, favorite, theme]);
 
+  // CHANTIER AUDIT PRÉ-BÊTA (2026-09-15) — §2 : un contact ouvert avec un id existant qui disparaît
+  // du store PENDANT que cet écran reste monté (suppression déclenchée ailleurs) ne doit JAMAIS
+  // basculer silencieusement cet écran en mode création. Même principe que PenseeDetailScreen.tsx
+  // (`if (penseeId && !existing)`) — placé APRÈS tous les hooks (règle des Hooks React : jamais
+  // d'appel de hook conditionnel), donc avant les autres fonctions/le rendu principal qui, eux,
+  // supposent `existing` cohérent avec `contactId`.
+  if (contactId && !existing) {
+    return (
+      <Screen>
+        <Text style={[styles.label, { color: theme.ink, fontSize: 18, fontWeight: '700', marginBottom: 6 }]}>
+          Ce proche n’est plus disponible
+        </Text>
+        <Text style={{ color: theme.inkSoft, fontSize: 13 }}>Il a peut-être été supprimé.</Text>
+        <Pressable onPress={() => navigation.goBack()} style={[styles.importBtn, { marginTop: 16, borderColor: theme.line, backgroundColor: theme.card }]}>
+          <Text style={{ color: theme.ink, fontWeight: '700' }}>Retour</Text>
+        </Pressable>
+      </Screen>
+    );
+  }
+
   async function importFromContacts() {
     // presentContactPickerAsync ouvre le sélecteur natif du téléphone et ne nécessite PAS la
     // permission Contacts (c'est tout l'intérêt de cette API, façon sélecteur de photos) —
@@ -169,9 +199,14 @@ export function FicheScreen() {
 
   function remove() {
     if (!existing) return;
+    // CHANTIER SUPPRESSION/INTÉGRITÉ (2026-09-15) — décision produit validée : supprimer un proche
+    // NE supprime JAMAIS ses pensées liées (comportement `deleteContact`/schema.sql inchangé, voir
+    // store.tsx : `contactId` passe à null, jamais un delete en cascade). Seul CE texte change, pour
+    // que l'utilisateur le sache clairement AVANT de confirmer, plutôt que de le découvrir après coup.
+    const linkedCount = pensees.filter((p) => p.contactId === existing.id).length;
     Alert.alert(
       `Supprimer ${existing.prenom} ?`,
-      'Cette fiche et son quizz seront définitivement supprimés.',
+      contactDeletionMessage(linkedCount),
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -187,6 +222,7 @@ export function FicheScreen() {
   }
 
   function save() {
+    if (savingRef.current) return; // sauvegarde déjà en cours (ou déjà réussie) — ignore un second tap
     if (!prenom.trim()) {
       Alert.alert('Prénom manquant', 'Donne au moins un prénom pour enregistrer la fiche.');
       return;
@@ -195,24 +231,31 @@ export function FicheScreen() {
       Alert.alert('Date manquante', "Choisis la date d'anniversaire avant d'enregistrer la fiche.");
       return;
     }
-    const contact: Contact = {
-      id: existing?.id ?? generateId(),
-      prenom: prenom.trim(),
-      nom: nom.trim(),
-      tel: tel.trim(),
-      date,
-      relation,
-      familyRole,
-      genre,
-      initials: previewInitials === '?' ? existing?.initials ?? '?' : previewInitials,
-      color: avatarColor,
-      quiz: existing?.quiz ?? null,
-      giftPreparedYear: existing?.giftPreparedYear ?? null,
-      favorite,
-      birthdayReminderDays,
-    };
-    upsertContact(contact);
-    navigation.goBack();
+    savingRef.current = true;
+    try {
+      const contact: Contact = {
+        id: existing?.id ?? generateId(),
+        prenom: prenom.trim(),
+        nom: nom.trim(),
+        tel: tel.trim(),
+        date,
+        relation,
+        familyRole,
+        genre,
+        initials: previewInitials === '?' ? existing?.initials ?? '?' : previewInitials,
+        color: avatarColor,
+        quiz: existing?.quiz ?? null,
+        giftPreparedYear: existing?.giftPreparedYear ?? null,
+        favorite,
+        birthdayReminderDays,
+      };
+      upsertContact(contact);
+      navigation.goBack();
+    } catch (e) {
+      // La navigation n'a pas eu lieu — l'utilisateur reste sur cet écran, il doit pouvoir réessayer.
+      savingRef.current = false;
+      throw e;
+    }
   }
 
   return (

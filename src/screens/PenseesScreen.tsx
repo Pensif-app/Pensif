@@ -1,7 +1,7 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
@@ -28,8 +28,13 @@ export function PenseesScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<TabParamList, 'Pensées'>>();
-  const { pensees, contacts, today } = useStore();
+  const { pensees, contacts, today, deletePensee } = useStore();
   const [showPast, setShowPast] = useState(false);
+  // CHANTIER UX §3 (2026-09-15) — sélection multiple déclenchée par appui long. `selectedIds` n'a
+  // de sens QUE pendant `selectionMode` (voir exitSelectionMode, toujours appelé ensemble) — pas de
+  // Set qui survivrait silencieusement à une sortie de mode.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filterContactId = route.params?.contactId;
   const filterContact = filterContactId ? contacts.find((c) => c.id === filterContactId) : undefined;
@@ -50,6 +55,58 @@ export function PenseesScreen() {
     navigation.navigate('PenseeDetail', { contactId: filterContactId });
   }
 
+  // Hors mode sélection : appui long entre en mode sélection avec CETTE carte immédiatement
+  // sélectionnée. Déjà en mode sélection : un appui long ne fait rien de spécial (le tap normal sur
+  // la même carte, voir handleCardPress, fait déjà sélectionner/désélectionner).
+  function handleCardLongPress(penseeId: string) {
+    if (selectionMode) return;
+    setSelectionMode(true);
+    setSelectedIds(new Set([penseeId]));
+  }
+
+  // Hors mode sélection : tap normal → ouvre PenseeDetail, comportement inchangé. En mode
+  // sélection : tap → bascule la sélection de cette carte, jamais de navigation.
+  function handleCardPress(penseeId: string) {
+    if (!selectionMode) {
+      openDetail(penseeId);
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(penseeId)) next.delete(penseeId);
+      else next.add(penseeId);
+      return next;
+    });
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function confirmDeleteSelected() {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    Alert.alert(
+      count === 1 ? 'Supprimer cette pensée ?' : `Supprimer ${count} pensées ?`,
+      'Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            // `deletePensee` existant, UN appel par pensée — même chemin optimiste local + outbox
+            // que la suppression individuelle (CalendarScreen/PenseeDetailScreen) : jamais contourné,
+            // fonctionne offline à l'identique (chaque suppression s'enqueue indépendamment).
+            selectedIds.forEach((id) => deletePensee(id));
+            exitSelectionMode();
+          },
+        },
+      ],
+    );
+  }
+
   function clearFilter() {
     // setParams (pas navigate) : reste sur cet écran, retire juste le contexte de filtrage — voir
     // §9 du chantier, le filtre ne doit jamais devenir un état global.
@@ -60,42 +117,67 @@ export function PenseesScreen() {
 
   return (
     <Screen>
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.h1, { color: theme.ink }]}>{isFiltered ? `Pensées de ${filterContact?.prenom ?? 'ce proche'}` : 'Pensées'}</Text>
-          {isFiltered ? (
-            <Pressable onPress={clearFilter} style={styles.clearFilterBtn}>
-              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Toutes les pensées</Text>
+      {selectionMode ? (
+        // Remplace ENTIÈREMENT le header normal pendant la sélection — pas de bouton Capture/Ajouter
+        // accessible dans cet état, uniquement Annuler/Supprimer (voir §3 du chantier).
+        <View style={styles.headerRow}>
+          <Text style={[styles.h1, { color: theme.ink }]}>
+            {selectedIds.size === 0 ? 'Sélectionner des pensées' : `${selectedIds.size} pensée${selectedIds.size > 1 ? 's' : ''} sélectionnée${selectedIds.size > 1 ? 's' : ''}`}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable onPress={exitSelectionMode} style={[styles.iconBtn, { width: 'auto', paddingHorizontal: 12, backgroundColor: theme.card, borderColor: theme.line }]}>
+              <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13 }}>Annuler</Text>
             </Pressable>
-          ) : (
-            <Text style={[styles.sub, { color: theme.inkSoft }]}>Ce que tu as confié à Pensif.</Text>
-          )}
+            <Pressable
+              onPress={confirmDeleteSelected}
+              disabled={selectedIds.size === 0}
+              style={[
+                styles.iconBtn,
+                { width: 'auto', paddingHorizontal: 12, backgroundColor: theme.danger, borderColor: theme.danger, opacity: selectedIds.size === 0 ? 0.4 : 1 },
+              ]}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>Supprimer</Text>
+            </Pressable>
+          </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {/* Point d'entrée secondaire de la capture intelligente — plus discret que sur Accueil
-              (même fond neutre que "Ajouter"), même action (voir architecture Capture Intelligente).
-              Taille agrandie (§3 chantier UX icônes headers) — styles.micIconBtn DÉDIÉ (48x48, icône
-              28px), le bouton "Ajouter" juste à côté garde sa taille (styles.iconBtn, 36x36) : seul le
-              micro grossit. alignItems:'center' sur la rangée pour l'alignement malgré la différence
-              de hauteur. */}
-          <Pressable
-            onPress={() => navigation.navigate('Capture')}
-            accessibilityRole="button"
-            accessibilityLabel="Capture intelligente"
-            style={[styles.micIconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
-          >
-            <Ionicons name="mic-outline" size={28} color={theme.inkSoft} />
-          </Pressable>
-          <Pressable
-            onPress={openCreate}
-            accessibilityRole="button"
-            accessibilityLabel="Ajouter une pensée"
-            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
-          >
-            <Ionicons name="add" size={20} color={theme.ink} />
-          </Pressable>
+      ) : (
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.h1, { color: theme.ink }]}>{isFiltered ? `Pensées de ${filterContact?.prenom ?? 'ce proche'}` : 'Pensées'}</Text>
+            {isFiltered ? (
+              <Pressable onPress={clearFilter} style={styles.clearFilterBtn}>
+                <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Toutes les pensées</Text>
+              </Pressable>
+            ) : (
+              <Text style={[styles.sub, { color: theme.inkSoft }]}>Ce que tu as confié à Pensif.</Text>
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* Point d'entrée secondaire de la capture intelligente — plus discret que sur Accueil
+                (même fond neutre que "Ajouter"), même action (voir architecture Capture Intelligente).
+                Taille agrandie (§3 chantier UX icônes headers) — styles.micIconBtn DÉDIÉ (48x48, icône
+                28px), le bouton "Ajouter" juste à côté garde sa taille (styles.iconBtn, 36x36) : seul le
+                micro grossit. alignItems:'center' sur la rangée pour l'alignement malgré la différence
+                de hauteur. */}
+            <Pressable
+              onPress={() => navigation.navigate('Capture')}
+              accessibilityRole="button"
+              accessibilityLabel="Capture intelligente"
+              style={[styles.micIconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+            >
+              <Ionicons name="mic-outline" size={28} color={theme.inkSoft} />
+            </Pressable>
+            <Pressable
+              onPress={openCreate}
+              accessibilityRole="button"
+              accessibilityLabel="Ajouter une pensée"
+              style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+            >
+              <Ionicons name="add" size={20} color={theme.ink} />
+            </Pressable>
+          </View>
         </View>
-      </View>
+      )}
 
       {isEmpty ? (
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
@@ -117,7 +199,15 @@ export function PenseesScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>AUJOURD'HUI</Text>
               {groups.today.map((c) => (
-                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
+                <PenseeRow
+                  key={c.id}
+                  card={c}
+                  theme={theme}
+                  onPress={() => handleCardPress(c.pensee.id)}
+                  onLongPress={() => handleCardLongPress(c.pensee.id)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(c.pensee.id)}
+                />
               ))}
             </>
           )}
@@ -126,7 +216,15 @@ export function PenseesScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>À VENIR</Text>
               {groups.upcoming.map((c) => (
-                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
+                <PenseeRow
+                  key={c.id}
+                  card={c}
+                  theme={theme}
+                  onPress={() => handleCardPress(c.pensee.id)}
+                  onLongPress={() => handleCardLongPress(c.pensee.id)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(c.pensee.id)}
+                />
               ))}
             </>
           )}
@@ -141,7 +239,15 @@ export function PenseesScreen() {
                   parce qu'elles vieillissent (CHANTIER PENSÉES V2). */}
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>MÉMORISÉES</Text>
               {groups.memo.map((c) => (
-                <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} />
+                <PenseeRow
+                  key={c.id}
+                  card={c}
+                  theme={theme}
+                  onPress={() => handleCardPress(c.pensee.id)}
+                  onLongPress={() => handleCardLongPress(c.pensee.id)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(c.pensee.id)}
+                />
               ))}
             </>
           )}
@@ -154,7 +260,19 @@ export function PenseesScreen() {
                 </Text>
                 <Ionicons name={showPast ? 'chevron-up' : 'chevron-down'} size={16} color={theme.inkSoft} />
               </Pressable>
-              {showPast && groups.past.map((c) => <PenseeRow key={c.id} card={c} theme={theme} onPress={() => openDetail(c.pensee.id)} muted />)}
+              {showPast &&
+                groups.past.map((c) => (
+                  <PenseeRow
+                    key={c.id}
+                    card={c}
+                    theme={theme}
+                    onPress={() => handleCardPress(c.pensee.id)}
+                    onLongPress={() => handleCardLongPress(c.pensee.id)}
+                    selectionMode={selectionMode}
+                    selected={selectedIds.has(c.pensee.id)}
+                    muted
+                  />
+                ))}
             </>
           )}
         </>
@@ -163,9 +281,37 @@ export function PenseesScreen() {
   );
 }
 
-function PenseeRow({ card, theme, onPress, muted }: { card: PenseeCard; theme: any; onPress: () => void; muted?: boolean }) {
+function PenseeRow({
+  card,
+  theme,
+  onPress,
+  onLongPress,
+  muted,
+  selectionMode,
+  selected,
+}: {
+  card: PenseeCard;
+  theme: any;
+  onPress: () => void;
+  onLongPress?: () => void;
+  muted?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+}) {
   return (
-    <Pressable onPress={onPress} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line, opacity: muted ? 0.75 : 1 }]}>
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={[
+        styles.card,
+        { backgroundColor: theme.card, borderColor: theme.line, opacity: muted ? 0.75 : 1 },
+        selected && { borderColor: theme.accent, borderWidth: 2, backgroundColor: theme.accentTint },
+      ]}
+    >
+      {/* Coche visible UNIQUEMENT en mode sélection (voir §3 chantier UX) — jamais en usage normal. */}
+      {selectionMode && (
+        <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? theme.accent : theme.inkSoft} />
+      )}
       <View style={{ flex: 1 }}>
         <Text style={[styles.text, { color: theme.ink }]} numberOfLines={3}>
           {card.pensee.texte}
