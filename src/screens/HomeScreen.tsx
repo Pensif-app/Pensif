@@ -59,17 +59,23 @@ export function HomeScreen() {
             {weekdayFull[today.getDay()]} {today.getDate()} {monthFull[today.getMonth()]}
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {/* CHANTIER CAPTURE INTELLIGENTE V1 — point d'entrée principal (Accueil), visible et
               rapide d'accès, comme décidé dans l'architecture. Voir aussi Pensées pour le point
-              d'entrée secondaire, plus discret. */}
+              d'entrée secondaire, plus discret.
+              Taille agrandie (§3 chantier UX icônes headers, retour réel : bouton jugé trop petit) —
+              styles.micIconBtn DÉDIÉ (48x48, icône 28px), volontairement DIFFÉRENT de styles.iconBtn
+              (36x36) utilisé par Réglages juste à côté : seul le micro grossit, jamais les icônes
+              voisines "juste pour les rendre identiques" (consigne explicite). alignItems:'center'
+              ajouté sur la rangée pour garder les deux boutons alignés malgré leurs hauteurs
+              différentes. */}
           <Pressable
             onPress={() => navigation.navigate('Capture')}
             accessibilityRole="button"
             accessibilityLabel="Capture intelligente"
-            style={[styles.iconBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}
+            style={[styles.micIconBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}
           >
-            <Ionicons name="mic" size={18} color="#fff" />
+            <Ionicons name="mic" size={28} color="#fff" />
           </Pressable>
           <Pressable
             onPress={() => navigation.navigate('Reglages')}
@@ -195,6 +201,8 @@ const styles = StyleSheet.create({
   h1: { fontSize: 24, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  // Cible tactile 48x48 (minimum recommandé) — voir point d'usage : dédié au micro uniquement.
+  micIconBtn: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
   todayCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, borderWidth: 1, marginBottom: 10 },
   name: { fontWeight: '700' },

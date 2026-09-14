@@ -224,6 +224,17 @@ export function CaptureScreen() {
   // Entrée de l'écran Review (fade + léger slide vertical, Animated natif uniquement) — jamais de
   // flash brutal quand le backend répond.
   const reviewEntrance = useRef(new Animated.Value(0)).current;
+  // "Pop" d'ENTRÉE en PROCESSING — un seul aller-retour joué UNE FOIS au moment exact de la
+  // transition (pas une boucle), pour que le changement d'état soit perçu INSTANTANÉMENT, avant même
+  // que la respiration continue (`pulse`) ou la rotation (`processingRotate`) n'aient le temps de se
+  // remarquer. Combiné à `pulse` par multiplication (voir JSX) : le bouton "réagit" au relâchement,
+  // puis continue de respirer plus fort tant que PROCESSING dure.
+  const processingPop = useRef(new Animated.Value(1)).current;
+  // Anneau qui tourne en continu pendant PROCESSING — signal de "travail en cours" immédiatement
+  // reconnaissable (contrairement à une simple variation d'opacité, une rotation ne peut jamais être
+  // confondue avec un état figé), tout en restant un style Pensif (anneau coloré, pas un
+  // ActivityIndicator générique gris). Boucle indéfiniment tant que phase === 'processing'.
+  const processingRotate = useRef(new Animated.Value(0)).current;
 
   // Refs (pas de state) pour le geste press-and-hold : lues/écrites en dehors du cycle de rendu,
   // sans provoquer ni attendre de re-rendu — indispensable pour départager correctement un
@@ -233,9 +244,10 @@ export function CaptureScreen() {
   const busyRef = useRef(false);
   const isRecordingRef = useRef(false);
 
-  // Respiration du bouton/halo : UNIQUEMENT pendant PROCESSING ("animation très légère possible sur
-  // le halo/bouton" demandée pour cet état précis) — jamais pendant l'écoute (où seuls les anneaux
-  // pilotés par le vrai niveau audio doivent bouger, voir plus bas) ni au repos.
+  // Respiration du bouton/halo pendant PROCESSING — amplitude délibérément MARQUÉE (12%, pas 5%) et
+  // rythme plus vif (700ms) après retour utilisateur réel : la version précédente (5%/900ms) restait
+  // perceptible mais trop discrète, contribuant à l'impression que l'app pouvait être bloquée.
+  // Jamais pendant l'écoute (où seuls les anneaux pilotés par le vrai niveau audio bougent) ni au repos.
   useEffect(() => {
     if (phase !== 'processing') {
       pulse.setValue(1);
@@ -243,13 +255,36 @@ export function CaptureScreen() {
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.05, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.12, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
       ]),
     );
     loop.start();
     return () => loop.stop();
   }, [phase, pulse]);
+
+  // "Pop" joué UNE SEULE FOIS exactement à l'entrée en PROCESSING (voir déclaration plus haut) —
+  // parfaitement synchronisé avec l'arrêt des ripples et le changement de texte, pour un changement
+  // d'état perçu en moins d'une seconde plutôt qu'un simple fondu progressif.
+  useEffect(() => {
+    if (phase !== 'processing') return;
+    processingPop.setValue(0.88);
+    Animated.spring(processingPop, { toValue: 1, speed: 10, bounciness: 10, useNativeDriver: true }).start();
+  }, [phase, processingPop]);
+
+  // Rotation continue de l'anneau "réflexion" (voir JSX du bloc PROCESSING) — signal de travail en
+  // cours immédiatement lisible, indépendant de tout metering/audio.
+  useEffect(() => {
+    if (phase !== 'processing') {
+      processingRotate.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(processingRotate, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [phase, processingRotate]);
 
   // Anneaux réactifs au niveau audio RÉEL (voir normalizeMetering) — noise gate + lissage
   // exponentiel pour éviter tout tremblement dans le silence ("displayLevel" conservé entre les
@@ -311,6 +346,23 @@ export function CaptureScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Confirmation de sortie PENDANT PROCESSING uniquement (§1) — ni idle/listening (rien à perdre,
+  // le tap trop court ou le relâchement normal doivent rester silencieux) ni review (résultat déjà
+  // là, quitter est sans risque). `beforeRemove` intercepte aussi bien le geste de retour, le bouton
+  // "back" du header que le bouton matériel Android sur ce stack natif — un seul point d'interception
+  // suffit, pas besoin d'un BackHandler séparé.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (phase !== 'processing') return;
+      e.preventDefault();
+      Alert.alert('L’analyse est toujours en cours. Quitter ?', undefined, [
+        { text: 'Continuer d’attendre', style: 'cancel' },
+        { text: 'Quitter', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+      ]);
+    });
+    return unsubscribe;
+  }, [navigation, phase]);
 
   function resetToIdle() {
     setErrorMessage(null);
@@ -401,6 +453,15 @@ export function CaptureScreen() {
       return;
     }
     const heldMs = Date.now() - (pressStartRef.current ?? Date.now());
+    // PROCESSING doit s'afficher DÈS le relâchement, AVANT tout appel réseau (§1 état PROCESSING
+    // explicite) — sinon l'écran reste sur "J'écoute…" pendant recorder.stop()/les gardes-fous qui
+    // suivent, donnant l'impression que Pensif écoute encore. isPressTooShort est une fonction pure
+    // (aucun effet de bord) : l'appeler ici en plus de sa vérification plus bas ne change rien au
+    // pipeline, ça avance juste le changement d'écran pour un maintien qui compte réellement comme
+    // une capture (le cas "tap trop court" ne montre donc jamais PROCESSING, comme avant).
+    if (!isPressTooShort(heldMs)) {
+      setPhase('processing');
+    }
 
     let uri: string | null = null;
     try {
@@ -690,6 +751,39 @@ export function CaptureScreen() {
     if (allOk) navigation.goBack();
   }
 
+  // "Nouvelle capture" (§2 chantier UX) — repart IMMÉDIATEMENT vers idle sur ce même écran (jamais
+  // navigation.goBack() + re-navigate : ce serait un aller-retour visible et perdrait tout état déjà
+  // en mémoire pour rien). Reset propre de tout l'état Capture visible/pertinent avant de rouvrir le
+  // micro — aucune donnée résiduelle de la capture précédente ne doit réapparaître dans la suivante.
+  function resetCaptureState() {
+    setTranscript('');
+    setCards([]);
+    setErrorMessage(null);
+    setPermissionMessage(null);
+    setOpenPicker(null);
+    voiceActivityRef.current.reset();
+    setPhase('idle');
+  }
+
+  function handleNewCapture() {
+    // Une carte "pending" (jamais enregistrée) ou "failed" (échec de sauvegarde, erreur encore
+    // visible) serait perdue silencieusement sans cette confirmation — "saved" ne l'est jamais
+    // puisque déjà en sécurité dans le store (addPensee), donc jamais bloquant.
+    const hasUnsaved = cards.some((c) => c.status === 'pending' || c.status === 'failed');
+    if (!hasUnsaved) {
+      resetCaptureState();
+      return;
+    }
+    Alert.alert(
+      'Pensées non enregistrées',
+      'Certaines pensées n’ont pas encore été enregistrées. Les abandonner et démarrer une nouvelle capture ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Abandonner et continuer', style: 'destructive', onPress: resetCaptureState },
+      ],
+    );
+  }
+
   // ────────────────────────────────────── IDLE / LISTENING (push-to-talk) ──────────────────────────────────────
   // Le geste vit sur le conteneur plein-écran (panResponder.panHandlers), pas sur le bouton
   // lui-même — voir panResponder plus haut : seul le DÉMARRAGE du toucher doit être dans le bouton,
@@ -801,12 +895,29 @@ export function CaptureScreen() {
     return (
       <Screen scroll={false}>
         <View style={[styles.pushToTalkContainer, { paddingBottom: insets.bottom + 14 }]}>
-          <Text style={[styles.title, { color: theme.ink, marginTop: 18 }]}>Je réfléchis…</Text>
-          <Text style={[styles.subtitle, { color: theme.inkSoft }]}>Pensif organise votre pensée.</Text>
+          <Text style={[styles.title, { color: theme.ink, marginTop: 18 }]}>Pensif réfléchit…</Text>
+          <Text style={[styles.subtitle, { color: theme.inkSoft }]}>Votre pensée est en cours de préparation.</Text>
           <View style={{ flex: 1 }} />
-          <Animated.View style={[styles.buttonWrap, { transform: [{ scale: pulse }] }]}>
+          <Animated.View style={[styles.buttonWrap, { transform: [{ scale: Animated.multiply(pulse, processingPop) }] }]}>
             <Animated.View pointerEvents="none" style={[styles.haloOuter, { backgroundColor: theme.accent }]} />
             <Animated.View pointerEvents="none" style={[styles.haloInner, { backgroundColor: theme.accent }]} />
+            {/* Animation "réflexion" — DISTINCTE des ripples d'écoute (celles-ci sont des disques
+                PLEINS qui grandissent vers l'extérieur en boucle décalée) et du halo (opacité fixe) :
+                un anneau dont deux bords sont colorés et qui TOURNE en continu — signal de travail en
+                cours immédiatement lisible (jamais confondu avec un état figé), tout en restant un
+                style Pensif (anneau coloré, PAS un ActivityIndicator générique). Jamais rendue hors de
+                ce bloc PROCESSING — donc jamais visible pendant l'écoute ni au repos. Animated pur. */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.thinkingRing,
+                {
+                  borderTopColor: theme.accent,
+                  borderRightColor: theme.accent,
+                  transform: [{ rotate: processingRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }],
+                },
+              ]}
+            />
             <View style={styles.buttonHitArea}>
               <LinearGradient
                 colors={[BUTTON_GRADIENT_HIGHLIGHT, theme.accent, theme.accentStrong]}
@@ -1096,7 +1207,7 @@ export function CaptureScreen() {
       })}
 
       {hasPendingCards ? (
-        <View style={{ marginTop: 8, marginBottom: 20 }}>
+        <View style={{ marginTop: 8, marginBottom: hasPendingCards ? 12 : 20 }}>
           <PrimaryButton label="Faire confiance à Pensif" onPress={handleSaveAll} />
           {!canSubmitAll ? (
             <Text style={[styles.warnHint, { color: theme.inkSoft, textAlign: 'center', marginTop: 6 }]}>
@@ -1105,6 +1216,13 @@ export function CaptureScreen() {
           ) : null}
         </View>
       ) : null}
+
+      {/* "Nouvelle capture" (§2 chantier UX enchaînement) — toujours visible en Review, que des
+          cartes restent en attente ou non, pour ne jamais forcer un retour arrière + re-recherche du
+          bouton micro juste pour redicter une phrase. Confirmation gérée dans handleNewCapture(). */}
+      <View style={{ marginBottom: 20 }}>
+        <PrimaryButton label="Nouvelle capture" onPress={handleNewCapture} variant="secondary" />
+      </View>
       </Animated.View>
 
       {/* Pickers natifs — un seul actif à la fois (openPicker), fermé automatiquement après usage. */}
@@ -1223,6 +1341,21 @@ const styles = StyleSheet.create({
   // Disque plein (pas un simple contour) : au scale/opacity de départ, se fond avec le bouton —
   // c'est la variation d'opacity qui donne l'impression d'onde, pas un anneau creux qui grossirait.
   ripple: { position: 'absolute' },
+  // Anneau CREUX de taille fixe (PROCESSING uniquement) — voir commentaire au point d'usage :
+  // distinct des ripples (disques pleins, grandissent, boucle décalée) et du halo (opacité fixe).
+  thinkingRing: {
+    position: 'absolute',
+    width: BUTTON_SIZE * 1.22,
+    height: BUTTON_SIZE * 1.22,
+    borderRadius: (BUTTON_SIZE * 1.22) / 2,
+    borderWidth: 4,
+    // Seuls deux bords adjacents reçoivent une couleur (voir JSX — borderTopColor/borderRightColor
+    // = theme.accent) ; les deux autres restent transparents ici, ce qui forme un ARC net qui, une
+    // fois mis en rotation continue, se lit sans ambiguïté comme "en cours de traitement" — jamais
+    // confondu avec un état figé, contrairement à une simple variation d'opacité.
+    borderBottomColor: 'transparent',
+    borderLeftColor: 'transparent',
+  },
   buttonHitArea: { width: BUTTON_SIZE, height: BUTTON_SIZE, borderRadius: BUTTON_SIZE / 2 },
   gradientCircle: { flex: 1, borderRadius: BUTTON_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   logoBox: { width: LOGO_WIDTH, height: LOGO_HEIGHT },

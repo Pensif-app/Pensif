@@ -75,6 +75,8 @@
         "npm:@supabase/supabase-js@^2.116.0",
         "npm:@types/react@~19.2.2",
         "npm:babel-preset-expo@^57.0.11",
+        "npm:expo-asset@~57.0.17",
+        "npm:expo-audio@~57.0.5",
         "npm:expo-blur@~57.0.2",
         "npm:expo-clipboard@~57.0.1",
         "npm:expo-constants@~57.0.18",
@@ -97,7 +99,7 @@
         "npm:react-native-tab-view@^4.3.2",
         "npm:react-native-url-polyfill@4",
         "npm:react-native-web@~0.21.2",
-        "npm:react-native-worklets@0.10.1",
+        "npm:react-native-worklets@0.10.4",
         "npm:react-native@0.86.3",
         "npm:react@19.2.3",
         "npm:typescript@~6.0.3"

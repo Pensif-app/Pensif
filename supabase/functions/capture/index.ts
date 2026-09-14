@@ -10,6 +10,8 @@ import { getLlmProvider, UnknownLlmProviderError } from './providers/llm/index.t
 import { SttProvider } from './providers/stt/types.ts';
 import { LlmProvider } from './providers/llm/types.ts';
 import { buildCaptureContract, validateLlmOutput } from './validate.ts';
+import { CAPTURE_USAGE_ERROR_CODE, CaptureUsageResult, defaultRegisterCaptureUsage } from './rateLimit.ts';
+import { resolveSupabasePublishableKey } from '../_shared/supabaseEnv.ts';
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -24,7 +26,9 @@ async function defaultVerifySession(req: Request): Promise<CaptureSession | null
   if (!authHeader?.startsWith('Bearer ')) return null;
   const token = authHeader.slice('Bearer '.length);
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  // Préfère SUPABASE_PUBLISHABLE_KEYS (moderne, dictionnaire JSON — voir supabaseEnv.ts) ; retombe
+  // sur SUPABASE_ANON_KEY (legacy) pour un projet pas encore migré.
+  const anonKey = resolveSupabasePublishableKey();
   if (!supabaseUrl || !anonKey) return null;
   const supabase = createClient(supabaseUrl, anonKey);
   const { data, error } = await supabase.auth.getUser(token);
@@ -36,12 +40,16 @@ export type CaptureDeps = {
   verifySession: (req: Request) => Promise<CaptureSession | null>;
   getSttProvider: (name: string) => SttProvider;
   getLlmProvider: (name: string) => LlmProvider;
+  /** Protection serveur invisible (§2) — DOIT être appelée avant tout appel STT/LLM et retourner
+   *  autre chose que 'ok' bloque la requête sans jamais atteindre Groq/OpenAI (voir plus bas). */
+  registerCaptureUsage: (userId: string) => Promise<CaptureUsageResult>;
 };
 
 const defaultDeps: CaptureDeps = {
   verifySession: defaultVerifySession,
   getSttProvider,
   getLlmProvider,
+  registerCaptureUsage: defaultRegisterCaptureUsage,
 };
 
 export async function handleRequest(req: Request, deps: CaptureDeps = defaultDeps): Promise<Response> {
@@ -143,6 +151,23 @@ export async function handleRequest(req: Request, deps: CaptureDeps = defaultDep
       return jsonResponse({ error: 'server_misconfigured', message: e.message }, 500);
     }
     throw e;
+  }
+
+  // PROTECTION SERVEUR INVISIBLE (§2) — contrôlée ICI, avant tout appel STT/LLM (payant), jamais
+  // côté client. Une capture ne compte QUE si elle franchit réellement ce contrôle et entre dans le
+  // pipeline IA (voir register_capture_usage, schema.sql) : un 400 plus haut (requête malformée,
+  // contexte invalide...) n'a jamais atteint ce point, donc ne consomme rien. Un échec provider
+  // APRÈS ce point compte quand même — volontaire (protection des coûts avant tout, voir consigne).
+  let usageResult: CaptureUsageResult;
+  try {
+    usageResult = await deps.registerCaptureUsage(session.userId);
+  } catch (e) {
+    return jsonResponse({ error: 'server_error', message: e instanceof Error ? e.message : String(e) }, 500);
+  }
+  if (usageResult !== 'ok') {
+    // Codes structurés SEULS exposés au client — jamais un seuil, un compteur restant ni le mot
+    // "quota" (voir captureUsageMessages.ts côté app, qui traduit ce code en message générique).
+    return jsonResponse({ error: 'capture_blocked', code: CAPTURE_USAGE_ERROR_CODE[usageResult] }, 429);
   }
 
   let transcript: string;

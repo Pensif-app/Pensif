@@ -5,6 +5,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { CaptureResult } from '../data/captureTypes';
+import { mapCaptureBlockedCodeToMessage } from '../data/captureUsageMessages';
 
 export type CaptureUploadInput = {
   uri: string;
@@ -66,7 +67,14 @@ export async function uploadAudioForCapture(input: CaptureUploadInput): Promise<
         let message = 'Erreur du serveur de capture';
         try {
           const body = await error.context.json();
-          if (typeof body?.message === 'string') message = body.message;
+          if (body?.error === 'capture_blocked') {
+            // Protection serveur invisible (§2) — traduit TOUJOURS en message générique, jamais le
+            // code interne (CAPTURE_RATE_LIMIT_MINUTE, etc.) ni la réponse brute du serveur, même si
+            // celle-ci contenait un jour un champ "message" par erreur.
+            message = mapCaptureBlockedCodeToMessage(body.code);
+          } else if (typeof body?.message === 'string') {
+            message = body.message;
+          }
         } catch {
           // corps non-JSON — on garde le message générique
         }

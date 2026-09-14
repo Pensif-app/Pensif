@@ -11,6 +11,11 @@ Deno.test('getLlmProvider("anthropic") renvoie le provider anthropic', () => {
   assertEquals(provider.name, 'anthropic');
 });
 
+Deno.test('getLlmProvider("openai") renvoie le provider openai', () => {
+  const provider = getLlmProvider('openai');
+  assertEquals(provider.name, 'openai');
+});
+
 Deno.test('getLlmProvider(nom inconnu) lève UnknownLlmProviderError', () => {
   assertThrows(() => getLlmProvider('openai-gpt'), UnknownLlmProviderError);
 });

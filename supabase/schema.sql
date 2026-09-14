@@ -35,6 +35,12 @@
 -- périodes du Calendrier), ce qui échoue avec `PGRST204: Could not find the 'end_date' column`.
 -- Vérifie sa présence (`select end_date from pensees limit 1;`) et si besoin :
 --   alter table pensees add column if not exists end_date date;
+--
+-- CHANTIER "sécuriser le cycle Capture" (2026-09-14) — protection serveur invisible contre l'abus de
+-- Capture Intelligente (5 captures/minute, 20/heure, 100/mois, jamais exposé au client). Si ta base
+-- existe déjà, exécute simplement tout le bloc `capture_events` / `register_capture_usage` plus bas
+-- (idempotent : `create table if not exists`, `create or replace function`). Rien à migrer sur les
+-- tables existantes.
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -89,3 +95,78 @@ create policy "Un utilisateur gère ses propres pensées"
   on pensees for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- CHANTIER "sécuriser le cycle Capture" — protection serveur INVISIBLE (jamais affichée comme un
+-- quota côté client, voir supabase/functions/capture/rateLimit.ts et index.ts) : 5 captures/minute,
+-- 20/heure (fenêtres glissantes), 100/mois (mois civil). Une ligne = une capture qui a réellement
+-- franchi ce contrôle et est entrée dans le pipeline IA payant (Groq/OpenAI) — pas un simple tap sur
+-- le bouton micro, et le compteur avance MÊME si le provider échoue ensuite (protection des coûts
+-- avant tout, décision assumée). Pas de purge/cron pour l'instant — envisageable plus tard (~40
+-- jours) si la table grossit trop, pas nécessaire au fonctionnement.
+create table if not exists capture_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists capture_events_user_created_idx
+  on capture_events (user_id, created_at desc);
+
+alter table capture_events enable row level security;
+-- AUCUNE policy créée volontairement : ni un client anonyme ni un utilisateur authentifié ne peut
+-- lire/écrire cette table directement (RLS activée + aucune règle = accès refusé par défaut). Seul
+-- `service_role` (utilisé exclusivement par l'Edge Function `capture`, jamais exposé au client
+-- mobile) peut y accéder, car `service_role` contourne RLS par nature côté Postgres/PostgREST.
+
+-- Fonction RPC ATOMIQUE : vérifie les 3 seuils ET enregistre la capture en une seule opération,
+-- protégée par un verrou consultatif PAR UTILISATEUR (`pg_advisory_xact_lock`, relâché automatiquement
+-- à la fin de la transaction implicite de cet appel). Deux appels concurrents du MÊME utilisateur se
+-- sérialisent donc ici (l'un attend que l'autre ait fini de compter ET d'insérer avant de compter à
+-- son tour) — sans cette sérialisation, deux requêtes simultanées pourraient toutes les deux lire un
+-- compte sous le seuil puis insérer, dépassant la limite réelle ("check-then-act" non atomique). Deux
+-- utilisateurs différents ne se bloquent jamais entre eux (hash différent par utilisateur).
+-- Retourne : 'ok' | 'rate_limit_minute' | 'rate_limit_hour' | 'monthly_cap' — jamais un chiffre de
+-- seuil, jamais un compteur restant (voir CAPTURE_USAGE_ERROR_CODE côté Edge Function pour le
+-- mapping en code structuré renvoyé au client).
+create or replace function register_capture_usage(p_user_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_minute_count integer;
+  v_hour_count integer;
+  v_month_count integer;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+
+  select count(*) into v_minute_count from capture_events
+    where user_id = p_user_id and created_at >= now() - interval '1 minute';
+  if v_minute_count >= 5 then
+    return 'rate_limit_minute';
+  end if;
+
+  select count(*) into v_hour_count from capture_events
+    where user_id = p_user_id and created_at >= now() - interval '1 hour';
+  if v_hour_count >= 20 then
+    return 'rate_limit_hour';
+  end if;
+
+  select count(*) into v_month_count from capture_events
+    where user_id = p_user_id
+      and date_trunc('month', created_at) = date_trunc('month', now());
+  if v_month_count >= 100 then
+    return 'monthly_cap';
+  end if;
+
+  insert into capture_events (user_id) values (p_user_id);
+  return 'ok';
+end;
+$$;
+
+-- Exécution restreinte à service_role UNIQUEMENT — ni anon ni authenticated ne peuvent appeler cette
+-- fonction directement (même si SECURITY DEFINER lui donne les droits du créateur en interne), le
+-- client mobile ne doit jamais pouvoir déclencher/contourner ce contrôle lui-même.
+revoke all on function register_capture_usage(uuid) from public;
+grant execute on function register_capture_usage(uuid) to service_role;

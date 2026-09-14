@@ -71,16 +71,20 @@ export function PenseesScreen() {
             <Text style={[styles.sub, { color: theme.inkSoft }]}>Ce que tu as confié à Pensif.</Text>
           )}
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          {/* Point d'entrée secondaire de la capture intelligente — plus discret que sur Accueil,
-              même action (voir architecture Capture Intelligente). */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {/* Point d'entrée secondaire de la capture intelligente — plus discret que sur Accueil
+              (même fond neutre que "Ajouter"), même action (voir architecture Capture Intelligente).
+              Taille agrandie (§3 chantier UX icônes headers) — styles.micIconBtn DÉDIÉ (48x48, icône
+              28px), le bouton "Ajouter" juste à côté garde sa taille (styles.iconBtn, 36x36) : seul le
+              micro grossit. alignItems:'center' sur la rangée pour l'alignement malgré la différence
+              de hauteur. */}
           <Pressable
             onPress={() => navigation.navigate('Capture')}
             accessibilityRole="button"
             accessibilityLabel="Capture intelligente"
-            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+            style={[styles.micIconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
           >
-            <Ionicons name="mic-outline" size={18} color={theme.inkSoft} />
+            <Ionicons name="mic-outline" size={28} color={theme.inkSoft} />
           </Pressable>
           <Pressable
             onPress={openCreate}
@@ -178,6 +182,8 @@ const styles = StyleSheet.create({
   h1: { fontSize: 24, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2, marginBottom: 8 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  // Cible tactile 48x48 (minimum recommandé) — voir point d'usage : dédié au micro uniquement.
+  micIconBtn: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   clearFilterBtn: { marginTop: 4, marginBottom: 8, alignSelf: 'flex-start' },
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 10 },
