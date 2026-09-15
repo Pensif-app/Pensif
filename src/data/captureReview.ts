@@ -5,6 +5,7 @@
 import { Contact, Pensee } from './types';
 import { CaptureResult, ExtractedPensee } from './captureTypes';
 import { ContactMatchResult } from './contactMatching';
+import { toLocalDateTimeParts } from './reminderDate';
 
 export type CaptureCardStatus = 'pending' | 'saving' | 'saved' | 'failed';
 
@@ -328,4 +329,70 @@ export function markSaved(cards: CaptureCard[], cardId: string): CaptureCard[] {
  *  carte (chaque sauvegarde est indépendante, voir la consigne du chantier). */
 export function markFailed(cards: CaptureCard[], cardId: string, error: string): CaptureCard[] {
   return updateCard(cards, cardId, { status: 'failed', saveError: error });
+}
+
+/** Les 4 pickers natifs possibles dans la review Capture (CaptureScreen.tsx) : rappel iOS combiné
+ *  (date+heure en un seul spinner), rappel Android en 2 champs séparés, et date d'événement. */
+export type PickerKind = 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'eventDate';
+
+/** Carte + type de picker actuellement ouvert dans la review — `null` si aucun. Un seul picker
+ *  actif à la fois par construction (une seule valeur possible pour tout l'écran). */
+export type OpenPicker = { cardId: string; kind: PickerKind } | null;
+
+/**
+ * CORRECTIF picker iOS review Capture (2026-09-17, généralisé au champ ÉVÉNEMENT le 2026-09-18) —
+ * décide si un tap sur un champ date/heure d'une carte doit OUVRIR son picker ou le REFERMER, de
+ * façon pure et testable sans monter de composant React Native ni de DateTimePicker natif :
+ * - la carte ciblée a déjà SON picker de CE `kind` ouvert → referme (permet de refermer une
+ *   roulette ouverte par erreur, sur un second tap du même champ) ;
+ * - sinon (aucun picker ouvert, ou picker d'une AUTRE carte/kind ouvert) → ouvre celui de la carte
+ *   ciblée. Comme il n'existe qu'une seule valeur `openPicker` possible à la fois pour tout
+ *   l'écran, ouvrir celui d'une nouvelle carte ferme implicitement celui de la précédente —
+ *   jamais deux ouverts ensemble, quels que soient leurs `kind` respectifs.
+ */
+function toggleOpenPicker(current: OpenPicker, cardId: string, kind: PickerKind): OpenPicker {
+  if (current && current.cardId === cardId && current.kind === kind) return null;
+  return { cardId, kind };
+}
+
+/** Toggle du picker de rappel iOS (spinner date+heure combiné) — voir `toggleOpenPicker`. */
+export function toggleReminderDateTimePicker(current: OpenPicker, cardId: string): OpenPicker {
+  return toggleOpenPicker(current, cardId, 'reminderDateTime');
+}
+
+/** Toggle du picker de date d'événement iOS — même règle que le rappel, voir `toggleOpenPicker`. */
+export function toggleEventDatePicker(current: OpenPicker, cardId: string): OpenPicker {
+  return toggleOpenPicker(current, cardId, 'eventDate');
+}
+
+/**
+ * Applique une date/heure de rappel choisie dans la roulette iOS à LA SEULE carte concernée
+ * (`updateCard` ne touche jamais les autres, voir plus haut) — factorise exactement ce que fait
+ * `setReminderDateTime` dans CaptureScreen.tsx pour le rendre testable isolément.
+ * IMPORTANT (2026-09-17) — ne décide JAMAIS de fermer un picker : la roulette iOS `display=
+ * "spinner"` déclenche `onChange` à chaque segment tourné (jour, heure, minute séparément), pas
+ * seulement en fin de sélection. Fermer ici casserait les modifications successives dans une même
+ * ouverture — c'est au seul tap sur le champ (`toggleReminderDateTimePicker`) de fermer.
+ */
+export function applyReminderDateTimeChange(cards: CaptureCard[], cardId: string, date: Date): CaptureCard[] {
+  const parts = toLocalDateTimeParts(date);
+  return updateCard(cards, cardId, {
+    reminderDate: { year: parts.year, month: parts.month, day: parts.day },
+    reminderTime: { hour: parts.hour, minute: parts.minute },
+  });
+}
+
+/**
+ * Applique une date d'événement choisie dans la roulette iOS à LA SEULE carte concernée — même
+ * discipline que `applyReminderDateTimeChange` (2026-09-18) : ne ferme jamais le picker, ne touche
+ * jamais les autres cartes. Conserve `heardExpression` déjà présent (trace d'affichage seulement,
+ * jamais réinterprété) — seule `date` change.
+ */
+export function applyEventDateChange(cards: CaptureCard[], cardId: string, date: Date): CaptureCard[] {
+  const parts = toLocalDateTimeParts(date);
+  const iso = `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  const card = cards.find((c) => c.cardId === cardId);
+  return updateCard(cards, cardId, {
+    eventHint: { date: iso, heardExpression: card?.eventHint?.heardExpression ?? null },
+  });
 }
