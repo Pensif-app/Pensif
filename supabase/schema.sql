@@ -45,6 +45,14 @@
 -- CHANTIER PENSÉES V3 (2026-09-16) — épingler une pensée (purement organisationnel, ne modifie
 -- jamais date/endDate/reminderAt) :
 --   alter table pensees add column if not exists pinned boolean default false;
+--
+-- CHANTIER "Réponses intelligentes" (2026-09-16) — protection anti-abus DÉDIÉE à l'Edge Function
+-- `suggest-message`, totalement séparée de `capture_events`/`register_capture_usage` (table, fonction
+-- et espace de verrou consultatif distincts — voir bloc `message_suggestion_events` plus bas).
+-- Rafale courte uniquement (5/minute, 20/heure) — AUCUN plafond mensuel pour l'instant, décision
+-- produit explicite : mesurer coût/usage réel avant d'en fixer un. Si ta base existe déjà, exécute
+-- simplement le bloc `message_suggestion_events` / `register_message_suggestion_usage` plus bas
+-- (idempotent, comme le bloc `capture_events`).
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -175,5 +183,80 @@ $$;
 -- Exécution restreinte à service_role UNIQUEMENT — ni anon ni authenticated ne peuvent appeler cette
 -- fonction directement (même si SECURITY DEFINER lui donne les droits du créateur en interne), le
 -- client mobile ne doit jamais pouvoir déclencher/contourner ce contrôle lui-même.
+--
+-- CORRECTIF (2026-09-16, audit pré-déploiement "Réponses intelligentes") — `revoke ... from public`
+-- SEUL est INSUFFISANT sur ce projet : des privilèges par défaut (`pg_default_acl`, posés par
+-- `postgres`/`supabase_admin` sur le schéma `public`) accordent automatiquement EXECUTE à `anon` ET
+-- `authenticated` sur TOUTE nouvelle fonction créée — un octroi DIRECT par rôle, jamais annulé par un
+-- simple `revoke ... from public` (qui ne vise que le pseudo-rôle PUBLIC). Vérifié en conditions
+-- réelles : `anon`/`authenticated` pouvaient appeler cette RPC directement (p_user_id entièrement
+-- contrôlé par l'appelant → risque de déni de service ciblé sur le quota d'un utilisateur). Toujours
+-- ajouter ce `revoke execute ... from anon, authenticated` explicite après CHAQUE
+-- `create or replace function` de ce fichier qui doit rester restreinte à service_role — ne JAMAIS se
+-- fier au seul `revoke ... from public` sur ce projet.
 revoke all on function register_capture_usage(uuid) from public;
+revoke execute on function register_capture_usage(uuid) from anon, authenticated;
 grant execute on function register_capture_usage(uuid) to service_role;
+
+-- CHANTIER "Réponses intelligentes" — protection anti-abus DÉDIÉE (2026-09-16), même principe que
+-- capture_events ci-dessus mais TOTALEMENT séparée : table distincte, fonction distincte, espace de
+-- verrou consultatif distinct (salt=1 au lieu de salt=0) — un incident/abus sur l'une des deux
+-- fonctionnalités ne peut jamais affecter le quota de l'autre. Une ligne = un appel qui a réellement
+-- franchi ce contrôle et est entré dans le pipeline IA payant — pas un simple tap sur le bouton.
+create table if not exists message_suggestion_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists message_suggestion_events_user_created_idx
+  on message_suggestion_events (user_id, created_at desc);
+
+alter table message_suggestion_events enable row level security;
+-- Aucune policy créée volontairement — même principe que capture_events : ni anon ni authenticated
+-- ne peuvent lire/écrire cette table directement, seul service_role (via l'Edge Function
+-- `suggest-message`) le peut.
+
+-- Fonction RPC ATOMIQUE — vérifie les 2 seuils ET enregistre l'appel en une seule opération, protégée
+-- par un verrou consultatif PAR UTILISATEUR. AUCUN plafond mensuel (contrairement à
+-- register_capture_usage) : décision produit explicite du 2026-09-16, à revisiter après mesure de
+-- l'usage/coût réel. Retourne : 'ok' | 'rate_limit_minute' | 'rate_limit_hour' — jamais un chiffre de
+-- seuil, jamais un compteur restant (voir MESSAGE_SUGGESTION_USAGE_ERROR_CODE côté Edge Function pour
+-- le mapping en code structuré renvoyé au client).
+create or replace function register_message_suggestion_usage(p_user_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_minute_count integer;
+  v_hour_count integer;
+begin
+  -- salt=1 : espace de verrou DISTINCT de register_capture_usage (salt=0) pour le même utilisateur —
+  -- ne sérialise jamais les deux fonctionnalités entre elles par accident.
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 1));
+
+  select count(*) into v_minute_count from message_suggestion_events
+    where user_id = p_user_id and created_at >= now() - interval '1 minute';
+  if v_minute_count >= 5 then
+    return 'rate_limit_minute';
+  end if;
+
+  select count(*) into v_hour_count from message_suggestion_events
+    where user_id = p_user_id and created_at >= now() - interval '1 hour';
+  if v_hour_count >= 20 then
+    return 'rate_limit_hour';
+  end if;
+
+  insert into message_suggestion_events (user_id) values (p_user_id);
+  return 'ok';
+end;
+$$;
+
+-- Voir le correctif du 2026-09-16 documenté au-dessus de register_capture_usage : `revoke ... from
+-- public` seul est insuffisant sur ce projet (privilèges par défaut du schéma public) — toujours
+-- ajouter ce `revoke execute ... from anon, authenticated` explicite.
+revoke all on function register_message_suggestion_usage(uuid) from public;
+revoke execute on function register_message_suggestion_usage(uuid) from anon, authenticated;
+grant execute on function register_message_suggestion_usage(uuid) to service_role;
