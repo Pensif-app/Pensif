@@ -130,8 +130,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           await deleteContactRemote(op.entityId);
         } else if (op.isNew) {
           const { initials, color, ...rest } = op.payload;
-          const created = await insertContactRemote(userIdRef.current, rest);
-          setContacts((prev) => prev.map((c) => (c.id === op.entityId ? created : c)));
+          // CHANTIER ROBUSTESSE PRÉ-BÊTA — suppressions (2026-09-16) : NE PLUS réécrire l'état local
+          // avec l'objet renvoyé par le serveur ici. `insertContactRemote` ne fait qu'échoïr le
+          // payload envoyé (id généré côté client, aucun champ généré serveur — voir supabaseRepo.ts)
+          // ; ce `setContacts` était donc à la fois inutile ET dangereux : si une AUTRE mutation (ex.
+          // deleteContact d'un proche lié à une pensée pas encore synchronisée) a modifié cette entité
+          // localement APRÈS l'enqueue de cette création mais AVANT que ce drain ne s'exécute, réécrire
+          // avec ce payload périmé effaçait silencieusement ce changement plus récent. Voir le
+          // scénario exact couvert par test-regression-outbox-contact-delete-race.ts.
+          await insertContactRemote(userIdRef.current, rest);
         } else {
           await updateContactRemote(op.payload);
         }
@@ -139,8 +146,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (op.action === 'delete') {
           await deletePenseeRemote(op.entityId);
         } else if (op.isNew) {
-          const created = await insertPenseeRemote(userIdRef.current, op.payload);
-          setPensees((prev) => prev.map((p) => (p.id === op.entityId ? created : p)));
+          // Même raisonnement que ci-dessus pour les pensées — `insertPenseeRemote` échoïe aussi
+          // strictement le payload envoyé (voir supabaseRepo.ts), jamais de champ serveur inconnu du
+          // client à rapatrier ici.
+          await insertPenseeRemote(userIdRef.current, op.payload);
         } else {
           await updatePenseeRemote(op.payload);
         }
@@ -156,22 +165,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    *  au retour réseau détecté (NetInfo), et juste après chaque enqueue (tentative immédiate). Un
    *  seul drain à la fois (`drainingRef`) ; ne retire de l'outbox QUE les opérations confirmées
    *  réussies entre-temps, jamais un remplacement intégral qui écraserait un enqueue survenu pendant
-   *  le drain (voir le commentaire sur `outboxRef` plus haut). */
+   *  le drain (voir le commentaire sur `outboxRef` plus haut).
+   *
+   *  CHANTIER ROBUSTESSE PRÉ-BÊTA — suppressions multiples (2026-09-16) : BOUCLE plutôt qu'un
+   *  passage unique. Bug réel trouvé par audit (pas encore rencontré en usage, découvert en
+   *  retraçant le chemin d'une suppression multiple) : `drainOutbox` ne traite que la SNAPSHOT prise
+   *  au tout début de cet appel. Or une sélection multiple appelle `deletePensee`/`deleteContact` en
+   *  boucle SYNCHRONE (`selectedIds.forEach`) — seul le tout PREMIER `enqueueAndDrain` déclenche un
+   *  drain réel (`drainingRef` bloque les suivants, qui arrivent pendant que ce premier drain est en
+   *  vol) ; ses ops sont enqueuées dans `outboxRef` APRÈS que la snapshot ait déjà été capturée par ce
+   *  premier drain. Résultat sans boucle : seule la 1ère entité sélectionnée était réellement
+   *  synchronisée immédiatement, les suivantes restaient bloquées dans l'outbox jusqu'au prochain
+   *  déclencheur externe (retour au premier plan, retour réseau, prochain boot) — jamais perdues, mais
+   *  inutilement retardées. En bouclant tant qu'il reste des opérations ET que le dernier passage n'a
+   *  rencontré aucun échec, une seule invocation de `drainNow()` absorbe bien tout ce qui a été
+   *  enqueué entre-temps, y compris pendant qu'elle tournait. Un échec réel (`stoppedEarly`) arrête
+   *  quand même la boucle immédiatement, exactement comme avant — jamais de tempête de nouvelles
+   *  tentatives sur une vraie panne réseau/serveur. */
   async function drainNow() {
     if (!isSupabaseConfigured) return;
     if (drainingRef.current) return;
     drainingRef.current = true;
     try {
-      const snapshot = outboxRef.current;
-      if (snapshot.length === 0) return;
-      const result = await drainOutbox(snapshot, executeOutboxOp);
-      const succeededOpIds = new Set(
-        snapshot.filter((op) => !result.outbox.some((o) => o.opId === op.opId)).map((op) => op.opId),
-      );
-      if (succeededOpIds.size === 0) return;
-      const next = outboxRef.current.filter((op) => !succeededOpIds.has(op.opId));
-      outboxRef.current = next;
-      setOutbox(next);
+      for (;;) {
+        const snapshot = outboxRef.current;
+        if (snapshot.length === 0) return;
+        const result = await drainOutbox(snapshot, executeOutboxOp);
+        const succeededOpIds = new Set(
+          snapshot.filter((op) => !result.outbox.some((o) => o.opId === op.opId)).map((op) => op.opId),
+        );
+        if (succeededOpIds.size > 0) {
+          const next = outboxRef.current.filter((op) => !succeededOpIds.has(op.opId));
+          outboxRef.current = next;
+          setOutbox(next);
+        }
+        if (result.stoppedEarly) return;
+      }
     } finally {
       drainingRef.current = false;
     }
