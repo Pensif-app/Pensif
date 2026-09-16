@@ -19,6 +19,7 @@ import { generateId } from '../lib/id';
 import { rescheduleAllReminders, cancelAllReminders, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { subscribeToConnectivityRestored } from '../lib/netInfo';
+import { clearMessageDraftForEvent, clearMessageDraftsForContact } from './messageDraftStorage';
 import {
   deleteContactRemote,
   deletePenseeRemote,
@@ -440,6 +441,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setContacts((prev) => prev.filter((c) => c.id !== contactId));
         setPensees((prev) => prev.map((p) => (p.contactId === contactId ? { ...p, contactId: null } : p)));
         enqueueAndDrain((prev) => enqueueDeleteContact(prev, contactId, generateId(), new Date().toISOString()));
+        // CHANTIER RÉPONSES INTELLIGENTES (2026-09-16) — effet purement LOCAL (AsyncStorage, hors
+        // outbox/sync) : nettoie les brouillons de message de ce contact pour ne pas les laisser
+        // orphelins. Ne modifie ni la sémantique de suppression ci-dessus, ni l'outbox.
+        void clearMessageDraftsForContact(contactId);
       },
       addPensee: (pensee: Omit<Pensee, 'id'>) => {
         const withId: Pensee = { ...pensee, id: generateId() };
@@ -458,8 +463,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         enqueueAndDrain((prev) => enqueueUpsertPensee(prev, pensee, false, generateId(), new Date().toISOString()));
       },
       deletePensee: (penseeId: string) => {
+        // Capturé AVANT le filtrage — nécessaire pour retrouver le contact concerné par un éventuel
+        // brouillon `event` (voir plus bas), la pensée n'existera plus dans `pensees` juste après.
+        const deletedPensee = pensees.find((p) => p.id === penseeId);
         setPensees((prev) => prev.filter((p) => p.id !== penseeId));
         enqueueAndDrain((prev) => enqueueDeletePensee(prev, penseeId, generateId(), new Date().toISOString()));
+        // Effet purement LOCAL (comme deleteContact ci-dessus) — si cette pensée servait d'ancre à un
+        // message "event", son brouillon devient orphelin, jamais plus atteignable par l'UI.
+        if (deletedPensee?.contactId) void clearMessageDraftForEvent(deletedPensee.contactId, penseeId);
       },
       toggleGiftSent: (contactId: string) => {
         const contact = contacts.find((c) => c.id === contactId);

@@ -1,4 +1,5 @@
 import { NavigatorScreenParams } from '@react-navigation/native';
+import { MessageOccasion } from '../data/messageSuggestion';
 
 export type TabParamList = {
   Accueil: undefined;
@@ -19,7 +20,13 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList> | undefined;
   Fiche: { contactId?: string } | undefined;
-  Message: { contactId: string };
+  // CHANTIER RÉPONSES INTELLIGENTES (2026-09-16) — `occasion` optionnel, défaut 'birthday' pour
+  // rétrocompatibilité stricte avec les appelants existants (HomeScreen/notification via
+  // homeAttention.ts, GiftsScreen) qui ne le passent pas encore. `penseeId` UNIQUEMENT pertinent
+  // pour occasion='event' — jamais l'objet Pensee complet : MessageScreen résout la pensée actuelle
+  // depuis le store à l'ouverture, jamais depuis un objet figé transmis en navigation (voir décision
+  // d'architecture du chantier).
+  Message: { contactId: string; occasion?: MessageOccasion; penseeId?: string };
   Reglages: undefined;
   // `mode: 'edit'` (BUG "Refaire le quiz" — voir QuizScreen.tsx) : force une réédition explicite
   // depuis zéro (question 1, réponses de contact.quiz préremplies), en ignorant tout brouillon
