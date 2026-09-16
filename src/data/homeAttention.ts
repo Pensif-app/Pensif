@@ -93,7 +93,10 @@ export function birthdayCTA(c: Contact, today: Date, daysUntil: number): { badge
   // Ordre volontairement simple (pas de scoring) : le jour J l'emporte toujours, puis la proximité
   // (qui ne bloque jamais sur le quiz — voir §5), puis l'état réel quiz/cadeau/alerte.
   if (daysUntil === 0) {
-    return { badge: { label: "Aujourd'hui", tone: 'plum' }, action: { kind: 'message', contactId: c.id } };
+    // VALIDATION MANUELLE iPhone (2026-09-16) — le badge menait déjà à l'envoi d'un message (action
+    // inchangée), mais le libellé "Aujourd'hui" ne rendait pas cette action évidente au premier coup
+    // d'œil. Texte seul modifié, aucun changement de logique/priorité (voir consigne "Accueil gelé").
+    return { badge: { label: 'Envoyer un message', tone: 'plum' }, action: { kind: 'message', contactId: c.id } };
   }
   if (!giftPrepared && daysUntil <= CLOSE_TO_BIRTHDAY_DAYS) {
     return { badge: { label: 'Préparer son message', tone: 'plum' }, action: { kind: 'message', contactId: c.id } };

@@ -229,5 +229,15 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe pour d
   check('CTA = préparer le message, pas le quiz', a?.action.kind === 'message' && a?.badge?.label === 'Préparer son message', `${a?.action.kind}/${a?.badge?.label}`);
 }
 
+// --- VALIDATION MANUELLE iPhone (2026-09-16) : libellé du badge "jour J" rendu plus explicite -----
+{
+  console.log('\n[bonus 2] Anniversaire le jour J → badge "Envoyer un message" (plus explicite que l’ancien "Aujourd\'hui"), même action');
+  const c = makeContact({ id: 'a-today', prenom: 'JourJ', date: `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, '0')}-${String(TODAY.getDate()).padStart(2, '0')}` });
+  const list = buildHomeAttentions([c], [], TODAY);
+  const a = find(list, 'anniv-a-today');
+  check('badge = "Envoyer un message" le jour J', a?.badge?.label === 'Envoyer un message', a?.badge?.label);
+  check('action inchangée : toujours "message" (pas de changement de logique, texte seul)', a?.action.kind === 'message');
+}
+
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
 if (failures > 0) throw new Error(`${failures} test(s) de non-régression ont échoué`);
