@@ -4,6 +4,7 @@
 // existe pour la même raison que côté client : ne jamais construire un message sur une occasion
 // inventée) ; `validateLlmOutput` re-vérifie ce que le MODÈLE renvoie (jamais un cast direct du JSON).
 import { MessageOccasion, MessageSuggestionContext, MessageTone, SuggestMessageContract } from './contract.ts';
+import { normalizeDashPunctuation } from './dashNormalization.ts';
 
 const TONES: readonly MessageTone[] = ['chaleureux', 'complice', 'court'];
 const OCCASIONS: readonly MessageOccasion[] = ['birthday', 'thinking_of_you', 'event'];
@@ -139,7 +140,10 @@ export function validateLlmOutput(raw: unknown): LlmOutputValidationOutcome {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return { ok: false, parseError: 'Réponse du modèle rejetée (message anormalement long)' };
   }
-  return { ok: true, message: message.trim() };
+  // Garantie déterministe (2026-09-16) — aucun tiret cadratin/demi-cadratin ne doit jamais atteindre
+  // le client, même si le prompt (règle 8) l'interdit déjà et que le modèle l'ignore. Voir
+  // dashNormalization.ts pour la stratégie détaillée.
+  return { ok: true, message: normalizeDashPunctuation(message.trim()) };
 }
 
 export function buildSuggestMessageContract(outcome: LlmOutputValidationOutcome): SuggestMessageContract | null {

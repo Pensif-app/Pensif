@@ -152,3 +152,37 @@ Deno.test('validateLlmOutput — trim appliqué au message final', () => {
   assert(result.ok);
   if (result.ok) assertEquals(result.message, 'Bon anniversaire !');
 });
+
+// --- Garantie déterministe anti-tirets (2026-09-16) — voir dashNormalization.ts pour la stratégie --
+
+Deno.test('validateLlmOutput — tiret cadratin résiduel du modèle → normalisé, jamais renvoyé tel quel', () => {
+  const result = validateLlmOutput({ message: 'Joyeux anniversaire Yohan — profite bien de ta journée.' });
+  assert(result.ok);
+  if (result.ok) {
+    assertEquals(result.message, 'Joyeux anniversaire Yohan, profite bien de ta journée.');
+    assert(!result.message.includes('—'));
+  }
+});
+
+Deno.test('validateLlmOutput — demi-cadratin résiduel du modèle → normalisé', () => {
+  const result = validateLlmOutput({ message: 'Je pense à toi – prends soin de toi.' });
+  assert(result.ok);
+  if (result.ok) assert(!result.message.includes('–'));
+});
+
+Deno.test('validateLlmOutput — aucun succès {message} ne contient jamais — ni – même si le modèle en produit plusieurs', () => {
+  const outputs = [
+    'Bon anniversaire — vraiment — profite bien !',
+    'à bientôt–j’espère',
+    'On se dit ça dans 10–15 jours.',
+    '— Joyeux anniversaire, profite bien !',
+  ];
+  for (const message of outputs) {
+    const result = validateLlmOutput({ message });
+    assert(result.ok, `devrait rester valide pour: "${message}"`);
+    if (result.ok) {
+      assert(!result.message.includes('—'), `tiret cadratin résiduel pour: "${message}" → "${result.message}"`);
+      assert(!result.message.includes('–'), `demi-cadratin résiduel pour: "${message}" → "${result.message}"`);
+    }
+  }
+});

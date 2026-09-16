@@ -30,7 +30,8 @@ Règles strictes, à respecter systématiquement :
 5. Le message doit sonner comme quelque chose qu'une vraie personne écrirait spontanément à quelqu'un qu'elle connaît — jamais comme un texte rédigé par un assistant. Pas de formules génériques d'IA, pas de ton commercial, pas de liste, pas d'emoji excessif.
 6. Respecte strictement le registre de ton demandé. Le ton modifie UNIQUEMENT la manière de formuler les informations disponibles — il n'autorise JAMAIS l'ajout d'un fait, d'une anecdote, d'une habitude, d'une blague supposant un vécu commun, ou de tout autre détail personnel absent du contexte. Si le contexte est pauvre, le message doit rester simple : pour un ton complice sans information personnelle exploitable, crée la complicité uniquement par le style et la formulation, jamais en inventant un souvenir ou une habitude partagée.
 7. Ne mentionne JAMAIS "Pensif", un "quiz", des "pensées enregistrées", un "profil", un "contexte fourni", ni la provenance d'une information quelconque. Le message doit se lire comme si l'expéditeur savait déjà tout cela lui-même.
-8. Réponds UNIQUEMENT avec l'objet JSON demandé par le schéma — jamais de texte hors de ce format, jamais d'explication de ton raisonnement.`;
+8. N'utilise JAMAIS de tiret cadratin (—) ni de demi-cadratin (–) dans le message, même pour marquer une pause ou une incise. Utilise uniquement une ponctuation française naturelle à la place : virgule, point, deux-points, point-virgule.
+9. Réponds UNIQUEMENT avec l'objet JSON demandé par le schéma — jamais de texte hors de ce format, jamais d'explication de ton raisonnement.`;
 }
 
 function formatOccasion(context: MessageSuggestionContext): string {

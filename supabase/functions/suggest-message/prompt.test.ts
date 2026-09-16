@@ -57,10 +57,17 @@ Deno.test('règle "ton" — contexte pauvre → message simple ; complicité par
   assert(prompt.includes('jamais en inventant un souvenir ou une habitude partagée'));
 });
 
-Deno.test('les 8 règles restent numérotées dans l’ordre (facts, sélection contexte, extrapolation, invention, naturel, ton, non-mention Pensif, JSON)', () => {
+Deno.test('les 9 règles restent numérotées dans l’ordre (facts, sélection contexte, extrapolation, invention, naturel, ton, non-mention Pensif, interdiction tirets, JSON)', () => {
   const prompt = buildSystemPrompt();
-  for (let i = 1; i <= 8; i++) {
+  for (let i = 1; i <= 9; i++) {
     assert(new RegExp(`\\n${i}\\.`).test(prompt) || prompt.startsWith(`${i}.`), `règle ${i} manquante ou mal numérotée`);
   }
-  assert(!prompt.includes('\n9.'), 'aucune 9e règle ne doit exister (pas de liste de cas particuliers)');
+  assert(!prompt.includes('\n10.'), 'aucune 10e règle ne doit exister (pas de liste de cas particuliers)');
+});
+
+Deno.test('règle "interdiction des tirets" — présence explicite, tiret cadratin et demi-cadratin nommés', () => {
+  const prompt = buildSystemPrompt();
+  assert(prompt.includes('tiret cadratin (—)'));
+  assert(prompt.includes('demi-cadratin (–)'));
+  assert(prompt.includes('ponctuation française naturelle'));
 });
