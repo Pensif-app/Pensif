@@ -41,6 +41,10 @@
 -- existe déjà, exécute simplement tout le bloc `capture_events` / `register_capture_usage` plus bas
 -- (idempotent : `create table if not exists`, `create or replace function`). Rien à migrer sur les
 -- tables existantes.
+--
+-- CHANTIER PENSÉES V3 (2026-09-16) — épingler une pensée (purement organisationnel, ne modifie
+-- jamais date/endDate/reminderAt) :
+--   alter table pensees add column if not exists pinned boolean default false;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -80,7 +84,10 @@ create table if not exists pensees (
   -- depuis CHANTIER PENSÉES V2) — remplace l'ancien couple remind_offset/custom_offset_minutes qui
   -- dérivait toujours un rappel relatif à date_evenement.
   reminder_at timestamptz,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  -- CHANTIER PENSÉES V3 — épingle une pensée en haut de l'écran Pensées, purement organisationnel :
+  -- ne modifie jamais date_evenement/end_date/reminder_at.
+  pinned boolean default false
 );
 
 alter table contacts enable row level security;

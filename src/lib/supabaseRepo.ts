@@ -69,6 +69,9 @@ function rowToPensee(row: any): Pensee {
     remind: row.remind_offset,
     customOffsetMinutes: row.custom_offset_minutes,
     createdAt: row.created_at,
+    // CHANTIER PENSÉES V3 — colonne absente (migration pas encore appliquée) → false via Boolean(),
+    // même discipline que `favorite`/`gift_sent` sur les contacts (rowToContact ci-dessus).
+    pinned: Boolean(row.pinned),
   });
 }
 
@@ -239,6 +242,7 @@ export async function insertPenseeRemote(userId: string, pensee: Pensee): Promis
       reminder_at: pensee.reminderAt ?? null,
       contact_id: pensee.contactId,
       created_at: pensee.createdAt,
+      pinned: pensee.pinned ?? false,
     })
     .select()
     .single();
@@ -262,6 +266,7 @@ export async function updatePenseeRemote(pensee: Pensee): Promise<void> {
       texte: pensee.texte,
       reminder_at: pensee.reminderAt ?? null,
       contact_id: pensee.contactId,
+      pinned: pensee.pinned ?? false,
     })
     .eq('id', pensee.id);
   if (error) throw error;

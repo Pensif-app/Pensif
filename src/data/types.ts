@@ -132,6 +132,11 @@ export type Pensee = {
    *  `date` — une pensée sans `date` peut désormais avoir un rappel tout comme une pensée avec
    *  `date`, les deux notions sont indépendantes. */
   reminderAt?: string | null;
+  /** CHANTIER PENSÉES V3 (2026-09-16) — épingle une pensée en haut de l'écran Pensées, purement
+   *  visuel/organisationnel : ne modifie JAMAIS `date`/`endDate`/`reminderAt` ni aucune autre donnée
+   *  métier. `false`/absent = comportement inchangé. Aucun champ équivalent n'existait déjà sur
+   *  `Pensee` (vérifié avant d'ajouter celui-ci — voir audit du chantier). */
+  pinned?: boolean;
 };
 
 export type CalEventType = 'anniv' | 'pensee' | 'fete' | 'civil';

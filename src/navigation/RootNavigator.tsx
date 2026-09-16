@@ -16,6 +16,7 @@ import { MessageScreen } from '../screens/MessageScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { QuizScreen } from '../screens/QuizScreen';
 import { PenseeDetailScreen } from '../screens/PenseeDetailScreen';
+import { MemorizedPenseesScreen } from '../screens/MemorizedPenseesScreen';
 import { CaptureScreen } from '../screens/CaptureScreen';
 import { CaptureDebugScreen } from '../screens/CaptureDebugScreen';
 import { FloatingTabBar } from './TabBar';
@@ -104,6 +105,10 @@ export function RootNavigator({ onReady }: { onReady?: () => void } = {}) {
         {/* Pas de `title` statique : PenseeDetailScreen fixe lui-même son titre ("Nouvelle pensée"
             vs "Modifier la pensée") — même principe que Fiche (voir CHANTIER PENSÉES V2). */}
         <Stack.Screen name="PenseeDetail" component={PenseeDetailScreen} options={{ title: '' }} />
+        {/* CHANTIER PENSÉES V3 — bibliothèque des pensées sans date, ouverte depuis "Voir toutes les
+            pensées mémorisées" (PenseesScreen). Titre statique (headerLeft retour déjà par défaut,
+            voir screenOptions ci-dessus). */}
+        <Stack.Screen name="PenseesMemorisees" component={MemorizedPenseesScreen} options={{ title: 'Pensées mémorisées' }} />
         <Stack.Screen name="Reglages" component={SettingsScreen} options={{ title: 'Réglages' }} />
         {/* Écran plein temps propre (barre de progression + retour maison), sans le header natif. */}
         <Stack.Screen name="Quiz" component={QuizScreen} options={{ headerShown: false }} />

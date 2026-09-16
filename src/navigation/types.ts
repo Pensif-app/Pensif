@@ -34,6 +34,10 @@ export type RootStackParamList = {
   // existante ; absent = création (avec un `contactId` optionnel pour pré-lier un proche, ex.
   // depuis Pensées filtré sur un proche).
   PenseeDetail: { penseeId?: string; contactId?: string } | undefined;
+  // CHANTIER PENSÉES V3 (2026-09-16) — bibliothèque des pensées sans date (recherche + filtres
+  // locaux), ouverte depuis "Voir toutes les pensées mémorisées" sur PenseesScreen. Aucun paramètre :
+  // toujours la vue complète, non filtrée par proche (le filtre contact vit dans l'écran lui-même).
+  PenseesMemorisees: undefined;
   // CHANTIER CAPTURE INTELLIGENTE V1 — parcours réel : Micro → Écoute → Analyse → Validation →
   // addPensee(). Point d'entrée du bouton micro (Accueil/Pensées).
   Capture: undefined;

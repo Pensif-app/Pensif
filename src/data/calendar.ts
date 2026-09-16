@@ -381,6 +381,9 @@ export function normalizePensee(raw: any): Pensee {
     date: raw.date ?? null,
     endDate: raw.endDate ?? null,
     reminderAt,
+    // CHANTIER PENSÉES V3 — jamais inventé pour une pensée plus ancienne qui ne connaît pas encore
+    // ce champ : absent/`undefined` normalisé à `false` (comportement identique à avant son ajout).
+    pinned: raw.pinned ?? false,
   };
 }
 
