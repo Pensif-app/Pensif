@@ -217,12 +217,16 @@ alter table message_suggestion_events enable row level security;
 -- ne peuvent lire/écrire cette table directement, seul service_role (via l'Edge Function
 -- `suggest-message`) le peut.
 
--- Fonction RPC ATOMIQUE — vérifie les 2 seuils ET enregistre l'appel en une seule opération, protégée
--- par un verrou consultatif PAR UTILISATEUR. AUCUN plafond mensuel (contrairement à
--- register_capture_usage) : décision produit explicite du 2026-09-16, à revisiter après mesure de
--- l'usage/coût réel. Retourne : 'ok' | 'rate_limit_minute' | 'rate_limit_hour' — jamais un chiffre de
--- seuil, jamais un compteur restant (voir MESSAGE_SUGGESTION_USAGE_ERROR_CODE côté Edge Function pour
--- le mapping en code structuré renvoyé au client).
+-- Fonction RPC ATOMIQUE — vérifie les 3 seuils ET enregistre l'appel en une seule opération, protégée
+-- par un verrou consultatif PAR UTILISATEUR. Plafond mensuel ajouté le 2026-09-16 (250/mois civil) :
+-- décision produit prise après mesure réelle du coût par génération (benchmark GPT-5 mini, tarif
+-- $0.25/1M input + $2/1M output vérifié sur la documentation officielle OpenAI) — même pattern que
+-- register_capture_usage (mois civil via date_trunc, vérifié avant l'insert), MAIS table, compteur et
+-- seuil totalement séparés (250 ici, 100 pour Capture — jamais le même chiffre par coïncidence
+-- fonctionnelle, chaque fonctionnalité a son propre budget). Retourne :
+-- 'ok' | 'rate_limit_minute' | 'rate_limit_hour' | 'monthly_cap' — jamais un chiffre de seuil, jamais
+-- un compteur restant (voir MESSAGE_SUGGESTION_USAGE_ERROR_CODE côté Edge Function pour le mapping en
+-- code structuré renvoyé au client).
 create or replace function register_message_suggestion_usage(p_user_id uuid)
 returns text
 language plpgsql
@@ -232,6 +236,7 @@ as $$
 declare
   v_minute_count integer;
   v_hour_count integer;
+  v_month_count integer;
 begin
   -- salt=1 : espace de verrou DISTINCT de register_capture_usage (salt=0) pour le même utilisateur —
   -- ne sérialise jamais les deux fonctionnalités entre elles par accident.
@@ -247,6 +252,13 @@ begin
     where user_id = p_user_id and created_at >= now() - interval '1 hour';
   if v_hour_count >= 20 then
     return 'rate_limit_hour';
+  end if;
+
+  select count(*) into v_month_count from message_suggestion_events
+    where user_id = p_user_id
+      and date_trunc('month', created_at) = date_trunc('month', now());
+  if v_month_count >= 250 then
+    return 'monthly_cap';
   end if;
 
   insert into message_suggestion_events (user_id) values (p_user_id);

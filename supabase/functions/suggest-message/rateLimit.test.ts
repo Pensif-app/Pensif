@@ -8,6 +8,7 @@ import { MESSAGE_SUGGESTION_USAGE_ERROR_CODE } from './rateLimit.ts';
 Deno.test('MESSAGE_SUGGESTION_USAGE_ERROR_CODE — un code structuré par résultat, espace de noms distinct de Capture', () => {
   assertEquals(MESSAGE_SUGGESTION_USAGE_ERROR_CODE.rate_limit_minute, 'MESSAGE_SUGGESTION_RATE_LIMIT_MINUTE');
   assertEquals(MESSAGE_SUGGESTION_USAGE_ERROR_CODE.rate_limit_hour, 'MESSAGE_SUGGESTION_RATE_LIMIT_HOUR');
+  assertEquals(MESSAGE_SUGGESTION_USAGE_ERROR_CODE.monthly_cap, 'MESSAGE_SUGGESTION_MONTHLY_CAP');
 });
 
 Deno.test('MESSAGE_SUGGESTION_USAGE_ERROR_CODE — aucun code ne révèle un seuil numérique ou le mot "quota"', () => {
@@ -17,8 +18,12 @@ Deno.test('MESSAGE_SUGGESTION_USAGE_ERROR_CODE — aucun code ne révèle un seu
   }
 });
 
-Deno.test('aucun plafond mensuel dans ce module — seulement minute/hour (décision produit explicite)', () => {
+Deno.test('plafond mensuel (2026-09-16) — code dédié distinct des codes minute/heure, espace de noms propre à suggest-message', () => {
   const keys = Object.keys(MESSAGE_SUGGESTION_USAGE_ERROR_CODE);
-  assertEquals(keys.length, 2);
-  assert(!keys.some((k) => k.toLowerCase().includes('month')), 'aucune clé ne doit référencer un plafond mensuel');
+  assertEquals(keys.length, 3);
+  assert(keys.includes('monthly_cap'), 'la clé "monthly_cap" doit exister depuis la décision produit du 2026-09-16 (250/mois civil)');
+  assert(
+    MESSAGE_SUGGESTION_USAGE_ERROR_CODE.monthly_cap !== 'CAPTURE_MONTHLY_CAP',
+    'le code ne doit jamais réutiliser le code de Capture — espaces de noms distincts',
+  );
 });

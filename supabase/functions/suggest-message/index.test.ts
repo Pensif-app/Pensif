@@ -118,6 +118,27 @@ Deno.test('429 si anti-abus bloque (rate_limit_hour)', async () => {
   assertEquals(body.code, 'MESSAGE_SUGGESTION_RATE_LIMIT_HOUR');
 });
 
+Deno.test('429 si anti-abus bloque (monthly_cap) — jamais d’appel LLM ensuite', async () => {
+  let llmCalls = 0;
+  const res = await handleRequest(
+    jsonRequest(VALID_BODY),
+    depsWith({
+      registerMessageSuggestionUsage: async () => 'monthly_cap' as MessageSuggestionUsageResult,
+      getLlmProvider: () => ({
+        name: 'spy',
+        generate: async () => {
+          llmCalls += 1;
+          return { message: 'x' };
+        },
+      }),
+    }),
+  );
+  assertEquals(res.status, 429);
+  const body = await res.json();
+  assertEquals(body.code, 'MESSAGE_SUGGESTION_MONTHLY_CAP');
+  assertEquals(llmCalls, 0);
+});
+
 Deno.test('200 avec { message } en cas de succès (provider mock)', async () => {
   const res = await handleRequest(jsonRequest(VALID_BODY), depsWith());
   assertEquals(res.status, 200);
