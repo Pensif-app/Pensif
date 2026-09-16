@@ -11,3 +11,20 @@ export function contactDeletionMessage(linkedPenseeCount: number): string {
   }
   return `Cette fiche et son quiz seront définitivement supprimés. Les ${linkedPenseeCount} pensées liées seront conservées sans proche.`;
 }
+
+// CHANTIER UX §6 (2026-09-16) — variantes multi-sélection (onglet Proches) : même décision produit,
+// même comportement (`deleteContact` appelé une fois par proche, jamais de suppression en cascade
+// des pensées), juste le texte de confirmation qui doit couvrir 1..N proches à la fois.
+export function contactsDeletionTitle(contactCount: number): string {
+  return contactCount === 1 ? 'Supprimer ce proche ?' : `Supprimer ${contactCount} proches ?`;
+}
+
+export function contactsDeletionMessage(contactCount: number, linkedPenseeCount: number): string {
+  const contactsPart = contactCount === 1 ? 'Cette fiche et son quiz seront' : 'Ces fiches et leurs quiz seront';
+  if (linkedPenseeCount === 0) return `${contactsPart} définitivement supprimés.`;
+  const penseesPart =
+    linkedPenseeCount === 1
+      ? 'La pensée liée sera conservée sans proche.'
+      : `Les ${linkedPenseeCount} pensées liées seront conservées sans proche.`;
+  return `${contactsPart} définitivement supprimés. ${penseesPart}`;
+}

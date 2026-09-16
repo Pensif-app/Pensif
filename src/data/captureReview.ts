@@ -205,6 +205,39 @@ export function buildInitialCards(
  * global, jamais de fuzzy matching dans le texte lui-même — uniquement l'occurrence exacte de
  * `currentContactNameInText` (limite de mot, insensible à la casse).
  */
+/**
+ * CORRECTIF UX (2026-09-16) — filet de sécurité appelé juste AVANT sauvegarde (CaptureScreen.tsx,
+ * `saveOne`/`handleSaveAll`), pas à chaque frappe/rendu : couvre le cas réel où une pensée est
+ * enregistrée avec un contact `fuzzy_high_confidence` encore pré-sélectionné par
+ * `buildCardFromExtracted` (§RÈGLES ci-dessus) mais JAMAIS explicitement confirmé via
+ * `confirmContactForCard` (l'utilisateur tape directement "Enregistrer") — sans ce filet, la pensée
+ * persistée aurait `contactId = Yohan` mais `texte` encore "Johan" (incohérence texte/contact
+ * réellement observée). Déterministe, AUCUN appel réseau/LLM/matching supplémentaire : réutilise
+ * EXACTEMENT `replaceContactNameOccurrence`, les mêmes données déjà calculées
+ * (`currentContactNameInText`/`originalContactMatchKind`) — jamais un replace global, jamais un mot
+ * approximatif. Idempotent : si le texte est déjà normalisé (confirmation explicite déjà faite, ou
+ * "Aucun" choisi), ne fait rien.
+ *
+ * Ne s'applique JAMAIS quand :
+ * - `contactId` est `null` ("Aucun" explicitement choisi, §RÈGLES du chantier précédent) ;
+ * - `originalContactMatchKind === 'none'` (rien de fiable à identifier) ;
+ * - `currentContactNameInText` est absent (rien à corriger) ;
+ * - le contact ciblé n'existe plus (référence orpheline — jamais de crash).
+ * Ne touche JAMAIS le reste du texte : une édition manuelle de l'utilisateur ailleurs dans la phrase
+ * est intégralement préservée (seule l'occurrence exacte du nom suivie par `currentContactNameInText`
+ * est concernée, comme `confirmContactForCard`).
+ */
+export function finalizeCardTextForSave(card: CaptureCard, contacts: Contact[]): CaptureCard {
+  if (!card.contactId) return card;
+  if (card.originalContactMatchKind === 'none') return card;
+  if (!card.currentContactNameInText) return card;
+  const contact = contacts.find((c) => c.id === card.contactId);
+  if (!contact) return card;
+  const result = replaceContactNameOccurrence(card.texte, card.currentContactNameInText, contact.prenom);
+  if (!result.replaced) return card;
+  return { ...card, texte: result.texte, currentContactNameInText: contact.prenom };
+}
+
 export function confirmContactForCard(card: CaptureCard, contactId: string | null, contacts: Contact[]): CaptureCard {
   if (!contactId) {
     return { ...card, contactId: null, contactMatch: { kind: 'none' } };
