@@ -1,16 +1,18 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Avatar } from '../components/Avatar';
 import { Pill } from '../components/Pill';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { SelectionHeader } from '../components/SelectionHeader';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { isQuizComplete } from '../data/quiz';
 import { birthdayCountdownLabel, daysUntilNext } from '../data/calendar';
+import { contactsDeletionMessage, contactsDeletionTitle } from '../data/contactDeletionMessage';
 import { Contact } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
 
@@ -34,29 +36,90 @@ function compareContacts(a: Contact, b: Contact, today: Date): number {
 
 export function ContactsScreen() {
   const theme = useTheme();
-  const { contacts, today } = useStore();
+  const { contacts, pensees, today, deleteContact } = useStore();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  // CHANTIER UX §6 (2026-09-16) — même principe que PenseesScreen : `selectedIds` n'a de sens QUE
+  // pendant `selectionMode` (voir exitSelectionMode, toujours appelé ensemble).
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const sorted = useMemo(() => [...contacts].sort((a, b) => compareContacts(a, b, today)), [contacts, today]);
 
+  function handleRowLongPress(contactId: string) {
+    if (selectionMode) return;
+    setSelectionMode(true);
+    setSelectedIds(new Set([contactId]));
+  }
+
+  function handleRowPress(contactId: string) {
+    if (!selectionMode) {
+      navigation.navigate('Fiche', { contactId });
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function confirmDeleteSelected() {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    // Même règle métier que la suppression individuelle (FicheScreen.remove) : jamais de suppression
+    // en cascade des pensées liées, juste `contactId -> null` (voir contactDeletionMessage.ts) —
+    // texte de confirmation qui l'explique aussi au pluriel ici.
+    const linkedCount = pensees.filter((p) => p.contactId && selectedIds.has(p.contactId)).length;
+    Alert.alert(contactsDeletionTitle(count), contactsDeletionMessage(count, linkedCount), [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: () => {
+          // `deleteContact` existant, UN appel par proche — même chemin optimiste local + outbox
+          // que la suppression individuelle (FicheScreen), jamais contourné, fonctionne offline.
+          selectedIds.forEach((id) => deleteContact(id));
+          exitSelectionMode();
+        },
+      },
+    ]);
+  }
+
   return (
     <Screen>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.h1, { color: theme.ink }]}>Mes proches</Text>
-          <Text style={[styles.sub, { color: theme.inkSoft }]}>
-            {contacts.length} {contacts.length === 1 ? 'proche suivi' : 'proches suivis'}
-          </Text>
+      {selectionMode ? (
+        <SelectionHeader
+          count={selectedIds.size}
+          singular="sélectionné"
+          plural="sélectionnés"
+          onCancel={exitSelectionMode}
+          onDelete={confirmDeleteSelected}
+          theme={theme}
+        />
+      ) : (
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.h1, { color: theme.ink }]}>Mes proches</Text>
+            <Text style={[styles.sub, { color: theme.inkSoft }]}>
+              {contacts.length} {contacts.length === 1 ? 'proche suivi' : 'proches suivis'}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => navigation.navigate('Fiche', undefined)}
+            accessibilityRole="button"
+            accessibilityLabel="Ajouter un proche"
+            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
+          >
+            <Ionicons name="add" size={20} color={theme.ink} />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={() => navigation.navigate('Fiche', undefined)}
-          accessibilityRole="button"
-          accessibilityLabel="Ajouter un proche"
-          style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.line }]}
-        >
-          <Ionicons name="add" size={20} color={theme.ink} />
-        </Pressable>
-      </View>
+      )}
 
       {contacts.length === 0 ? (
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
@@ -69,15 +132,25 @@ export function ContactsScreen() {
           </View>
         </View>
       ) : (
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }, selectionMode && styles.cardSelectionSpacing]}>
           {sorted.map((c, idx) => {
             const hasQuiz = isQuizComplete(c.quiz);
+            const selected = selectedIds.has(c.id);
             return (
               <Pressable
                 key={c.id}
-                onPress={() => navigation.navigate('Fiche', { contactId: c.id })}
-                style={[styles.row, idx < sorted.length - 1 && { borderBottomColor: theme.line, borderBottomWidth: 1 }]}
+                onPress={() => handleRowPress(c.id)}
+                onLongPress={() => handleRowLongPress(c.id)}
+                style={[
+                  styles.row,
+                  idx < sorted.length - 1 && { borderBottomColor: theme.line, borderBottomWidth: 1 },
+                  selected && { backgroundColor: theme.accentTint },
+                ]}
               >
+                {/* Coche visible UNIQUEMENT en mode sélection — même langage visuel que PenseeRow. */}
+                {selectionMode && (
+                  <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? theme.accent : theme.inkSoft} />
+                )}
                 <Avatar initials={c.initials} colorKey={c.color} theme={theme} />
                 <View style={{ flex: 1 }}>
                   <View style={styles.nameRow}>
@@ -89,7 +162,7 @@ export function ContactsScreen() {
                     {c.date ? ` · ${birthdayCountdownLabel(c.date, today)}` : ''}
                   </Text>
                 </View>
-                <Pill label={hasQuiz ? 'Quizz ✓' : 'Quizz à faire'} tone={hasQuiz ? 'sage' : 'muted'} theme={theme} />
+                {!selectionMode && <Pill label={hasQuiz ? 'Quizz ✓' : 'Quizz à faire'} tone={hasQuiz ? 'sage' : 'muted'} theme={theme} />}
               </Pressable>
             );
           })}
@@ -101,6 +174,12 @@ export function ContactsScreen() {
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
+  // CORRECTIF UX (2026-09-16) — en mode sélection, SelectionHeader n'a pas le `marginBottom: 16` du
+  // headerRow normal (il ne le remplace visuellement que le temps de la sélection, voir §5 du
+  // chantier précédent) : la première carte touchait donc presque Annuler/Supprimer. Un petit espace
+  // ajouté ICI, sur la liste elle-même, uniquement quand `selectionMode` — ne déplace ni le header ni
+  // les boutons, ne touche aucun autre écran.
+  cardSelectionSpacing: { marginTop: 12 },
   h1: { fontSize: 24, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

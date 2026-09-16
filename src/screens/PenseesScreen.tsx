@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { SelectionHeader } from '../components/SelectionHeader';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { buildPenseeCards, groupPenseeCards, PenseeCard } from '../data/penseesView';
@@ -45,7 +46,20 @@ export function PenseesScreen() {
     [pensees, filterContactId],
   );
 
-  const groups = useMemo(() => groupPenseeCards(buildPenseeCards(visiblePensees, contacts, today)), [visiblePensees, contacts, today]);
+  // CHANTIER PENSÉES V3 §5 — une pensée épinglée est affichée EN HAUT (pinnedCards), jamais une
+  // deuxième fois dans sa section habituelle : `groups` (Aujourd'hui/À venir/Mémorisées/Passées) est
+  // donc calculé sur les cartes NON épinglées uniquement — aucun changement de buildPenseeCards/
+  // groupPenseeCards (penseesView.ts), on filtre juste ce qu'on leur donne en entrée.
+  const allCards = useMemo(() => buildPenseeCards(visiblePensees, contacts, today), [visiblePensees, contacts, today]);
+  const pinnedCards = useMemo(() => allCards.filter((c) => c.pensee.pinned), [allCards]);
+  const unpinnedCards = useMemo(() => allCards.filter((c) => !c.pensee.pinned), [allCards]);
+  const groups = useMemo(() => groupPenseeCards(unpinnedCards), [unpinnedCards]);
+  // CHANTIER PENSÉES V3 §1 — au maximum 3 pensées mémorisées sur cet écran (déjà triées de la plus
+  // récente à la plus ancienne par groupPenseeCards via `createdAt`, seul timestamp pertinent déjà
+  // présent sur le modèle — voir audit du chantier, aucun nouveau champ inventé). Le reste reste
+  // accessible via l'écran dédié "Pensées mémorisées" (§2), jamais silencieusement perdu.
+  const memoVisible = useMemo(() => groups.memo.slice(0, 3), [groups.memo]);
+  const hasMoreMemo = groups.memo.length > 3;
 
   function openDetail(penseeId: string) {
     navigation.navigate('PenseeDetail', { penseeId });
@@ -119,27 +133,17 @@ export function PenseesScreen() {
     <Screen>
       {selectionMode ? (
         // Remplace ENTIÈREMENT le header normal pendant la sélection — pas de bouton Capture/Ajouter
-        // accessible dans cet état, uniquement Annuler/Supprimer (voir §3 du chantier).
-        <View style={styles.headerRow}>
-          <Text style={[styles.h1, { color: theme.ink }]}>
-            {selectedIds.size === 0 ? 'Sélectionner des pensées' : `${selectedIds.size} pensée${selectedIds.size > 1 ? 's' : ''} sélectionnée${selectedIds.size > 1 ? 's' : ''}`}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Pressable onPress={exitSelectionMode} style={[styles.iconBtn, { width: 'auto', paddingHorizontal: 12, backgroundColor: theme.card, borderColor: theme.line }]}>
-              <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 13 }}>Annuler</Text>
-            </Pressable>
-            <Pressable
-              onPress={confirmDeleteSelected}
-              disabled={selectedIds.size === 0}
-              style={[
-                styles.iconBtn,
-                { width: 'auto', paddingHorizontal: 12, backgroundColor: theme.danger, borderColor: theme.danger, opacity: selectedIds.size === 0 ? 0.4 : 1 },
-              ]}
-            >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>Supprimer</Text>
-            </Pressable>
-          </View>
-        </View>
+        // accessible dans cet état, uniquement Annuler/Supprimer (voir §3 du chantier). CORRECTIF UX
+        // §5 (2026-09-16) — header mutualisé (SelectionHeader), qui ne déborde plus jamais (voir ce
+        // composant pour le détail de la correction).
+        <SelectionHeader
+          count={selectedIds.size}
+          singular="sélectionnée"
+          plural="sélectionnées"
+          onCancel={exitSelectionMode}
+          onDelete={confirmDeleteSelected}
+          theme={theme}
+        />
       ) : (
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
@@ -177,6 +181,25 @@ export function PenseesScreen() {
             </Pressable>
           </View>
         </View>
+      )}
+
+      {/* CHANTIER PENSÉES V3 §5 — jamais de titre/bloc "ÉPINGLÉES" vide : rendu conditionnel strict,
+          l'interface reste identique à avant pour qui n'épingle jamais rien. */}
+      {pinnedCards.length > 0 && (
+        <>
+          <Text style={[styles.sectionLabel, { color: theme.inkSoft, marginTop: 4 }]}>ÉPINGLÉES</Text>
+          {pinnedCards.map((c) => (
+            <PenseeRow
+              key={c.id}
+              card={c}
+              theme={theme}
+              onPress={() => handleCardPress(c.pensee.id)}
+              onLongPress={() => handleCardLongPress(c.pensee.id)}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(c.pensee.id)}
+            />
+          ))}
+        </>
       )}
 
       {isEmpty ? (
@@ -233,12 +256,14 @@ export function PenseesScreen() {
             <Text style={[styles.emptyInline, { color: theme.inkSoft }]}>Rien d’actif ou à venir pour l’instant.</Text>
           )}
 
-          {groups.memo.length > 0 && (
+          {memoVisible.length > 0 && (
             <>
               {/* Pensées sans aucune date ni rappel — jamais reléguées en "passées" simplement
-                  parce qu'elles vieillissent (CHANTIER PENSÉES V2). */}
+                  parce qu'elles vieillissent (CHANTIER PENSÉES V2). CHANTIER PENSÉES V3 §1 : au
+                  maximum 3 ici (les plus récentes), pour que cet écran garde à peu près la même
+                  hauteur qu'il existe 10 ou 1000 pensées mémorisées. */}
               <Text style={[styles.sectionLabel, { color: theme.inkSoft }]}>MÉMORISÉES</Text>
-              {groups.memo.map((c) => (
+              {memoVisible.map((c) => (
                 <PenseeRow
                   key={c.id}
                   card={c}
@@ -249,6 +274,11 @@ export function PenseesScreen() {
                   selected={selectedIds.has(c.pensee.id)}
                 />
               ))}
+              {hasMoreMemo && (
+                <Pressable onPress={() => navigation.navigate('PenseesMemorisees')} style={styles.seeAllBtn}>
+                  <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>Voir toutes les pensées mémorisées</Text>
+                </Pressable>
+              )}
             </>
           )}
 
@@ -281,7 +311,9 @@ export function PenseesScreen() {
   );
 }
 
-function PenseeRow({
+// Exporté — réutilisé tel quel par MemorizedPenseesScreen.tsx (CHANTIER PENSÉES V3 §2), pour ne
+// jamais dupliquer le rendu d'une carte pensée dans un second composant parallèle.
+export function PenseeRow({
   card,
   theme,
   onPress,
@@ -313,9 +345,14 @@ function PenseeRow({
         <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? theme.accent : theme.inkSoft} />
       )}
       <View style={{ flex: 1 }}>
-        <Text style={[styles.text, { color: theme.ink }]} numberOfLines={3}>
-          {card.pensee.texte}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          {/* Indicateur épinglée — icône seule, jamais un gros badge/composant séparé (§5/§6 chantier
+              PENSÉES V3). Purement visuel, ne change rien à la donnée (date/reminderAt/contact). */}
+          {card.pensee.pinned && <Ionicons name="pin" size={12} color={theme.plum} />}
+          <Text style={[styles.text, { color: theme.ink, flexShrink: 1 }]} numberOfLines={3}>
+            {card.pensee.texte}
+          </Text>
+        </View>
         <Text style={[styles.subtitle, { color: theme.inkSoft }]}>{card.subtitle}</Text>
       </View>
       {card.reminderLabel && <Pill label={card.reminderLabel} tone="muted" theme={theme} />}
@@ -336,6 +373,7 @@ const styles = StyleSheet.create({
   text: { fontWeight: '700', fontSize: 14, lineHeight: 19 },
   subtitle: { fontSize: 12, marginTop: 4 },
   pastToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 8, paddingVertical: 4 },
+  seeAllBtn: { alignSelf: 'flex-start', marginTop: 4, marginBottom: 8, paddingVertical: 4 },
   emptyCard: { borderWidth: 1, borderRadius: 18, padding: 24, marginTop: 24, alignItems: 'center' },
   emptyTitle: { fontWeight: '700', fontSize: 16, textAlign: 'center' },
   emptyBody: { fontSize: 13, textAlign: 'center', lineHeight: 19, marginTop: 8 },

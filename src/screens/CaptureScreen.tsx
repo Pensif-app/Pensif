@@ -11,7 +11,6 @@ import {
   PanResponder,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -34,6 +33,8 @@ import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { Pill } from '../components/Pill';
+import { ContactAssociationField } from '../components/ContactAssociationField';
+import { ContactPicker } from '../components/ContactPicker';
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
 import { RootStackParamList } from '../navigation/types';
@@ -53,6 +54,7 @@ import {
   buildPenseeFromCard,
   canSaveAll,
   confirmContactForCard,
+  finalizeCardTextForSave,
   discardCard,
   isCardValid,
   markFailed,
@@ -206,6 +208,24 @@ export function CaptureScreen() {
   const [transcript, setTranscript] = useState<string>('');
   const [cards, setCards] = useState<CaptureCard[]>([]);
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
+  // CHANTIER UX — ContactPicker commun (2026-09-16). Un seul picker partagé pour toutes les cartes
+  // de Review (jamais un par carte) — `contactPickerCardId` retient à quelle carte l'appliquer.
+  // Modification UI UNIQUEMENT : ne touche ni contactMatch/contactId (contactMatching.ts inchangé),
+  // ni la sauvegarde, ni l'outbox, ni STT/LLM.
+  const [contactPickerCardId, setContactPickerCardId] = useState<string | null>(null);
+  // CHANTIER ROBUSTESSE PRÉ-BÊTA — doublons (2026-09-16) : mêmes garde-fous anti-double-tap que
+  // PenseeDetailScreen/FicheScreen (`savingRef`), jamais appliqués ici. `saveOne`/`handleSaveAll`
+  // sont entièrement synchrones (aucun `await` avant `addPensee`) — un double-tap physique peut
+  // livrer 2 événements `onPress` avant que React n'ait re-rendu pour désactiver/masquer le bouton,
+  // les deux lisant alors la MÊME fermeture `cards` (status encore "pending" dans les deux cas) →
+  // `addPensee` appelé deux fois → 2 pensées dupliquées pour une seule intention utilisateur. Une
+  // simple `ref` (mutation synchrone, visible immédiatement, contrairement à un `useState`) ferme
+  // cette fenêtre. `savingCardIdsRef` par carte (plusieurs cartes peuvent légitimement être en cours
+  // de sauvegarde indépendamment) ; retiré du Set UNIQUEMENT en cas d'échec réel (pour permettre un
+  // nouveau tap de retry) — jamais après un succès, où le bouton disparaît de toute façon
+  // (`card.status !== 'saved'`).
+  const savingCardIdsRef = useRef<Set<string>>(new Set());
+  const savingAllRef = useRef(false);
 
   // Respiration douce du bouton — active pendant le traitement (animation "douce de processing"
   // demandée). Complètement DISTINCTE de `pressScale` ci-dessous (feedback immédiat du geste) : ce
@@ -731,7 +751,11 @@ export function CaptureScreen() {
   function saveOne(card: CaptureCard): CaptureCard[] {
     let next = markSaving(cards, card.cardId);
     try {
-      addPensee(buildPenseeFromCard(card));
+      // CORRECTIF UX (2026-09-16) — filet de sécurité : si un contact fuzzy reste associé sans
+      // confirmation explicite ("Confirmer" jamais tapé), corrige le texte AVANT sauvegarde plutôt
+      // que de persister texte="Johan"/contact=Yohan incohérents (voir captureReview.ts).
+      const finalized = finalizeCardTextForSave(card, contacts);
+      addPensee(buildPenseeFromCard(finalized));
       next = markSaved(next, card.cardId);
     } catch (e) {
       next = markFailed(next, card.cardId, e instanceof Error ? e.message : String(e));
@@ -740,19 +764,29 @@ export function CaptureScreen() {
   }
 
   function handleSaveCard(cardId: string) {
+    if (savingCardIdsRef.current.has(cardId)) return; // double-tap : 2e appel ignoré
     const card = cards.find((c) => c.cardId === cardId);
     if (!card || !isCardValid(card)) return;
-    setCards(saveOne(card));
+    savingCardIdsRef.current.add(cardId);
+    const next = saveOne(card);
+    // Échec réel : on relâche la garde pour autoriser un nouveau tap de retry (voir markFailed dans
+    // saveOne). Succès : jamais relâché ici, mais sans conséquence — le bouton disparaît (voir
+    // `card.status !== 'saved'` plus bas).
+    if (next.find((c) => c.cardId === cardId)?.status === 'failed') savingCardIdsRef.current.delete(cardId);
+    setCards(next);
   }
 
   function handleSaveAll() {
+    if (savingAllRef.current) return; // double-tap : 2e appel ignoré
     if (!canSaveAll(cards)) return;
+    savingAllRef.current = true;
     let next = cards;
     let allOk = true;
     for (const card of cards.filter((c) => c.status === 'pending')) {
       let step = markSaving(next, card.cardId);
       try {
-        addPensee(buildPenseeFromCard(card));
+        const finalized = finalizeCardTextForSave(card, contacts);
+        addPensee(buildPenseeFromCard(finalized));
         step = markSaved(step, card.cardId);
       } catch (e) {
         step = markFailed(step, card.cardId, e instanceof Error ? e.message : String(e));
@@ -761,7 +795,11 @@ export function CaptureScreen() {
       next = step;
     }
     setCards(next);
-    if (allOk) navigation.goBack();
+    if (allOk) {
+      navigation.goBack();
+    } else {
+      savingAllRef.current = false; // au moins un échec réel : autorise un nouveau tap pour retenter
+    }
   }
 
   // "Nouvelle capture" (§2 chantier UX) — repart IMMÉDIATEMENT vers idle sur ce même écran (jamais
@@ -1090,38 +1128,28 @@ export function CaptureScreen() {
                 <Text style={[styles.fuzzyHint, { color: theme.plum }]}>Plusieurs proches possibles — choisis lequel.</Text>
               </View>
             ) : null}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-              <Pressable
-                disabled={disabled}
-                onPress={() => selectContact(card.cardId, null)}
-                style={[
-                  styles.chip,
-                  {
-                    borderColor: card.contactId === null ? theme.accent : theme.line,
-                    backgroundColor: card.contactId === null ? theme.accentTint : theme.paperDim,
-                  },
-                ]}
-              >
-                <Text style={{ color: card.contactId === null ? theme.accent : theme.inkSoft, fontWeight: '700', fontSize: 12 }}>Aucun</Text>
-              </Pressable>
-              {contacts.map((c) => {
-                const selected = card.contactId === c.id;
-                return (
-                  <Pressable
-                    key={c.id}
-                    disabled={disabled}
-                    onPress={() => selectContact(card.cardId, c.id)}
-                    style={[
-                      styles.chip,
-                      { borderColor: selected ? theme.accent : theme.line, backgroundColor: selected ? theme.accent : theme.paperDim },
-                    ]}
-                  >
-                    {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
-                    <Text style={{ color: selected ? '#fff' : theme.inkSoft, fontWeight: '700', fontSize: 12 }}>{c.prenom}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            {/* CHANTIER UX — ContactPicker commun (2026-09-16) : remplace la liste de TOUS les
+                contacts en boutons (ne passait pas à l'échelle, voir consigne du chantier) par le
+                contact déjà reconnu/sélectionné, mis en avant. `suggestedContactId` réutilise
+                STRICTEMENT `card.contactMatch` déjà produit par contactMatching.ts (aucune deuxième
+                reconnaissance, aucun appel LLM supplémentaire) — la confirmation rejoue exactement
+                `selectContact`, comme un tap sur le chip du contact suggéré le faisait avant.
+                CORRECTIF (2026-09-16) — `card.contactId` est déjà PRÉ-REMPLI par
+                buildCardFromExtracted même pour `fuzzy_high_confidence` (voir captureReview.ts,
+                §RÈGLES) : l'afficher tel quel montrerait à tort "[Yohan ✓]" comme déjà confirmé,
+                sans jamais proposer "Confirmer" — `isFuzzy` (déjà calculé plus haut) bascule donc
+                explicitement vers l'état "suggestion" tant que ce match précis n'a pas été
+                confirmé/changé/écarté par l'utilisateur. */}
+            <ContactAssociationField
+              theme={theme}
+              contacts={contacts}
+              selectedContactId={isFuzzy ? null : card.contactId}
+              disabled={disabled}
+              suggestedContactId={isFuzzy ? card.contactId : null}
+              onConfirmSuggestion={(id) => selectContact(card.cardId, id)}
+              onClear={() => selectContact(card.cardId, null)}
+              onOpenPicker={() => setContactPickerCardId(card.cardId)}
+            />
 
             {/* Événement (informatif, purement daté — indépendant du rappel) */}
             {card.eventHint?.date ? (
@@ -1293,6 +1321,20 @@ export function CaptureScreen() {
           </View>
         );
       })}
+
+      {/* UN SEUL picker partagé par toutes les cartes (jamais un par carte) — voir
+          contactPickerCardId plus haut. */}
+      <ContactPicker
+        visible={contactPickerCardId !== null}
+        contacts={contacts}
+        theme={theme}
+        title="Choisir un proche"
+        onSelect={(id) => {
+          if (contactPickerCardId) selectContact(contactPickerCardId, id);
+          setContactPickerCardId(null);
+        }}
+        onClose={() => setContactPickerCardId(null)}
+      />
 
       {hasPendingCards ? (
         <View style={{ marginTop: 8, marginBottom: hasPendingCards ? 12 : 20 }}>

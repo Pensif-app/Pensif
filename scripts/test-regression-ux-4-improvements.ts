@@ -90,11 +90,16 @@ console.log('\n[§3] Pensées — sélection multiple par appui long');
   check('hors sélection : tap ouvre PenseeDetail comme avant (openDetail)', /function handleCardPress\(penseeId: string\) \{\s*if \(!selectionMode\) \{\s*openDetail\(penseeId\);/.test(penseesSrc));
   check('appui long HORS sélection : entre en mode sélection avec CETTE carte immédiatement sélectionnée', /function handleCardLongPress\(penseeId: string\) \{\s*if \(selectionMode\) return;\s*setSelectionMode\(true\);\s*setSelectedIds\(new Set\(\[penseeId\]\)\);/.test(penseesSrc));
   check('en sélection : tap bascule sélectionné/désélectionné (pas de navigation)', /if \(next\.has\(penseeId\)\) next\.delete\(penseeId\);\s*else next\.add\(penseeId\);/.test(penseesSrc));
-  check('nombre de pensées sélectionnées affiché', /\$\{selectedIds\.size\} pensée\$\{selectedIds\.size > 1 \? 's' : ''\} sélectionnée\$\{selectedIds\.size > 1 \? 's' : ''\}/.test(penseesSrc));
+  // CORRECTIF UX §5 (2026-09-16) — le header de sélection a été mutualisé dans un composant dédié
+  // (SelectionHeader.tsx, voir test-regression-multiselect-headers.ts §B pour le détail de son rendu
+  // et la correction anti-débordement) : PenseesScreen ne rend plus lui-même "X pensées
+  // sélectionnées"/"Annuler", il délègue via `count`/`onCancel` — ces deux checks vérifient
+  // désormais ce câblage plutôt que le texte, qui a déménagé.
+  check('nombre de pensées sélectionnées transmis au header mutualisé (SelectionHeader)', penseesSrc.includes('count={selectedIds.size}'));
   check('confirmation singulier exact : "Supprimer cette pensée ?"', penseesSrc.includes("count === 1 ? 'Supprimer cette pensée ?' : `Supprimer ${count} pensées ?`"));
   check('deletePensee existant réutilisé, un appel par pensée sélectionnée (pas de contournement store/outbox)', /selectedIds\.forEach\(\(id\) => deletePensee\(id\)\);/.test(penseesSrc));
   check('sortie du mode sélection après suppression réussie localement', /selectedIds\.forEach\(\(id\) => deletePensee\(id\)\);\s*exitSelectionMode\(\);/.test(penseesSrc));
-  check('"Annuler" disponible, distinct de la suppression', penseesSrc.includes('onPress={exitSelectionMode}') && penseesSrc.includes('Annuler'));
+  check('"Annuler" disponible, distinct de la suppression (délégué au header mutualisé)', penseesSrc.includes('onCancel={exitSelectionMode}') && penseesSrc.includes('onDelete={confirmDeleteSelected}'));
   check('aucun geste supplémentaire introduit (pas de swipe/PanResponder/Gesture ajouté dans ce fichier)', !/PanResponder|GestureDetector|react-native-gesture-handler/.test(penseesSrc));
 }
 

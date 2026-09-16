@@ -11,7 +11,7 @@
 import { CaptureResult, ExtractedPensee } from '../src/data/captureTypes';
 import { ContactMatchResult } from '../src/data/contactMatching';
 import { Contact } from '../src/data/types';
-import { buildInitialCards, confirmContactForCard, normalizeHeardContactName } from '../src/data/captureReview';
+import { buildInitialCards, confirmContactForCard, finalizeCardTextForSave, normalizeHeardContactName } from '../src/data/captureReview';
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -220,6 +220,108 @@ console.log('\n["Aucun" APRÈS une sélection] ne modifie pas le texte, et un no
   check('currentContactNameInText conservé ("Yohan", pas réinitialisé à "Joanne")', card.currentContactNameInText === 'Yohan');
   card = confirmContactForCard(card, micka.id, contacts);
   check('un nouveau choix après "Aucun" corrige toujours (cible "Yohan", pas "Joanne")', card.texte === 'envoyer un message à Micka demain');
+}
+
+console.log('\n[CORRECTIF UX] finalizeCardTextForSave — filet de sécurité appelé juste avant sauvegarde');
+{
+  console.log('  [1] "Johan" reconnu comme Yohan (fuzzy) + enregistrement DIRECT sans taper "Confirmer" → texte final contient Yohan');
+  {
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('Je dois envoyer un message demain à 8h à Johan.', 'Johan');
+    const [card] = buildInitialCards(result, fuzzyMatch, contacts);
+    check('avant sauvegarde : texte encore "Johan" (non confirmé)', card.texte === 'Je dois envoyer un message demain à 8h à Johan.');
+    check('mais contactId déjà pré-rempli sur Yohan (architecture existante, buildCardFromExtracted)', card.contactId === yohan.id);
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('APRÈS le filet de sécurité : texte corrigé en "Yohan"', finalized.texte === 'Je dois envoyer un message demain à 8h à Yohan.');
+    check('contactId inchangé (toujours Yohan)', finalized.contactId === yohan.id);
+  }
+
+  console.log('  [2] contact exact déjà correct ("Yohan" entendu = "Yohan" contact) → reste "Yohan", idempotent');
+  {
+    const exactMatch = (): ContactMatchResult => ({ kind: 'exact', contactId: yohan.id });
+    const result = resultWith('Appeler Yohan ce soir', 'Yohan');
+    const [card] = buildInitialCards(result, exactMatch, contacts);
+    check('déjà "Yohan" au build (match exact, auto-corrigé)', card.texte === 'Appeler Yohan ce soir');
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('filet de sécurité idempotent : toujours "Yohan", inchangé', finalized.texte === 'Appeler Yohan ce soir');
+  }
+
+  console.log('  [3] suggestion Yohan puis "Aucun" → "Johan" n’est JAMAIS transformé en Yohan, même au moment de sauvegarder');
+  {
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('Écrire à Johan demain', 'Johan');
+    let card = buildInitialCards(result, fuzzyMatch, contacts)[0];
+    card = confirmContactForCard(card, null, contacts); // "Aucun"
+    check('"Aucun" : contactId redevient null, texte inchangé', card.contactId === null && card.texte === 'Écrire à Johan demain');
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('filet de sécurité : AUCUNE normalisation (contactId null → return immédiat)', finalized.texte === 'Écrire à Johan demain');
+  }
+
+  console.log('  [4] suggestion Yohan puis changement vers Jean-Luc → ne conserve pas artificiellement Yohan');
+  {
+    const jeanLuc: Contact = { id: 'contact-jean-luc', prenom: 'Jean-Luc' } as Contact;
+    const allContacts = [...contacts, jeanLuc];
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('Écrire à Johan demain', 'Johan');
+    let card = buildInitialCards(result, fuzzyMatch, allContacts)[0];
+    card = confirmContactForCard(card, jeanLuc.id, allContacts); // "Changer" → Jean-Luc
+    check('changé vers Jean-Luc : texte déjà corrigé par confirmContactForCard', card.texte === 'Écrire à Jean-Luc demain');
+    const finalized = finalizeCardTextForSave(card, allContacts);
+    check('filet de sécurité idempotent : reste "Jean-Luc", jamais "Yohan" résiduel', finalized.texte === 'Écrire à Jean-Luc demain');
+  }
+
+  console.log('  [5] phrase contenant d’autres mots ressemblants → aucun remplacement parasite');
+  {
+    // "Johan" doit être remplacé, mais "Johansson" (un autre mot qui CONTIENT "Johan") ne doit
+    // jamais être altéré — même garde de limite de mot que replaceContactNameOccurrence.
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('Johan doit rappeler Johansson demain', 'Johan');
+    const card = buildInitialCards(result, fuzzyMatch, contacts)[0];
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('seul "Johan" (mot entier) remplacé, "Johansson" jamais touché', finalized.texte === 'Yohan doit rappeler Johansson demain');
+  }
+
+  console.log('  [6] casse — "johan" (minuscule) reconnu et normalisé au moment de la sauvegarde');
+  {
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('rappeler johan ce soir', 'johan');
+    const card = buildInitialCards(result, fuzzyMatch, contacts)[0];
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('"johan" (minuscule) → "Yohan" (casse canonique du contact)', finalized.texte === 'rappeler Yohan ce soir');
+  }
+
+  console.log('  [7] accents/noms composés — fonctionne aussi pour un contact au prénom accentué/composé');
+  {
+    const jeanBaptiste: Contact = { id: 'contact-jb', prenom: 'Jean-Baptiste' } as Contact;
+    const sofiaAccent: Contact = { id: 'contact-sofia-e', prenom: 'Sofía' } as Contact;
+    const allContacts = [...contacts, jeanBaptiste, sofiaAccent];
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: jeanBaptiste.id });
+    const result = resultWith('Envoyer un message à Jean Baptiste demain', 'Jean Baptiste');
+    const card = buildInitialCards(result, fuzzyMatch, allContacts)[0];
+    const finalized = finalizeCardTextForSave(card, allContacts);
+    check('nom composé du contact appliqué tel quel', finalized.texte === 'Envoyer un message à Jean-Baptiste demain');
+  }
+
+  console.log('  [orphelin] contact supprimé entre-temps → filet de sécurité ne crashe jamais, ne modifie rien');
+  {
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: 'contact-supprime' });
+    const result = resultWith('Écrire à Johan demain', 'Johan');
+    const card = buildInitialCards(result, fuzzyMatch, contacts)[0];
+    const finalized = finalizeCardTextForSave(card, contacts); // 'contact-supprime' absent de `contacts`
+    check('aucun crash, texte inchangé (contact introuvable)', finalized.texte === 'Écrire à Johan demain');
+  }
+
+  console.log('  [édition manuelle] l’utilisateur retape la phrase en retirant le nom → filet de sécurité ne réinsère rien');
+  {
+    const fuzzyMatch = (): ContactMatchResult => ({ kind: 'fuzzy_high_confidence', contactId: yohan.id });
+    const result = resultWith('Écrire à Johan demain', 'Johan');
+    let card = buildInitialCards(result, fuzzyMatch, contacts)[0];
+    // L'utilisateur édite manuellement le TextInput — seul `texte` change, jamais currentContactNameInText
+    // (voir CaptureScreen.tsx : patchCard ne touche que `texte`).
+    card = { ...card, texte: 'Prendre des nouvelles la semaine prochaine' };
+    const finalized = finalizeCardTextForSave(card, contacts);
+    check('édition manuelle intégralement préservée, rien réinséré ("Johan" absent → replaced:false)', finalized.texte === 'Prendre des nouvelles la semaine prochaine');
+  }
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

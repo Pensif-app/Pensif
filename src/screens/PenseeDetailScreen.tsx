@@ -2,10 +2,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ContactAssociationField } from '../components/ContactAssociationField';
+import { ContactPicker } from '../components/ContactPicker';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { RootStackParamList } from '../navigation/types';
@@ -45,6 +47,15 @@ export function PenseeDetailScreen() {
   // le picker (jamais une date "silencieusement" écrite juste en activant un champ).
   const [eventDate, setEventDate] = useState<string | null>(existing?.date ?? null);
   const [showEventDatePicker, setShowEventDatePicker] = useState(false);
+  // CHANTIER PENSÉES V3 §6 — épingler/désépingler, MÊME PATTERN que le favori proche
+  // (FicheScreen.tsx `headerRight` + Switch local persistée par save()) : audit des interactions
+  // existantes (tap ouvre l'écran, appui long = sélection multiple sur PenseesScreen — jamais
+  // détourné ici) a confirmé qu'un icône de header dans cet écran est l'endroit le plus naturel,
+  // sans polluer chaque carte d'une icône permanente supplémentaire.
+  const [pinned, setPinned] = useState(Boolean(existing?.pinned));
+  // CHANTIER UX — ContactPicker commun (2026-09-16) : plus de liste de tous les contacts affichée
+  // d'office, voir ContactAssociationField/ContactPicker (components/).
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(Boolean(existing?.reminderAt));
   const [reminderDate, setReminderDate] = useState<Date>(() => {
     if (existing?.reminderAt) return new Date(existing.reminderAt);
@@ -71,8 +82,20 @@ export function PenseeDetailScreen() {
   const savingRef = useRef(false);
 
   useEffect(() => {
-    navigation.setOptions({ title: existing ? 'Modifier la pensée' : 'Nouvelle pensée' });
-  }, [existing, navigation]);
+    navigation.setOptions({
+      title: existing ? 'Modifier la pensée' : 'Nouvelle pensée',
+      headerRight: () => (
+        <Pressable
+          onPress={() => setPinned((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={pinned ? 'Désépingler' : 'Épingler'}
+          style={styles.pinBtn}
+        >
+          <Ionicons name={pinned ? 'pin' : 'pin-outline'} size={22} color={pinned ? theme.plum : theme.inkSoft} />
+        </Pressable>
+      ),
+    });
+  }, [existing, navigation, pinned, theme]);
 
   const reminderLabel = useMemo(() => {
     const d = reminderDate;
@@ -188,12 +211,14 @@ export function PenseeDetailScreen() {
           reminderAt,
           date: eventDate,
           endDate: eventDate ? existing.endDate ?? null : null,
+          pinned,
         };
         updatePensee(updated);
       } else {
         addPensee({
           texte: texte.trim(),
           contactId,
+          pinned,
           reminderAt,
           createdAt: new Date().toISOString(),
           date: eventDate,
@@ -235,23 +260,24 @@ export function PenseeDetailScreen() {
       />
 
       <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>LIER À UN PROCHE (FACULTATIF)</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-        <Pressable
-          onPress={() => setContactId(null)}
-          style={[styles.chip, { borderColor: theme.line, backgroundColor: contactId === null ? theme.accent : theme.paperDim }]}
-        >
-          <Text style={{ color: contactId === null ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>Aucun</Text>
-        </Pressable>
-        {contacts.map((c) => (
-          <Pressable
-            key={c.id}
-            onPress={() => setContactId(c.id)}
-            style={[styles.chip, { borderColor: theme.line, backgroundColor: contactId === c.id ? theme.accent : theme.paperDim }]}
-          >
-            <Text style={{ color: contactId === c.id ? '#FFFFFF' : theme.inkSoft, fontWeight: '600', fontSize: 12 }}>{c.prenom}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <ContactAssociationField
+        theme={theme}
+        contacts={contacts}
+        selectedContactId={contactId}
+        onClear={() => setContactId(null)}
+        onOpenPicker={() => setContactPickerOpen(true)}
+      />
+      <ContactPicker
+        visible={contactPickerOpen}
+        contacts={contacts}
+        theme={theme}
+        title="Choisir un proche"
+        onSelect={(id) => {
+          setContactId(id);
+          setContactPickerOpen(false);
+        }}
+        onClose={() => setContactPickerOpen(false)}
+      />
 
       {/* CHANTIER UX §4 — Date OPTIONNELLE, indépendante du rappel (voir docstring en tête). Simple
           chip Pressable (comme "Anniversaire" dans FicheScreen.tsx) plutôt qu'un Switch : aucune date
@@ -353,6 +379,8 @@ export function PenseeDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Même style que FicheScreen.tsx `favoriteBtn` (bouton favori du header) — réutilisé tel quel.
+  pinBtn: { padding: 6, marginRight: 4 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 },
   textarea: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 90, textAlignVertical: 'top', fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, marginRight: 6 },
