@@ -4,10 +4,12 @@ import * as Clipboard from 'expo-clipboard';
 import * as SMS from 'expo-sms';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { messageTemplates } from '../data/messages';
+import { monthFull } from '../data/calendar';
 import { buildMessageSuggestionContext, MessageOccasion, MessageTone } from '../data/messageSuggestion';
 import { MessageDrafts, messageDraftStorageKey } from '../data/messageDraftKey';
 import { loadMessageDrafts, saveMessageDrafts } from '../data/messageDraftStorage';
@@ -21,6 +23,10 @@ function toWhatsAppNumber(tel: string): string {
   if (!digits) return '';
   return digits.startsWith('0') ? `33${digits.slice(1)}` : digits;
 }
+
+// Hauteur agréable pour un message court — plancher (`minHeight`) du composer, jamais un plafond :
+// aucune `height`/`maxHeight` n'est fixée sur le TextInput, qui s'auto-dimensionne à son contenu.
+const MIN_COMPOSER_HEIGHT = 60;
 
 const TONES = [
   { key: 'chaleureux', label: 'Chaleureux' },
@@ -37,6 +43,15 @@ const OCCASION_TITLES: Record<MessageOccasion, string> = {
   thinking_of_you: 'Une petite pensée',
   event: 'Un message pour l’occasion',
 };
+
+/** CHANTIER UX — carte de contexte `event` (2026-09-17) : 'YYYY-MM-DD' → "19 septembre" (mois en
+ *  toutes lettres — volontairement PAS l'abréviation de frDate/calendar.ts, demande explicite de ce
+ *  chantier pour cette carte précise). Réutilise `monthFull` (calendar.ts) plutôt que dupliquer la
+ *  liste des mois. */
+function eventDateLabel(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${parseInt(d, 10)} ${monthFull[parseInt(m, 10) - 1]}`;
+}
 
 export function MessageScreen() {
   const theme = useTheme();
@@ -165,6 +180,23 @@ export function MessageScreen() {
     }
   }
 
+  // CHANTIER UX — protection "nouvelle génération" (2026-09-17) : un résultat IA existant (généré OU
+  // manuellement édité — `aiGenerated` reste `true` dans les deux cas, voir handleTextChange) ne doit
+  // JAMAIS être remplacé sans confirmation explicite. `Annuler` ne fait STRICTEMENT rien (pas d'appel
+  // réseau, pas de changement de draft, pas de consommation de quota) — seul `Générer` invoque le flux
+  // de génération EXISTANT et inchangé (handleGenerate), avec sa propre garde anti-double-tap intacte.
+  // La toute première génération (aucun résultat IA à perdre) reste directe, sans confirmation.
+  function handleGenerateButtonPress() {
+    if (currentAiGenerated) {
+      Alert.alert('Générer une nouvelle proposition ?', 'Votre message actuel sera remplacé.', [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Générer', onPress: () => void handleGenerate() },
+      ]);
+      return;
+    }
+    void handleGenerate();
+  }
+
   async function sendSms() {
     const available = await SMS.isAvailableAsync();
     if (!available) {
@@ -199,6 +231,22 @@ export function MessageScreen() {
       <Text style={[styles.h1, { color: theme.ink }]}>{OCCASION_TITLES[occasion]}</Text>
       <Text style={[styles.sub, { color: theme.inkSoft }]}>Message pour {contact.prenom}</Text>
 
+      {/* CHANTIER UX — contexte `event` (2026-09-17) : rappelle POUR QUELLE pensée précise ce message
+          est préparé — jamais éditable ici (juste un rappel), jamais affichée pour birthday/
+          thinking_of_you. Résolue depuis `eventPensee` (déjà lu depuis le store via `penseeId`, voir
+          plus haut) — jamais un texte dupliqué dans les paramètres de navigation. Absente si la pensée
+          a été supprimée entre-temps ou n'a pas de date (les deux cas rendent `eventPensee` ou
+          `eventPensee.date` faux ici). */}
+      {occasion === 'event' && eventPensee && eventPensee.date && (
+        <View style={[styles.eventContextCard, { backgroundColor: theme.plumTint, borderColor: theme.line }]}>
+          <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.plum} style={styles.eventContextIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.eventContextText, { color: theme.ink }]}>{eventPensee.texte}</Text>
+            <Text style={[styles.eventContextDate, { color: theme.inkSoft }]}>{eventDateLabel(eventPensee.date)}</Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.toneRow}>
         {TONES.map((t) => {
           const active = t.key === tone;
@@ -217,29 +265,67 @@ export function MessageScreen() {
         })}
       </View>
 
-      {currentAiGenerated && (
-        <Text style={[styles.aiLabel, { color: theme.accent }]}>Suggestion IA — relis avant d'envoyer</Text>
-      )}
       <View style={[styles.bubble, { backgroundColor: theme.card, borderColor: theme.line }]}>
+        {/* CHANTIER UX — composer à hauteur dynamique, CORRECTIF (2026-09-17) : la 1re version pilotait
+            `height` via `onContentSizeChange`, un événement peu fiable sur iOS pour un contenu changé
+            PROGRAMMATIQUEMENT (`setDrafts` après une génération IA, pas une frappe utilisateur) — la
+            bulle restait figée à MIN_COMPOSER_HEIGHT sur un message généré, texte invisible une fois
+            `scrollEnabled={false}` posé (plus de secours par scroll interne). Solution plus simple et
+            plus robuste : AUCUNE `height` fixée ici — un TextInput multiline sans `height` ni
+            `maxHeight` s'auto-dimensionne nativement à son contenu (seul `minHeight` borne le bas, pour
+            un message court). `scrollEnabled={false}` reste cohérent : sans hauteur imposée, il n'y a
+            jamais de contenu qui dépasse la boîte, donc rien à faire défiler en interne — le texte est
+            donc toujours intégralement visible. Si la bulle rend l'écran plus haut que l'écran visible,
+            c'est la ScrollView de <Screen> (scroll:true par défaut, inchangée) qui prend le relais.
+            `textAlignVertical="top"` évite qu'Android centre verticalement un texte court dans une
+            boîte devenue plus haute.
+
+            CORRECTIF 2 (2026-09-17) — bug réel iPhone : Chaleureux long → Complice long (OK) → Court
+            vide → retour Complice long (composer figé à ~2 lignes, texte masqué). Cause confirmée : un
+            SEUL TextInput natif est réutilisé pour les 3 tons (`tone` est un simple state, jamais
+            transmis en `key` avant ce correctif) — seule `value` change quand `handleToneChange` bascule
+            de ton. iOS conserve parfois la hauteur intrinsèque mesurée pour le contenu PRÉCÉDENT (ex.
+            "Court" vide) au lieu de re-mesurer le nouveau contenu injecté programmatiquement (le "long"
+            de Complice), d'où la troncature dépendant du ton visité juste avant — jamais du contenu
+            actuel lui-même. `key={tone}` force un remount du TextInput À CHAQUE CHANGEMENT DE TON
+            (jamais à chaque frappe : `tone` ne change que via handleToneChange, pas via
+            handleTextChange) — iOS mesure alors le nouveau contenu sur une vue fraîche, sans hériter
+            d'un layout intrinsèque obsolète. Ne PAS utiliser `currentText` comme clé : le champ serait
+            remonté à chaque caractère tapé, perdant le focus/curseur en cours d'édition. */}
         <TextInput
+          key={tone}
           value={currentText}
           onChangeText={handleTextChange}
           editable={draftsHydrated}
           multiline
+          scrollEnabled={false}
+          textAlignVertical="top"
           placeholder="Écris ou personnalise ton message…"
           placeholderTextColor={theme.inkSoft}
-          style={{ color: theme.ink, fontSize: 15, lineHeight: 22, minHeight: 60 }}
+          style={{ color: theme.ink, fontSize: 15, lineHeight: 22, minHeight: MIN_COMPOSER_HEIGHT }}
         />
+        {/* CHANTIER UX — avertissement associé à la suggestion IA, pas au message lui-même (2026-09-17) :
+            un <Text> à part, jamais dans `currentText`/`drafts` — ne fait donc jamais partie de ce que
+            Copier/SMS/WhatsApp envoient (tous les trois lisent `currentText`, voir plus bas), et une
+            édition manuelle du composer ne le touche jamais (handleTextChange ne modifie que
+            `drafts[tone].text`). Repositionné DANS la bulle, sous le texte, avec un séparateur très
+            discret — jamais au-dessus du composer, pour associer visuellement l'avertissement à LA
+            suggestion affichée sans lui donner plus de poids que le message lui-même. */}
+        {currentAiGenerated && (
+          <Text style={[styles.aiLabel, { color: theme.inkSoft, borderTopColor: theme.line }]}>
+            Pensif peut se tromper, pense à relire avant d'envoyer.
+          </Text>
+        )}
       </View>
 
       {aiAvailable && (
         <Pressable
-          onPress={handleGenerate}
+          onPress={handleGenerateButtonPress}
           disabled={loading || !draftsHydrated}
           style={[styles.aiBtn, { backgroundColor: theme.paperDim, borderColor: theme.accent, opacity: loading || !draftsHydrated ? 0.6 : 1 }]}
         >
           <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13 }}>
-            {loading ? 'Génération…' : currentAiGenerated ? 'Régénérer' : 'Personnaliser avec Pensif'}
+            {loading ? 'Génération…' : currentAiGenerated ? 'Générer une autre proposition' : 'Personnaliser avec Pensif'}
           </Text>
         </Pressable>
       )}
@@ -273,9 +359,28 @@ export function MessageScreen() {
 const styles = StyleSheet.create({
   h1: { fontSize: 22, fontWeight: '700' },
   sub: { fontSize: 13, marginTop: 2, marginBottom: 14 },
+  eventContextCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+  },
+  eventContextIcon: { marginTop: 1 },
+  eventContextText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  eventContextDate: { fontSize: 11, fontWeight: '600', marginTop: 3 },
   toneRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   toneChip: { flex: 1, paddingVertical: 9, borderRadius: 11, borderWidth: 1, alignItems: 'center' },
-  aiLabel: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  aiLabel: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    fontWeight: '400',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   bubble: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 10 },
   aiBtn: { paddingVertical: 11, borderRadius: 12, borderWidth: 1, alignItems: 'center', marginBottom: 10 },
   errorText: { fontSize: 12, marginBottom: 10 },
