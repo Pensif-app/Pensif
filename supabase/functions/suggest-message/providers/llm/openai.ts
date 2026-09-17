@@ -48,7 +48,7 @@ export function buildOpenaiRequestBody(context: MessageSuggestionContext, tone: 
   const body: Record<string, unknown> = {
     model,
     messages: [
-      { role: 'system', content: buildSystemPrompt() },
+      { role: 'system', content: buildSystemPrompt(tone) },
       { role: 'user', content: buildUserPrompt(context, tone) },
     ],
     response_format: { type: 'json_schema', json_schema: SUGGEST_MESSAGE_JSON_SCHEMA },

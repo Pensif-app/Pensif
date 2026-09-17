@@ -3,10 +3,17 @@
 // le benchmark final mini-only (benchmark-suggest-message-final-mini.ts) — garantit "mêmes 18 cas",
 // pas une simple ressemblance visuelle entre deux copies.
 //
-// 18 cas, couvre explicitement : birthday jour J et à venir, thinking_of_you, event, les 3 tons,
+// 20 cas, couvre explicitement : birthday jour J et à venir, thinking_of_you, event, les 3 tons,
 // contexte très pauvre, quiz riche sans pensée, pensées pertinentes, pensées hors sujet, plusieurs
 // pensées dont une seule pertinente, wish exploitable mais pas à forcer, contexte permettant une
 // personnalisation sans invention.
+//
+// Cas 19-20 (2026-09-17) — RÉGRESSION RÉELLE, ton complice, tests manuels iPhone : reproduisent EXACTEMENT
+// les deux cas réels ayant motivé le durcissement ciblé complice (COMPLICE_REINFORCEMENT, prompt.ts) —
+// accumulation forcée d'une préférence triviale ("café sans sucre") hors sujet, transformation de cette
+// préférence en habitude ("toujours fidèle au poste"), invention d'une fête ("après la fête") et d'une
+// intention de l'expéditeur ("j'ai hâte de voir tes photos"). Voir
+// benchmark-suggest-message-complice-regression.ts, qui cible spécifiquement tous les cas `complice`.
 import { MessageSuggestionContext, MessageTone } from '../supabase/functions/suggest-message/contract.ts';
 
 export type Case = { id: string; label: string; tone: MessageTone; context: MessageSuggestionContext };
@@ -218,6 +225,36 @@ export const CASES: Case[] = [
       occasion: { occasion: 'thinking_of_you' },
       quiz: { interests: ['sport'], wish: '' },
       pensees: { optional: true, items: ['Prépare un semi-marathon pour le mois prochain.'] },
+    },
+  },
+  {
+    id: '19',
+    label: 'Birthday demain — complice — RÉGRESSION RÉELLE (café sans sucre forcé, "après la fête" inventé)',
+    tone: 'complice',
+    context: {
+      contact: { prenom: 'Lucas', genre: 'homme', relation: 'Ami', familyRole: null },
+      occasion: { occasion: 'birthday', daysUntil: 1 },
+      quiz: { interests: ['photographie', 'randonnée'], wish: 'Un appareil photo' },
+      // "Café sans sucre" : préférence triviale, sans lien avec un anniversaire — doit pouvoir être
+      // totalement ignorée, jamais forcée dans le message ni transformée en habitude/private joke.
+      pensees: { optional: true, items: ['Ne boit jamais son café sans sucre.'] },
+    },
+  },
+  {
+    id: '20',
+    label: 'Thinking of you — complice — RÉGRESSION RÉELLE ("j\'ai hâte de voir tes photos"/"toujours fidèle au poste" inventés)',
+    tone: 'complice',
+    context: {
+      contact: { prenom: 'Lucas', genre: 'homme', relation: 'Ami', familyRole: null },
+      occasion: { occasion: 'thinking_of_you' },
+      quiz: { interests: ['photographie', 'randonnée'], wish: 'Un appareil photo' },
+      // Une pensée réellement pertinente (l'expo) + la même préférence triviale que le cas 19 — le
+      // modèle doit pouvoir exploiter la première SANS inventer d'intention/attente, et ignorer la
+      // seconde SANS la transformer en habitude ("toujours", "fidèle au poste").
+      pensees: {
+        optional: true,
+        items: ['Expose ses photos samedi lors d’un vernissage.', 'Ne boit jamais son café sans sucre.'],
+      },
     },
   },
 ];

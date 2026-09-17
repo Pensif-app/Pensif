@@ -10,6 +10,7 @@
     "scripts/benchmark-suggest-message-llm-models.ts",
     "scripts/benchmark-suggest-message-corpus.ts",
     "scripts/benchmark-suggest-message-final-mini.ts",
-    "scripts/benchmark-suggest-message-targeted-regression.ts"
+    "scripts/benchmark-suggest-message-targeted-regression.ts",
+    "scripts/benchmark-suggest-message-complice-regression.ts"
   ]
 }

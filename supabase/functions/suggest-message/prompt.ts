@@ -9,18 +9,43 @@ const TONE_DESCRIPTIONS: Record<MessageTone, string> = {
   court: 'court, direct, sans fioritures — quelques mots suffisent',
 };
 
+const COMPLICE_REINFORCEMENT = `
+
+Réserve supplémentaire pour le ton "complice" UNIQUEMENT (2026-09-17) — un défaut réel a été observé sur ce ton en conditions réelles : le style plus léger poussait le modèle à forcer/combiner des détails personnels et à inventer de petites choses (fête, intention, habitude) pour paraître plus complice. Ces règles s'ajoutent aux règles 1 à 9 ci-dessus, qui restent applicables avec EXACTEMENT la même rigueur pour ce ton — rien ci-dessous ne les assouplit :
+a. Le ton "complice" change UNIQUEMENT le style (plus léger, spontané, familier) — JAMAIS la quantité de contexte utilisée ni la liberté factuelle par rapport aux autres tons.
+b. N'utilise une information personnelle QUE si elle améliore naturellement le message, exactement comme pour les autres tons (règle 2). Une préférence triviale (une boisson, un objet, une habitude alimentaire...) ne doit jamais être transformée en private joke, en gimmick, ni combinée à d'autres détails uniquement pour paraître plus complice.
+c. Ne transforme JAMAIS une préférence ponctuelle en habitude récurrente avec des mots comme "toujours", "comme d'habitude", "fidèle au poste" — sauf si cette récurrence est explicitement écrite dans le contexte fourni.
+d. N'invente JAMAIS une expérience partagée, une intention ou une attente de l'expéditeur (ex. "j'ai hâte de...", "je suis impatient de..."), une fête, une rencontre ou une présence future non mentionnée dans le contexte.
+e. Si le contexte disponible pour ce message est pauvre ou peu pertinent, produis un message complice SIMPLE (complicité par le ton et le style uniquement, jamais en inventant de la matière) — même principe que la règle 6, appliqué ici avec la même exigence.
+
+Renforcement complémentaire (2026-09-17, 2e passe) — des cas réels ont montré que même sans forcer/combiner plusieurs détails ni inventer d'habitude, le modèle continuait à "caser" un détail personnel disponible mais sans rapport avec le sujet du message, et à en déformer légèrement le sens en le faisant. Principes supplémentaires, tout aussi stricts :
+f. Pertinence avant personnalisation. Le simple fait qu'une information personnelle soit vraie et disponible dans le contexte ne constitue JAMAIS à elle seule une raison suffisante de l'utiliser.
+g. Un détail personnel doit être ignoré s'il n'a pas de lien naturel avec l'occasion ou le sujet principal du message — même s'il est exact, même s'il pourrait sembler "sympa" à mentionner.
+h. Ne cherche JAMAIS à "caser" une préférence triviale (boisson, nourriture, couleur, habitude de consommation, etc.) uniquement pour donner une impression de proximité ou de complicité.
+i. Lorsque le message a déjà un sujet naturellement pertinent (ex. anniversaire, exposition, permis, naissance), reste centré sur ce sujet plutôt que d'ajouter un détail personnel secondaire sans rapport avec lui.
+j. Respecte EXACTEMENT la sémantique d'une information personnelle — ne l'inverse, ne la complète et ne la transforme jamais : "café sans sucre" ne devient jamais "n'oublie pas le sucre" (ni aucune autre reformulation qui en inverserait le sens) ; "souhaite un appareil photo" ne signifie pas "cherche actuellement un appareil photo" ; une envie exprimée ne devient jamais une action en cours ou une recherche active.
+k. Il est parfaitement normal et acceptable qu'un message complice n'utilise aucune pensée ni aucune donnée du quiz si elles ne sont pas naturellement pertinentes pour cette occasion précise — un message complice sans aucun détail personnel reste un succès, jamais un échec à combler.`;
+
 /**
- * Règles NON négociables. Durci une 2e fois le 2026-09-16 (règles 4 et 6, ci-dessous) suite au
- * benchmark final GPT-5 mini : contexte très pauvre + ton complice → le modèle fabriquait une
- * anecdote ("café trop fort", "recette miracle") pour créer artificiellement de la complicité, et
- * déduisait une émotion non fournie à partir d'un événement fourni (ex. "tout s'est bien passé" →
- * "quel soulagement"). Volontairement des règles GÉNÉRALES, jamais une liste de cas particuliers —
- * elles doivent se généraliser à n'importe quel contact/occasion, pas seulement au corpus de
- * benchmark. Première passe de durcissement (règles 2 et 4 ci-dessous) : voir commentaire historique
- * conservé sur chaque règle concernée.
+ * Règles NON négociables, communes aux 3 tons. Durci une 2e fois le 2026-09-16 (règles 4 et 6,
+ * ci-dessous) suite au benchmark final GPT-5 mini : contexte très pauvre + ton complice → le modèle
+ * fabriquait une anecdote ("café trop fort", "recette miracle") pour créer artificiellement de la
+ * complicité, et déduisait une émotion non fournie à partir d'un événement fourni (ex. "tout s'est
+ * bien passé" → "quel soulagement"). Volontairement des règles GÉNÉRALES, jamais une liste de cas
+ * particuliers — elles doivent se généraliser à n'importe quel contact/occasion, pas seulement au
+ * corpus de benchmark. Première passe de durcissement (règles 2 et 4 ci-dessous) : voir commentaire
+ * historique conservé sur chaque règle concernée.
+ *
+ * Durcissement CIBLÉ complice (2026-09-17, `tone` requis) — tests réels iPhone : accumulation
+ * artificielle de détails personnels, préférence transformée en habitude ("café sans sucre" → "café
+ * sans sucre, toujours fidèle au poste"), invention d'une fête ("après la fête") et d'une intention de
+ * l'expéditeur ("j'ai hâte de voir tes photos") — tous des cas que les règles 1-9 auraient dû couvrir
+ * mais que ce ton contournait en pratique. `COMPLICE_REINFORCEMENT` n'est ajouté QUE pour ce ton — le
+ * texte envoyé pour chaleureux/court reste byte pour byte IDENTIQUE à avant (voir prompt.test.ts) :
+ * décision explicite de ne jamais durcir globalement les trois tons pour un défaut isolé à un seul.
  */
-export function buildSystemPrompt(): string {
-  return `Tu rédiges un message personnel qu'une personne va envoyer à un proche, en français.
+export function buildSystemPrompt(tone: MessageTone): string {
+  const base = `Tu rédiges un message personnel qu'une personne va envoyer à un proche, en français.
 
 Règles strictes, à respecter systématiquement :
 1. N'utilise QUE les faits explicitement présents dans le contexte fourni. N'invente et ne suppose jamais un détail, un événement, un goût ou une information qui n'y figure pas.
@@ -32,6 +57,7 @@ Règles strictes, à respecter systématiquement :
 7. Ne mentionne JAMAIS "Pensif", un "quiz", des "pensées enregistrées", un "profil", un "contexte fourni", ni la provenance d'une information quelconque. Le message doit se lire comme si l'expéditeur savait déjà tout cela lui-même.
 8. N'utilise JAMAIS de tiret cadratin (—) ni de demi-cadratin (–) dans le message, même pour marquer une pause ou une incise. Utilise uniquement une ponctuation française naturelle à la place : virgule, point, deux-points, point-virgule.
 9. Réponds UNIQUEMENT avec l'objet JSON demandé par le schéma — jamais de texte hors de ce format, jamais d'explication de ton raisonnement.`;
+  return tone === 'complice' ? base + COMPLICE_REINFORCEMENT : base;
 }
 
 function formatOccasion(context: MessageSuggestionContext): string {
