@@ -195,6 +195,19 @@ export function CalendarScreen() {
     if (contactId) navigation.navigate('Fiche', { contactId });
   }
 
+  // CHANTIER UX — harmonisation navigation Calendrier/Accueil (2026-09-17) : une carte représentant
+  // une Pensee (type === 'pensee', anniversaires/fêtes/fériés exclus) ouvre désormais PenseeDetail,
+  // exactement comme depuis Accueil — jamais directement la fiche du contact, même quand la pensée
+  // est liée à un proche. `penseeId` est toujours présent pour un événement `type === 'pensee'` (voir
+  // getDayEvents, calendar.ts), y compris pour une période (isPeriod) : même règle, pas d'exception.
+  function openEvent(ev: { type: string; penseeId?: string; contactId?: string | null }) {
+    if (ev.type === 'pensee' && ev.penseeId) {
+      navigation.navigate('PenseeDetail', { penseeId: ev.penseeId });
+      return;
+    }
+    goto(ev.contactId);
+  }
+
   // Calendrier étant le dernier onglet, "revenir en arrière" mène toujours à l'onglet précédent —
   // Pensées depuis le CHANTIER ONGLET PENSÉES V1 (Cadeaux n'est plus un onglet, voir RootNavigator).
   function goToPreviousTab() {
@@ -727,7 +740,7 @@ export function CalendarScreen() {
                         event={ev}
                         theme={theme}
                         flat
-                        onPress={ev.contactId ? () => goto(ev.contactId) : undefined}
+                        onPress={ev.type === 'pensee' || ev.contactId ? () => openEvent(ev) : undefined}
                         onDelete={ev.penseeId ? () => confirmDeletePensee(ev.penseeId!) : undefined}
                       />
                     ))
@@ -761,7 +774,7 @@ export function CalendarScreen() {
                 key={i}
                 event={ev}
                 theme={theme}
-                onPress={ev.contactId ? () => goto(ev.contactId) : undefined}
+                onPress={ev.type === 'pensee' || ev.contactId ? () => openEvent(ev) : undefined}
                 onDelete={ev.penseeId ? () => confirmDeletePensee(ev.penseeId!) : undefined}
               />
             ))

@@ -364,6 +364,27 @@ export function PenseeDetailScreen() {
         </View>
       )}
 
+      {/* CHANTIER UX — exposer `event` (2026-09-17) : réutilise EXACTEMENT la même condition que le
+          backend (buildMessageSuggestionContext/validateOccasion côté suggest-message) — contactId
+          ET date (l'ancre canonique) requis. `reminderAt` (rappel technique) n'entre jamais dans
+          cette condition : un simple rappel sans date d'ancrage ne devient jamais un "événement"
+          relationnel. Basé sur `existing` (donnée PERSISTÉE), jamais sur les states d'édition en
+          cours (contactId/eventDate) : MessageScreen résout la pensée depuis le store via son id, un
+          tap ici doit donc refléter ce qui est réellement enregistré, pas un brouillon non sauvegardé.
+          `penseeId` transmis, jamais l'objet Pensee complet (voir décision d'architecture actée). */}
+      {existing && existing.contactId && existing.date && (
+        <Pressable
+          onPress={() =>
+            navigation.navigate('Message', { contactId: existing.contactId!, occasion: 'event', penseeId: existing.id })
+          }
+          style={[styles.messageLink, { borderColor: theme.line }]}
+        >
+          <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
+          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Préparer un message</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+        </Pressable>
+      )}
+
       <View style={{ marginTop: 20 }}>
         <PrimaryButton label="Enregistrer" onPress={save} />
       </View>
@@ -387,6 +408,7 @@ const styles = StyleSheet.create({
   reminderToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  messageLink: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingTop: 14, marginTop: 18 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 20 },
   deleteText: { fontWeight: '700', fontSize: 13 },
 });

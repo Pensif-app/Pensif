@@ -464,6 +464,22 @@ export function FicheScreen() {
         </>
       )}
 
+      {/* CHANTIER UX — exposer `thinking_of_you` (2026-09-17) : volontaire, sans anniversaire ni
+          événement particulier — jamais de carte automatique équivalente sur Accueil simplement
+          parce qu'une pensée existe (voir consigne explicite). Aucun `penseeId` : MessageScreen
+          construira son contexte à partir des pensées/quiz existants du contact, selon les règles
+          déjà en vigueur (buildMessageSuggestionContext), sans appel IA automatique à l'ouverture. */}
+      {existing && (
+        <Pressable
+          onPress={() => navigation.navigate('Message', { contactId: existing.id, occasion: 'thinking_of_you' })}
+          style={[styles.giftsLink, { borderColor: theme.line, marginTop: 4 }]}
+        >
+          <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
+          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Écrire un message</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+        </Pressable>
+      )}
+
       {existing && (
         <>
           <SectionLabel theme={theme}>PENSÉES LIÉES</SectionLabel>
