@@ -164,3 +164,43 @@ export function computeNextReminderOccurrences(
   const fromMs = options.from.getTime();
   return occurrences.filter((o) => o.getTime() >= fromMs);
 }
+
+/** Heure/minute LOCALES (jamais UTC) — même convention que `LocalDateParts` ci-dessus. */
+export type LocalTimeParts = { hour: number; minute: number };
+
+/**
+ * CHANTIER SEEDS TEMPORELS 2 (2026-09-18) — détermine la PROCHAINE occurrence compatible avec `rule`
+ * à partir de `now` (jour civil local) et `time` (heure/minute LOCALES du rappel — connue ou de
+ * fallback, choisie par l'APPELANT : ce module ne décide jamais lui-même d'une heure, il ne fait que
+ * positionner le bon JOUR une fois l'heure fournie). Réutilise EXACTEMENT `reminderRecurrenceMatchesDate`
+ * (même définition du motif que `computeNextReminderOccurrences` ci-dessus, jamais une deuxième
+ * logique de calendrier indépendante) et `addDays` (jamais un décalage UTC).
+ *
+ * Règle de frontière (voir consigne du chantier) : le jour COURANT n'est proposé QUE si `time` n'est
+ * pas encore atteinte à l'instant `now` — comparaison STRICTE (`>`), jamais `>=` : à exactement
+ * l'heure du rappel, l'occurrence du jour est considérée déjà PASSÉE (jamais un rappel proposé à une
+ * heure déjà atteinte). Balaie au maximum 8 jours (day0 inclus) — couvre largement un cycle
+ * hebdomadaire complet ; toute règle acceptée par `normalizeReminderRecurrence` ('daily', ou 'weekly'
+ * avec au moins un jour) correspond forcément à au moins un jour sur 7, le fallback défensif en fin
+ * de boucle ne devrait donc jamais être atteint en pratique.
+ *
+ * PURE — ne lit ni n'écrit aucun état applicatif, `now`/`time` sont toujours fournis par l'appelant
+ * (jamais `new Date()` interne ici, pour rester testable avec un `now` injecté/fixe).
+ */
+export function nextReminderRecurrenceSeedDate(rule: ReminderRecurrence, time: LocalTimeParts, now: Date): LocalDateParts {
+  const nowMs = now.getTime();
+  let cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const MAX_SCAN_DAYS = 8;
+
+  for (let i = 0; i < MAX_SCAN_DAYS; i++) {
+    const parts: LocalDateParts = { year: cursor.getFullYear(), month: cursor.getMonth(), day: cursor.getDate() };
+    if (reminderRecurrenceMatchesDate(rule, parts)) {
+      const candidate = new Date(parts.year, parts.month, parts.day, time.hour, time.minute, 0, 0);
+      if (candidate.getTime() > nowMs) return parts;
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  // Défensif seulement (voir docstring) — dernier jour balayé, jamais atteint par une règle valide.
+  return { year: cursor.getFullYear(), month: cursor.getMonth(), day: cursor.getDate() };
+}

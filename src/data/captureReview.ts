@@ -7,7 +7,7 @@ import { CaptureRecurrenceInfo, CaptureResult, ExtractedPensee } from './capture
 import { ContactMatchResult } from './contactMatching';
 import { toLocalDateTimeParts } from './reminderDate';
 import { isoOf, monthFull } from './calendar';
-import { normalizeReminderRecurrence, reminderRecurrenceMatchesDate } from './reminderRecurrence';
+import { nextReminderRecurrenceSeedDate, normalizeReminderRecurrence, reminderRecurrenceMatchesDate } from './reminderRecurrence';
 
 export type CaptureCardStatus = 'pending' | 'saving' | 'saved' | 'failed';
 
@@ -347,6 +347,94 @@ function toReminderRecurrenceRule(draft: RecurrenceDraft): ReminderRecurrence | 
   });
 }
 
+// --- CHANTIER SEEDS TEMPORELS 2 (2026-09-18). Propositions contextuelles DÉTERMINISTES pour
+// positionner les pickers de rappel — strictement des SEEDS (voir chantier "Seeds temporels 1" pour
+// la mécanique PROPOSÉ → CONFIRMÉ) : ces fonctions ne modifient JAMAIS une carte, ne sont JAMAIS
+// appelées par `buildCardFromExtracted` (qui reste un pur reflet de l'extraction), et une seed
+// qu'elles retournent ne devient réelle que via la fonction de confirmation dédiée de CaptureScreen.tsx
+// (chantier "Seeds temporels 1"), au moment où l'utilisateur ferme explicitement le picker. `now` est
+// TOUJOURS un paramètre explicite (jamais `new Date()` interne ici) pour rester testable avec un
+// instant injecté/fixe. --------------------------------------------------------------------------
+
+/**
+ * Heure PROPOSÉE pour positionner le picker — priorité stricte (consigne §6) :
+ * 1. `card.reminderTime` si déjà connue (extraite ou déjà confirmée) — jamais écrasée par ce qui suit.
+ * 2. `eventHint.time`, UNIQUEMENT quand `card.reminderDate` est déjà connue (extraite/confirmée) mais
+ *    que son heure manque — jamais quand la DATE elle-même n'est encore qu'une seed (récurrence ou
+ *    fallback générique) : proposer l'heure d'un événement pour une date de rappel qui n'a elle-même
+ *    jamais été prononcée créerait une association jamais réellement entendue.
+ * 3. Fallback générique existant (9h), inchangé, en dernier recours.
+ * PURE — ne modifie jamais `card`.
+ */
+function reminderPickerSeedTime(card: CaptureCard): LocalTime {
+  if (card.reminderTime) return card.reminderTime;
+  if (card.reminderDate && card.eventHint?.time) {
+    const parsed = parseTime(card.eventHint.time);
+    if (parsed) return parsed;
+  }
+  return { hour: 9, minute: 0 };
+}
+
+/**
+ * CORRECTIF UX Seeds (2026-09-18) — un rappel PONCTUEL (jamais récurrent) a-t-il une PROPOSITION
+ * d'heure valide et complète (date déjà connue + `eventHint.time` disponible), alors même que
+ * `card.reminderTime` est encore `null` ? Sert UNIQUEMENT à décider si l'avertissement rouge "Choisis
+ * une heure pour activer ce rappel." doit rester affiché (CaptureScreen.tsx) : une seed complète
+ * valide ne doit jamais être présentée comme une erreur — la carte reste "À vérifier" via
+ * `needsReview` (inchangé), mais l'affichage ne doit pas laisser croire à un problème quand une
+ * proposition cohérente existe déjà. Ne change RIEN à `isCardValid`/`needsReview` : la sauvegarde
+ * reste bloquée tant que `card.reminderTime` n'est pas réellement confirmé. PURE.
+ */
+export function reminderHasPendingTimeSeed(card: CaptureCard): boolean {
+  return Boolean(!card.reminderTime && card.reminderDate && card.eventHint?.time);
+}
+
+/**
+ * Date PROPOSÉE calculée depuis une récurrence EXPLICITE déjà résolue (consigne §6, priorité 2) —
+ * appelée uniquement quand `card.reminderDate` est encore `null` (voir `reminderPickerSeedParts`).
+ * `toReminderRecurrenceRule` (via `normalizeReminderRecurrence`) écarte déjà 'unclear' non résolu et
+ * 'weekly' sans aucun jour coché : `null` ici signifie donc toujours "rien d'assez résolu pour
+ * calculer une date", jamais une règle partiellement devinée. Délègue tout le calcul de calendrier à
+ * `nextReminderRecurrenceSeedDate` (reminderRecurrence.ts, incrément 1) — aucune deuxième logique de
+ * date/récurrence ici. PURE — ne modifie jamais `card`.
+ *
+ * CHANTIER SEEDS TEMPORELS — correctif UX (2026-09-18) : EXPORTÉE pour que l'AFFICHAGE de la ligne
+ * "DATE DE DÉBUT" (CaptureScreen.tsx) puisse montrer cette proposition dès le premier rendu, sans
+ * attendre l'ouverture du picker — un simple affichage, jamais une écriture (voir
+ * `recurrenceStartDateLabel(card.reminderDate ?? recurrenceReminderPickerSeedDate(card, now))` :
+ * `card.reminderDate` reste seul déterminant de la valeur CONFIRMÉE/persistable, cette fonction ne
+ * fournit qu'un texte de proposition quand il n'y en a pas encore).
+ */
+export function recurrenceReminderPickerSeedDate(card: CaptureCard, now: Date): LocalDate | null {
+  const rule = toReminderRecurrenceRule(card.recurrenceDraft);
+  if (!rule) return null;
+  return nextReminderRecurrenceSeedDate(rule, reminderPickerSeedTime(card), now);
+}
+
+/**
+ * Seed COMPLÈTE (date + heure) pour positionner un picker de rappel — priorité stricte (consigne §6) :
+ * 1. `card.reminderDate` si déjà connue (extraite ou déjà confirmée) — jamais recalculée.
+ * 2. Sinon, date calculée depuis une récurrence explicite résolue (`recurrenceReminderPickerSeedDate`).
+ * 3. Sinon, fallback générique "demain" (comportement historique inchangé, ex. rappel manuel sur un
+ *    événement sans AUCUNE donnée de rappel — voir consigne §5, aucune veille automatique inventée
+ *    dans cet incrément).
+ * L'heure suit toujours `reminderPickerSeedTime`, indépendamment de la date retenue ci-dessus.
+ *
+ * STRICTEMENT UNE SEED — jamais écrite dans une carte ici : voir `reminderPickerSeed` (CaptureScreen.tsx,
+ * conversion en `Date` JS pour le composant natif) et sa fonction de confirmation dédiée (seul point
+ * où une seed devient réellement CONFIRMÉE — mécanique validée au chantier "Seeds temporels 1").
+ * Jamais appelée par `buildCardFromExtracted`.
+ */
+export function reminderPickerSeedParts(card: CaptureCard, now: Date): { date: LocalDate; time: LocalTime } {
+  const time = reminderPickerSeedTime(card);
+  if (card.reminderDate) return { date: card.reminderDate, time };
+  const recurrenceDate = recurrenceReminderPickerSeedDate(card, now);
+  if (recurrenceDate) return { date: recurrenceDate, time };
+  const fallback = new Date(now);
+  fallback.setDate(fallback.getDate() + 1);
+  return { date: { year: fallback.getFullYear(), month: fallback.getMonth(), day: fallback.getDate() }, time };
+}
+
 /**
  * "À vérifier" (mise en évidence visuelle uniquement, ne bloque jamais l'enregistrement) : confiance
  * LLM basse, proche ambigu/non résolu, rappel voulu mais heure manquante, ou récurrence comprise mais
@@ -492,6 +580,89 @@ export function canSaveAll(cards: CaptureCard[], now: Date = new Date()): boolea
   const pending = cards.filter((c) => c.status === 'pending');
   if (pending.length === 0) return false;
   return pending.every((c) => isCardValid(c, now));
+}
+
+// --- CHANTIER SEEDS TEMPORELS — mise en évidence des champs proposés non confirmés (2026-09-18).
+// Portée délibérément ÉTROITE (voir audit ci-dessous, dans la docstring de
+// `cardHasPendingReminderSeedConfirmation`) : uniquement les raisons de blocage qui correspondent à
+// une VALEUR AFFICHÉE COMME SI ELLE ÉTAIT DÉJÀ ACQUISE (seed violette, voir chantiers "Seeds
+// temporels 1/2" et son correctif UX), jamais toutes les raisons de `needsReview`/`isCardValid`. ----
+
+/**
+ * AUDIT — raisons actuelles de blocage (`isCardValid`) ou de signalement (`needsReview`) d'une
+ * `CaptureCard`, et lesquelles correspondent à "une valeur affichée/proposée qui nécessite une
+ * confirmation utilisateur" (la seule catégorie concernée par ce contour) :
+ *
+ * | Raison                                                  | Bloque save | Valeur affichée comme "acquise" (seed) | Dans le périmètre de ce contour |
+ * |----------------------------------------------------------|:-----------:|:---------------------------------------:|:--------------------------------:|
+ * | texte vide                                                |     oui     |                   non                    |               non                |
+ * | rappel ponctuel : reminderDate connue, reminderTime null  |     oui     |    OUI (chip iOS affiche une heure seed) |               OUI                |
+ * | rappel ponctuel : reminderDate ET reminderTime absents    |     oui     |    non ("Choisir une date et une heure") |               non                |
+ * | rappel dans le passé (reminderDate+Time déjà confirmés)   |     oui     |                   non                    |               non                |
+ * | récurrence : reminderDate null, seed calculable           |     oui     | OUI (ligne "DATE DE DÉBUT" affiche une date seed) | OUI                  |
+ * | récurrence : reminderDate null, AUCUNE seed calculable    |     oui     |         non ("À définir", honnête)       |               non                |
+ * | récurrence : reminderTime null (HEURE)                    |     oui     |         non ("À définir", honnête)       |               non                |
+ * | récurrence : frequency null / weekly sans jour             |     oui     |          non ("À préciser", honnête)     |               non                |
+ * | récurrence : date de départ hors motif / untilDate < départ |    oui    |    non (édition manuelle incohérente)    |               non                |
+ * | contact ambigu laissé sur "Aucun"                          | non (needsReview seulement) |           non            |               non                |
+ * | contact fuzzy_high_confidence non confirmé                 | non (needsReview seulement) |           non            |               non                |
+ * | confiance LLM basse                                        | non (needsReview seulement) |           non            |               non                |
+ *
+ * Seules les DEUX lignes marquées "OUI" ci-dessus affichent une PROPOSITION comme si elle était une
+ * donnée réelle (couleur accent/violette, texte qui ressemble à une vraie date/heure) — ce sont les
+ * seuls cas où laisser la carte "À vérifier" sans autre indication peut tromper l'utilisateur. Les
+ * autres raisons sont déjà honnêtement présentées ("À définir"/"À préciser"/placeholder explicite)
+ * et restent signalées par les mécanismes existants (accent, `needsReview`), sans nouveau contour.
+ */
+
+/**
+ * Un rappel PONCTUEL (non récurrent) affiche-t-il actuellement une heure PROPOSÉE (seed) comme si
+ * elle était acquise, alors que `card.reminderTime` est encore `null` ? Voir le chip combiné iOS
+ * (CaptureScreen.tsx) : dès que `card.reminderDate` est connue, une heure est TOUJOURS affichée
+ * (réelle, `eventHint.time`, ou fallback générique — voir `reminderPickerSeedParts`), jamais un
+ * placeholder neutre. PURE — ne modifie jamais `card`, ne duplique aucune règle de `isCardValid`.
+ */
+function cardHasPendingPonctualReminderSeed(card: CaptureCard): boolean {
+  return card.reminderDate !== null && card.reminderTime === null;
+}
+
+/**
+ * Un rappel RÉCURRENT affiche-t-il actuellement une date de départ PROPOSÉE (seed de récurrence)
+ * comme si elle était acquise, alors que `card.reminderDate` est encore `null` ? Voir la ligne "DATE
+ * DE DÉBUT" (CaptureScreen.tsx), qui affiche `recurrenceReminderPickerSeedDate` en couleur accent dès
+ * qu'une récurrence explicite est résolue — jamais quand aucune seed n'est calculable (`null` ici,
+ * "À définir" reste alors affiché, honnête, hors périmètre). PURE.
+ */
+function cardHasPendingRecurrenceStartSeed(card: CaptureCard, now: Date): boolean {
+  return card.reminderDate === null && recurrenceReminderPickerSeedDate(card, now) !== null;
+}
+
+/**
+ * Une carte a-t-elle, EN CE MOMENT, un contrôle de rappel affiché comme une valeur déjà acquise
+ * (seed) alors qu'elle bloque réellement `isCardValid` tant qu'elle n'a pas été explicitement
+ * confirmée (retap/"Terminé", mécanique PROPOSÉ → CONFIRMÉ inchangée) ? Un rappel désactivé
+ * (`!reminderEnabled`) ne peut jamais être dans ce cas (rien n'est affiché du tout). Les deux
+ * branches (ponctuel/récurrent) sont mutuellement exclusives (`recurrenceDraft.enabled`), donc au
+ * plus UNE seed est "en attente" par carte. PURE — voir la table d'audit ci-dessus pour la
+ * justification de ce périmètre étroit.
+ */
+export function cardHasPendingReminderSeedConfirmation(card: CaptureCard, now: Date): boolean {
+  if (!card.reminderEnabled) return false;
+  return card.recurrenceDraft.enabled ? cardHasPendingRecurrenceStartSeed(card, now) : cardHasPendingPonctualReminderSeed(card);
+}
+
+/**
+ * Texte d'aide affiché SOUS le bouton "Faire confiance à Pensif" APRÈS une tentative de sauvegarde
+ * bloquée par au moins une seed non confirmée (voir `cardHasPendingReminderSeedConfirmation`) —
+ * `count` = nombre de CARTES concernées dans la Review (0/1 seed possible par carte, voir ci-dessus,
+ * donc `count` peut légitimement dépasser 1 dès que plusieurs cartes sont affectées). `null` si rien
+ * à signaler (`count <= 0`) — l'appelant ne doit alors rien afficher. PURE, pas de dépendance UI.
+ */
+export function pendingConfirmationHelpText(count: number): { headline: string; hint: string } | null {
+  if (count <= 0) return null;
+  const headline = count === 1 ? "1 élément à confirmer avant d'enregistrer." : `${count} éléments à confirmer avant d'enregistrer.`;
+  const hint = count === 1 ? 'Appuie sur le champ surligné pour le valider.' : 'Appuie sur les champs surlignés pour les valider.';
+  return { headline, hint };
 }
 
 /** Construit la Pensee à sauvegarder via le flux normal (`addPensee`, voir store.tsx) — jamais

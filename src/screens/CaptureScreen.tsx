@@ -57,6 +57,7 @@ import {
   buildInitialCards,
   buildPenseeFromCard,
   canSaveAll,
+  cardHasPendingReminderSeedConfirmation,
   clearEventTime,
   confirmContactForCard,
   finalizeCardTextForSave,
@@ -66,10 +67,14 @@ import {
   markSaved,
   markSaving,
   needsReview,
+  pendingConfirmationHelpText,
   recurrenceEndLabel,
   recurrenceFrequencyLabel,
+  recurrenceReminderPickerSeedDate,
   recurrenceStartDateLabel,
   recurrenceTimeLabel,
+  reminderHasPendingTimeSeed,
+  reminderPickerSeedParts,
   setRecurrenceFrequency,
   setRecurrenceOccurrenceCount,
   setRecurrenceUntilDate,
@@ -176,10 +181,6 @@ function formatDateFR(iso: string): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
-function localDateToJsDate(date: LocalDate): Date {
-  return new Date(date.year, date.month, date.day);
-}
-
 /** CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : pilote UNIQUEMENT la couleur de la ligne
  *  "Répétition" (accent = interactif, jamais un warning) — la validité réelle reste needsReview/
  *  isCardValid (captureReview.ts), jamais recalculée ici. */
@@ -211,16 +212,16 @@ function eventTimePickerSeed(card: CaptureCard): Date {
 /** Valeur purement visuelle pour positionner la roulette d'un picker natif quand rien n'est encore
  *  choisi — n'est JAMAIS écrite dans une carte tant que l'utilisateur n'interagit pas réellement
  *  avec le picker (voir onChange des pickers plus bas) : aucune heure/date n'est donc "inventée"
- *  par le code, seulement par un choix explicite de l'utilisateur via le composant natif. */
+ *  par le code, seulement par un choix explicite de l'utilisateur via le composant natif.
+ *
+ *  CHANTIER SEEDS TEMPORELS 2 (2026-09-18) — délègue tout le calcul de la seed (priorité
+ *  extrait/confirmé > récurrence explicite > fallback générique "demain", voir consigne §6) à
+ *  `reminderPickerSeedParts` (captureReview.ts, PURE, `now` toujours injecté) — cette fonction ne
+ *  fait plus que convertir le résultat en `Date` JS pour le composant natif, aucune deuxième logique
+ *  de date ici. */
 function reminderPickerSeed(card: CaptureCard): Date {
-  const base = card.reminderDate ? localDateToJsDate(card.reminderDate) : (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d;
-  })();
-  const hour = card.reminderTime?.hour ?? 9;
-  const minute = card.reminderTime?.minute ?? 0;
-  return new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute, 0, 0);
+  const { date, time } = reminderPickerSeedParts(card, new Date());
+  return new Date(date.year, date.month, date.day, time.hour, time.minute, 0, 0);
 }
 
 /**
@@ -251,6 +252,13 @@ export function CaptureScreen() {
   const [transcript, setTranscript] = useState<string>('');
   const [cards, setCards] = useState<CaptureCard[]>([]);
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
+  // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18). État UI PUR, jamais persisté, jamais
+  // envoyé à Supabase/outbox, ne fait PAS partie de `CaptureCard`/`Pensee` : mémorise uniquement si
+  // "Faire confiance à Pensif" a déjà été tapé au moins une fois alors qu'au moins une carte restait
+  // bloquée — sert à révéler le contour corail + le message d'aide (voir handleSaveAll et le rendu en
+  // bas de l'écran), jamais à contourner isCardValid/canSaveAll. Remis à `false` à chaque nouvelle
+  // capture (voir resetCaptureState et le chargement d'un résultat de Capture ci-dessous).
+  const [saveAttempted, setSaveAttempted] = useState(false);
   // CHANTIER UX — ContactPicker commun (2026-09-16). Un seul picker partagé pour toutes les cartes
   // de Review (jamais un par carte) — `contactPickerCardId` retient à quelle carte l'appliquer.
   // Modification UI UNIQUEMENT : ne touche ni contactMatch/contactId (contactMatching.ts inchangé),
@@ -617,6 +625,7 @@ export function CaptureScreen() {
       }
       setTranscript(result.transcript);
       setCards(buildInitialCards(result, (heard) => matchContactByHeardName(heard, contacts), contacts));
+      setSaveAttempted(false); // nouvelle capture : aucune tentative de sauvegarde encore faite sur ces cartes
       setPhase('review');
     } catch (e) {
       setErrorMessage(
@@ -761,23 +770,29 @@ export function CaptureScreen() {
   }
 
   /**
-   * CORRECTIF picker iOS — seed non confirmée (2026-09-18). Symptôme diagnostiqué : `display="spinner"`
-   * ne déclenche `onChange` que lorsque l'utilisateur fait RÉELLEMENT tourner une roulette — jamais au
-   * simple montage. La carte affichait donc une valeur crédible (`reminderPickerSeed`) sans qu'elle
-   * n'existe encore dans `card.reminderDate`/`reminderTime`, obligeant à bouger la roulette puis
-   * revenir pour que la valeur affichée devienne réelle.
+   * CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — harmonise PROPOSÉ → CONFIRMÉ. Confirme MAINTENANT la
+   * valeur ACTUELLEMENT AFFICHÉE par le picker combiné iOS (`reminderPickerSeed`, la même fonction
+   * que le rendu utilise déjà) dans `card.reminderDate`/`reminderTime`.
    *
-   * Correction : au moment précis où l'utilisateur OUVRE explicitement le picker (jamais à la
-   * fermeture, jamais au montage de l'écran, jamais dans buildInitialCards), on écrit immédiatement
-   * la valeur actuellement affichée (`reminderPickerSeed`, la même fonction que le rendu utilise déjà)
-   * dans la carte. Si une composante existe déjà, `reminderPickerSeed` renvoie déjà cette valeur
-   * réelle telle quelle (voir sa définition : `card.reminderDate ?? demain`, `card.reminderTime ?? 9h`)
-   * — réécrire la seed est donc un no-op strict dans ce cas, jamais une valeur qui change ce qui
-   * existait déjà. Le comportement `onChange` existant (`applyReminderDateTimeChange`) n'est pas
-   * touché : cette confirmation ne fait qu'amorcer l'état, la roulette continue de fonctionner
-   * normalement par-dessus. Appelée uniquement pour le picker COMBINÉ iOS (reminderDateTime) — les
-   * dialogs natifs Android (`DateTimePickerHost`) confirment déjà correctement sur leur propre bouton
-   * OK, qui déclenche systématiquement `onChange`, seed ou non.
+   * Appelée UNIQUEMENT À LA FERMETURE du picker (retap sur le champ déjà ouvert, ou tap sur
+   * "Terminé") — JAMAIS à l'ouverture (voir `openReminderDateTimePicker` ci-dessous, qui ne fait plus
+   * cet appel). Idempotente si la roulette a déjà été bougée : `onChange` (`applyReminderDateTimeChange`)
+   * a alors DÉJÀ écrit la vraie valeur choisie dans la carte, et `reminderPickerSeed` la retourne donc
+   * TELLE QUELLE (voir sa définition : `card.reminderDate ?? demain`, `card.reminderTime ?? 9h`) —
+   * réécrire ici ne fait que réaffirmer ce qui existe déjà, jamais un retour vers un fallback. Si la
+   * roulette n'a PAS été bougée, cette écriture est ce qui confirme explicitement la proposition
+   * affichée — jamais une confirmation silencieuse au simple fait d'avoir ouvert l'écran.
+   *
+   * ANCIEN COMPORTEMENT (jusqu'à cet incrément) : cette confirmation avait lieu À L'OUVERTURE, pour
+   * contourner le fait que `display="spinner"` ne déclenche `onChange` qu'au mouvement réel d'une
+   * roulette, jamais au montage — ce qui faisait de l'OUVERTURE elle-même une confirmation implicite,
+   * sans aucun geste explicite de l'utilisateur. Le nouveau point de confirmation (la FERMETURE, geste
+   * toujours explicite) résout le même problème (rien n'est jamais affiché sans qu'un ferme finisse
+   * par l'écrire) sans plus jamais confondre "ouvrir" et "confirmer".
+   *
+   * Appelée uniquement pour le picker COMBINÉ iOS (reminderDateTime) — les dialogs natifs Android
+   * (`DateTimePickerHost`) confirment déjà correctement sur leur propre bouton OK (Cancel n'écrit
+   * rien), comportement natif non touché par cet incrément.
    */
   function confirmReminderSeed(cardId: string) {
     const card = cards.find((c) => c.cardId === cardId);
@@ -789,13 +804,16 @@ export function CaptureScreen() {
     });
   }
 
-  /** Toggle explicite du picker combiné iOS (voir toggleReminderDateTimePicker, captureReview.ts) —
-   *  confirme la seed UNIQUEMENT à l'ouverture (`next !== null`), jamais à la fermeture. Centralisé
-   *  ici pour être réutilisé identiquement par les 3 points d'entrée (rappel ponctuel, et les deux
-   *  lignes "Date de début"/"Heure" du bloc récurrent). */
+  /** Toggle explicite du picker combiné iOS (voir toggleReminderDateTimePicker, captureReview.ts).
+   *  CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — l'OUVERTURE (`next !== null`) n'écrit plus RIEN (seed
+   *  purement visuelle, voir `reminderPickerSeed`) ; c'est désormais la FERMETURE par retap
+   *  (`next === null`) qui confirme (voir `confirmReminderSeed`) — même règle que le bouton "Terminé",
+   *  qui appelle `confirmReminderSeed` explicitement avant de fermer (voir JSX). Centralisé ici pour
+   *  être réutilisé identiquement par les 3 points d'entrée (rappel ponctuel, et les deux lignes "Date
+   *  de début"/"Heure" du bloc récurrent). */
   function openReminderDateTimePicker(cardId: string) {
     const next = toggleReminderDateTimePicker(openPicker, cardId);
-    if (next) confirmReminderSeed(cardId);
+    if (!next) confirmReminderSeed(cardId);
     setOpenPicker(next);
   }
 
@@ -905,7 +923,15 @@ export function CaptureScreen() {
 
   function handleSaveAll() {
     if (savingAllRef.current) return; // double-tap : 2e appel ignoré
-    if (!canSaveAll(cards)) return;
+    // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : le bouton reste TOUJOURS tappable
+    // (pas de prop `disabled`, voir PrimaryButton) — un tap alors que `!canSaveAll` ne sauvegarde
+    // toujours RIEN (isCardValid/canSaveAll restent l'unique porte de sortie), mais révèle désormais
+    // le contour corail + le message d'aide sur les cartes concernées (voir `saveAttempted`,
+    // `cardHasPendingReminderSeedConfirmation`) au lieu de ne rien faire silencieusement.
+    if (!canSaveAll(cards)) {
+      setSaveAttempted(true);
+      return;
+    }
     savingAllRef.current = true;
     let next = cards;
     let allOk = true;
@@ -939,6 +965,7 @@ export function CaptureScreen() {
     setErrorMessage(null);
     setPermissionMessage(null);
     setOpenPicker(null);
+    setSaveAttempted(false);
     voiceActivityRef.current.reset();
     setPhase('idle');
   }
@@ -1192,6 +1219,14 @@ export function CaptureScreen() {
   // CTA global inutile si plus aucune carte n'est en attente (tout a déjà été sauvegardé
   // individuellement, ou supprimé) — voir §17.
   const hasPendingCards = cards.some((c) => c.status === 'pending');
+  // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : calculé UNIQUEMENT après une tentative
+  // de sauvegarde bloquée (`saveAttempted`) — avant ce moment, `pendingReminderSeedCardIds` reste
+  // vide et aucun contour/message ne s'affiche (UI strictement inchangée juste après une Capture).
+  // `now` figé une seule fois par rendu (cohérent avec `reminderPickerSeed`/le reste de l'écran).
+  const pendingReminderSeedCardIds = saveAttempted
+    ? new Set(cards.filter((c) => cardHasPendingReminderSeedConfirmation(c, new Date())).map((c) => c.cardId))
+    : new Set<string>();
+  const pendingHelp = pendingConfirmationHelpText(pendingReminderSeedCardIds.size);
   return (
     <Screen>
       <Animated.View
@@ -1212,6 +1247,11 @@ export function CaptureScreen() {
         const cardValid = isCardValid(card);
         const cardNeedsReview = needsReview(card);
         const disabled = card.status === 'saving' || card.status === 'saved';
+        // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : vrai UNIQUEMENT si "Faire
+        // confiance à Pensif" a déjà été tapé au moins une fois ET que CETTE carte a encore une seed
+        // de rappel non confirmée qui bloque réellement isCardValid (voir pendingReminderSeedCardIds
+        // plus haut) — jamais avant tentative, jamais pour une carte déjà valide.
+        const cardPendingHighlight = pendingReminderSeedCardIds.has(card.cardId);
 
         return (
           <View key={card.cardId} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
@@ -1401,11 +1441,28 @@ export function CaptureScreen() {
                     <Pressable
                       disabled={disabled}
                       onPress={() => (Platform.OS === 'ios' ? openReminderDateTimePicker(card.cardId) : setOpenPicker({ cardId: card.cardId, kind: 'reminderDate' }))}
-                      style={styles.recurrenceFieldRow}
+                      // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : contour corail
+                      // discret (theme.plum) UNIQUEMENT si cardPendingHighlight — recurrenceFieldRow
+                      // n'a normalement aucun contour, ajouté seulement dans ce cas précis (léger
+                      // reflow acceptable uniquement au moment où l'avertissement apparaît, jamais en
+                      // usage normal).
+                      style={[
+                        styles.recurrenceFieldRow,
+                        cardPendingHighlight ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 } : null,
+                      ]}
                     >
                       <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>DATE DE DÉBUT</Text>
+                      {/* CORRECTIF UX (2026-09-18) — affiche IMMÉDIATEMENT la seed calculée par
+                          récurrence (recurrenceReminderPickerSeedDate) quand `card.reminderDate` est
+                          encore `null`, au lieu d'attendre l'ouverture du picker pour la révéler.
+                          PUREMENT VISUEL : `card.reminderDate` reste `null` tant que l'utilisateur n'a
+                          pas fermé le picker (retap/"Terminé", mécanique PROPOSÉ → CONFIRMÉ inchangée)
+                          — la couleur accent (jamais theme.ink) signale explicitement qu'il s'agit
+                          encore d'une proposition, pas d'une valeur confirmée. "À définir" ne reste
+                          affiché que si aucune proposition déterministe n'est calculable (récurrence
+                          non résolue — voir recurrenceReminderPickerSeedDate, captureReview.ts). */}
                       <Text style={{ color: card.reminderDate ? theme.ink : theme.accent, fontSize: 13, fontWeight: '700' }}>
-                        {recurrenceStartDateLabel(card.reminderDate)}
+                        {recurrenceStartDateLabel(card.reminderDate ?? recurrenceReminderPickerSeedDate(card, new Date()))}
                       </Text>
                     </Pressable>
                     <Pressable
@@ -1433,7 +1490,14 @@ export function CaptureScreen() {
                           }}
                           style={{ marginTop: 8 }}
                         />
-                        <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                        <Pressable
+                          onPress={() => {
+                            confirmReminderSeed(card.cardId);
+                            setOpenPicker(null);
+                          }}
+                          style={styles.pickerDoneBtn}
+                          hitSlop={8}
+                        >
                           <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
                         </Pressable>
                       </>
@@ -1475,6 +1539,21 @@ export function CaptureScreen() {
                       <>
                         {(() => {
                           const isThisCardOpen = openPicker?.cardId === card.cardId && openPicker.kind === 'reminderDateTime';
+                          // CORRECTIF UX Seeds (2026-09-18) — affiche IMMÉDIATEMENT la date+heure
+                          // COMBINÉE dès que `card.reminderDate` est déjà réellement connue (extraite
+                          // ou confirmée), même si l'heure n'est encore qu'une PROPOSITION (seed
+                          // `eventHint.time`, voir reminderPickerSeedParts/captureReview.ts) — jamais
+                          // le fallback générique "demain 9h" tant qu'AUCUNE date de rappel n'a jamais
+                          // été évoquée (placeholder "Choisir une date et une heure" conservé dans ce
+                          // cas, hors scope de ce correctif). `fullyConfirmed` distingue une valeur
+                          // RÉELLEMENT confirmée (ink, comme avant) d'une simple proposition encore à
+                          // valider (accent violet — même code couleur que la seed "DATE DE DÉBUT" du
+                          // bloc récurrent) : afficher n'écrit JAMAIS `card.reminderTime`, seule la
+                          // fermeture du picker (retap/"Terminé") confirme réellement (mécanique
+                          // PROPOSÉ → CONFIRMÉ inchangée, voir confirmReminderSeed).
+                          const reminderSeed = reminderPickerSeedParts(card, new Date());
+                          const showsReminderDate = card.reminderDate !== null;
+                          const reminderFullyConfirmed = Boolean(card.reminderDate && card.reminderTime);
                           return (
                             <>
                               <Pressable
@@ -1487,12 +1566,19 @@ export function CaptureScreen() {
                                 // CORRECTIF seed non confirmée (2026-09-18) — voir openReminderDateTimePicker :
                                 // l'ouverture (pas la fermeture) écrit désormais immédiatement la valeur affichée.
                                 onPress={() => openReminderDateTimePicker(card.cardId)}
-                                style={[styles.dateChip, { borderColor: theme.line, backgroundColor: theme.paperDim, alignSelf: 'flex-start' }]}
+                                // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : contour
+                                // corail (theme.plum, même couleur que l'avertissement "Choisis une
+                                // heure...") UNIQUEMENT si cardPendingHighlight — override UNIQUEMENT
+                                // borderColor, dateChip a déjà borderWidth:1, aucun changement de layout.
+                                style={[
+                                  styles.dateChip,
+                                  { borderColor: cardPendingHighlight ? theme.plum : theme.line, backgroundColor: theme.paperDim, alignSelf: 'flex-start' },
+                                ]}
                               >
                                 <Ionicons name="time-outline" size={14} color={theme.ink} />
-                                <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
-                                  {card.reminderDate && card.reminderTime
-                                    ? `${pad2(card.reminderDate.day)}/${pad2(card.reminderDate.month + 1)}/${card.reminderDate.year} à ${pad2(card.reminderTime.hour)}:${pad2(card.reminderTime.minute)}`
+                                <Text style={{ color: reminderFullyConfirmed || !showsReminderDate ? theme.ink : theme.accent, fontSize: 12, fontWeight: '600' }}>
+                                  {showsReminderDate
+                                    ? `${pad2(reminderSeed.date.day)}/${pad2(reminderSeed.date.month + 1)}/${reminderSeed.date.year} à ${pad2(reminderSeed.time.hour)}:${pad2(reminderSeed.time.minute)}`
                                     : 'Choisir une date et une heure'}
                                 </Text>
                               </Pressable>
@@ -1523,7 +1609,14 @@ export function CaptureScreen() {
                                     }}
                                     style={{ marginTop: 8 }}
                                   />
-                                  <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                                  <Pressable
+                                    onPress={() => {
+                                      confirmReminderSeed(card.cardId);
+                                      setOpenPicker(null);
+                                    }}
+                                    style={styles.pickerDoneBtn}
+                                    hitSlop={8}
+                                  >
                                     <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
                                   </Pressable>
                                 </>
@@ -1556,7 +1649,11 @@ export function CaptureScreen() {
                         </Pressable>
                       </View>
                     )}
-                    {!card.reminderTime ? (
+                    {/* CORRECTIF UX Seeds (2026-09-18) — une seed COMPLÈTE valide (date connue +
+                        eventHint.time) ne doit jamais être présentée comme une erreur : masquée par
+                        reminderHasPendingTimeSeed (captureReview.ts). La carte reste "À vérifier" via
+                        needsReview (inchangé) — seul ce message d'erreur ROUGE spécifique disparaît. */}
+                    {!card.reminderTime && !reminderHasPendingTimeSeed(card) ? (
                       <Text style={[styles.warnHint, { color: theme.plum }]}>Choisis une heure pour activer ce rappel.</Text>
                     ) : null}
                     {/* CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : activation MANUELLE sur un
@@ -1650,6 +1747,18 @@ export function CaptureScreen() {
       {hasPendingCards ? (
         <View style={{ marginTop: 8, marginBottom: hasPendingCards ? 12 : 20 }}>
           <PrimaryButton label="Faire confiance à Pensif" onPress={handleSaveAll} />
+          {/* CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18) : message spécifique, affiché
+              UNIQUEMENT après une tentative bloquée par au moins une seed non confirmée (voir
+              pendingHelp/saveAttempted) — pas d'Alert native, texte court sous le bouton, réutilise
+              styles.warnHint + le corail existant (theme.plum, même couleur que le contour). Le
+              message générique existant ci-dessous (!canSubmitAll) reste inchangé et peut coexister
+              (raisons de blocage plus larges que les seules seeds, voir cardHasPendingReminderSeedConfirmation). */}
+          {pendingHelp ? (
+            <>
+              <Text style={[styles.warnHint, { color: theme.plum, textAlign: 'center', marginTop: 6, fontWeight: '700' }]}>{pendingHelp.headline}</Text>
+              <Text style={[styles.warnHint, { color: theme.inkSoft, textAlign: 'center', marginTop: 2 }]}>{pendingHelp.hint}</Text>
+            </>
+          ) : null}
           {!canSubmitAll ? (
             <Text style={[styles.warnHint, { color: theme.inkSoft, textAlign: 'center', marginTop: 6 }]}>
               Complète ou supprime les cartes signalées pour continuer.

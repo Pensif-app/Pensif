@@ -267,9 +267,13 @@ console.log('\n[§G — PenseeDetailScreen.tsx] bloc ÉVÉNEMENT (FACULTATIF) un
     'bouton "Terminé" présent pour le contrôle événement ET le rappel iOS, ne modifie aucune donnée (2 occurrences)',
     (screenSrc.match(/<Text style=\{\{ color: theme\.accent, fontSize: 13, fontWeight: '700' \}\}>Terminé<\/Text>/g) ?? []).length === 2,
   );
+  // CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — le "Terminé" du rappel confirme désormais explicitement
+  // la seed (confirmReminderSeed()) AVANT de fermer, PROPOSÉ → CONFIRMÉ harmonisé avec le retap (voir
+  // openReminderDateTimePicker) — reste isolé (styles.pickerDoneBtn, alignSelf:flex-end), pas de row
+  // partagée comme l'événement.
   check(
-    'Terminé du rappel iOS garde styles.pickerDoneBtn (bloc isolé, alignSelf:flex-end)',
-    /onPress=\{\(\) => setOpenPicker\(null\)\} style=\{styles\.pickerDoneBtn\}/.test(screenSrc),
+    'Terminé du rappel iOS confirme la seed (confirmReminderSeed()) PUIS ferme, garde styles.pickerDoneBtn (bloc isolé)',
+    /onPress=\{\(\) => \{\s*confirmReminderSeed\(\);\s*setOpenPicker\(null\);\s*\}\}\s*style=\{styles\.pickerDoneBtn\}/.test(screenSrc),
   );
   check(
     'Terminé de l’événement partage la row avec "Retirer l’heure"/"+ Ajouter une heure" (space-between, PAS pickerDoneBtn, PAS rapprochés)',

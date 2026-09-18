@@ -67,7 +67,11 @@ function checkSingleTappableRow(labelText: string, valueCallSnippet: string, row
 }
 
 console.log('\n[§B — source] les 4 lignes (Date de début/Heure/Répétition/Fin) sont chacune UN SEUL Pressable — label ET valeur cliquables');
-checkSingleTappableRow('DATE DE DÉBUT', 'recurrenceStartDateLabel(card.reminderDate)', 'DATE DE DÉBUT');
+checkSingleTappableRow(
+  'DATE DE DÉBUT',
+  'recurrenceStartDateLabel(card.reminderDate ?? recurrenceReminderPickerSeedDate(card, new Date()))',
+  'DATE DE DÉBUT',
+);
 checkSingleTappableRow('HEURE', 'recurrenceTimeLabel(card.reminderTime)', 'HEURE');
 checkSingleTappableRow('RÉPÉTITION', 'recurrenceFrequencyLabel(card.recurrenceDraft)', 'RÉPÉTITION');
 checkSingleTappableRow('FIN', 'recurrenceEndLabel(card.recurrenceDraft)', 'FIN');
@@ -112,6 +116,25 @@ console.log('\n[§F — source] AUCUNE fonction/handler supprimé — même non 
   check('handleSaveAll ("Faire confiance à Pensif") toujours défini, logique de garde anti-double-tap non touchée', /function handleSaveAll\(\)/.test(screenSrc) && screenSrc.includes('savingAllRef'));
   check('garde anti-double-tap par carte (savingCardIdsRef) toujours présente', screenSrc.includes('savingCardIdsRef'));
   check('"Faire confiance à Pensif" reste câblée à handleSaveAll, hors du conditionnel cards.length (CTA global inchangé)', /label="Faire confiance à Pensif" onPress=\{handleSaveAll\}/.test(screenSrc));
+}
+
+console.log('\n[§G — source] CORRECTIF UX Seeds (2026-09-18) — chip iOS ponctuel affiche la seed combinée, avertissement rouge masqué si une seed complète valide existe');
+{
+  const chipMatch = reminderBlock.match(/const reminderSeed = reminderPickerSeedParts\(card, new Date\(\)\);[\s\S]{0,1600}/);
+  const chipBlock = chipMatch ? chipMatch[0] : '';
+  check('chip ponctuel iOS calcule reminderSeed via reminderPickerSeedParts(card, new Date())', chipBlock.length > 0);
+  check('showsReminderDate = card.reminderDate !== null (jamais le fallback générique tant qu’aucune date n’a été évoquée)', chipBlock.includes('const showsReminderDate = card.reminderDate !== null;'));
+  check('reminderFullyConfirmed = Boolean(card.reminderDate && card.reminderTime)', chipBlock.includes('const reminderFullyConfirmed = Boolean(card.reminderDate && card.reminderTime);'));
+  check('couleur accent (violet) tant que non pleinement confirmé', reminderBlock.includes('color: reminderFullyConfirmed || !showsReminderDate ? theme.ink : theme.accent'));
+  check(
+    'texte affiché utilise reminderSeed.date/reminderSeed.time (jamais card.reminderDate/reminderTime bruts pour le rendu)',
+    /showsReminderDate\s*\?\s*`[\s\S]*?reminderSeed\.date[\s\S]*?reminderSeed\.time/.test(reminderBlock),
+  );
+
+  check(
+    'avertissement rouge "Choisis une heure..." masqué si reminderHasPendingTimeSeed(card) (seed complète valide, pas une erreur)',
+    /\{!card\.reminderTime && !reminderHasPendingTimeSeed\(card\) \? \(/.test(reminderBlock),
+  );
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

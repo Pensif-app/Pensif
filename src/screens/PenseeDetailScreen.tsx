@@ -93,13 +93,48 @@ export function PenseeDetailScreen() {
   // d'office, voir ContactAssociationField/ContactPicker (components/).
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(Boolean(existing?.reminderAt));
-  const [reminderDate, setReminderDate] = useState<Date>(() => {
-    if (existing?.reminderAt) return new Date(existing.reminderAt);
+  // CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — CORRECTIF : `reminderDate` (CONFIRMÉ) ne vaut plus une
+  // date "demain 9h" acquise dès le montage quand aucun rappel n'existe encore. `null` = aucune
+  // valeur RÉELLE de rappel tant que l'utilisateur n'a pas explicitement confirmé un choix (fermeture
+  // du picker — retap ou "Terminé", voir plus bas) — exactement le même principe que Capture Review
+  // (`card.reminderDate`, captureReview.ts). `existing.reminderAt` présent → valeur réelle, telle
+  // quelle ; absent → `null`, jamais une valeur par défaut déjà "acquise". La seed "demain 9h" reste
+  // disponible comme PROPOSITION UI pure via `reminderDateSeed()` ci-dessous, qui ne modifie jamais
+  // cet état.
+  const [reminderDate, setReminderDate] = useState<Date | null>(() => (existing?.reminderAt ? new Date(existing.reminderAt) : null));
+  /** PROPOSÉ — valeur purement visuelle pour positionner le picker (et calculer les libellés) quand
+   *  aucun rappel n'est encore confirmé : "demain 9h" (comportement historique conservé comme
+   *  PROPOSITION seulement — voir docstring de `reminderDate` ci-dessus). Ne modifie jamais l'état ;
+   *  quand `reminderDate` est déjà confirmé, le retourne TEL QUEL (idempotent). */
+  function reminderDateSeed(): Date {
+    if (reminderDate) return reminderDate;
     const d = new Date();
     d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
     return d;
-  });
+  }
+  /**
+   * CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — confirme MAINTENANT la valeur ACTUELLEMENT AFFICHÉE
+   * (`reminderDateSeed()`) dans `reminderDate`. Appelée UNIQUEMENT À LA FERMETURE du picker combiné
+   * iOS (retap sur le champ déjà ouvert, ou tap sur "Terminé") — JAMAIS à l'ouverture, voir
+   * `openReminderDateTimePicker` ci-dessous. Idempotente si la roulette a déjà été bougée
+   * (`onDateTimeChangeIOS` a alors déjà écrit la vraie valeur, `reminderDateSeed()` la retourne TELLE
+   * QUELLE) — jamais un retour vers le fallback "demain 9h" dans ce cas. Même principe que
+   * `confirmReminderSeed` de CaptureScreen.tsx (Capture Review), transposé ici où ce mécanisme
+   * n'existait pas encore (le state `reminderDate` était directement la donnée, toujours non-null).
+   */
+  function confirmReminderSeed() {
+    setReminderDate(reminderDateSeed());
+  }
+  /** Toggle explicite du picker combiné iOS (même règle que `togglePicker`, réimplémentée ici pour
+   *  pouvoir agir sur `next` AVANT d'appeler `setOpenPicker`) — l'OUVERTURE n'écrit plus rien (seed
+   *  purement visuelle) ; la FERMETURE par retap confirme (voir `confirmReminderSeed`), même règle que
+   *  le bouton "Terminé" qui l'appelle explicitement avant de fermer (voir JSX). */
+  function openReminderDateTimePicker() {
+    const next = openPicker === 'reminderDateTime' ? null : 'reminderDateTime';
+    if (!next) confirmReminderSeed();
+    setOpenPicker(next);
+  }
   // Android : deux champs séparés (date puis heure), jamais affichés automatiquement — voir le
   // même principe déjà appliqué à l'anniversaire d'un proche (FicheScreen.tsx). iOS : une seule
   // roulette combinée date+heure, cohérente avec le mode spinner déjà utilisé ailleurs dans l'app.
@@ -133,13 +168,18 @@ export function PenseeDetailScreen() {
     });
   }, [existing, navigation, pinned, theme]);
 
+  // Formate soit la valeur CONFIRMÉE (reminderDate), soit — si rien n'est encore confirmé — la seed
+  // PROPOSÉE (reminderDateSeed()) : sert uniquement à calculer le TEXTE quand il y a quelque chose à
+  // afficher (picker ouvert, ou déjà confirmé) — ne signifie jamais à lui seul qu'une valeur est
+  // acquise, voir le rendu du chip plus bas qui distingue explicitement les deux cas.
   const reminderLabel = useMemo(() => {
-    const d = reminderDate;
+    const d = reminderDate ?? reminderDateSeed();
     const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     // BUG AM/PM ANDROID : HH:mm (24h, séparateur ":") — jamais de conversion 12h/AM-PM, aucune
     // ambiguïté possible sur ce que l'heure affichée représente.
     const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     return `${dateStr} à ${timeStr}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reminderDate]);
 
   // Défense en profondeur (CHANTIER NAVIGATION NOTIFICATION PENSÉES V2) : un `penseeId` fourni sans
@@ -164,14 +204,20 @@ export function PenseeDetailScreen() {
 
   function onDateChange(_: unknown, selected?: Date) {
     // Cette poignée n'est câblée QUE côté Android (le bouton qui l'ouvre ne rend rien sur iOS,
-    // qui utilise le picker combiné plus bas) — toujours refermer, pas de branche iOS ici.
+    // qui utilise le picker combiné plus bas) — toujours refermer, pas de branche iOS ici. Android
+    // natif : `selected` n'est fourni QUE sur confirmation (bouton OK) — Cancel n'appelle jamais ce
+    // handler avec une valeur, `if (selected)` ci-dessous n'écrit donc RIEN dans ce cas (comportement
+    // déjà correct, non modifié par cet incrément — voir consigne "Android : aucun changement").
     setOpenPicker(null);
     if (selected) {
       lastPickedDateRef.current = selected;
       // withLocalDate reconstruit un Date NEUF à partir des composants locaux des deux dates
       // (jamais une mutation `new Date(prev)` + `setFullYear` — voir reminderDate.ts, BUG PENSÉES
       // V2 ANDROID) : le jour choisi remplace le jour courant, l'heure déjà réglée est conservée.
-      setReminderDate((prev) => withLocalDate(prev, selected));
+      // `prev ?? reminderDateSeed()` — base = valeur CONFIRMÉE si elle existe déjà, sinon la
+      // PROPOSITION (jamais `null`, `withLocalDate` a besoin d'un `Date` de base) ; le résultat de CET
+      // appel devient lui-même CONFIRMÉ (OK Android = confirmation explicite).
+      setReminderDate((prev) => withLocalDate(prev ?? reminderDateSeed(), selected));
     }
   }
 
@@ -179,7 +225,7 @@ export function PenseeDetailScreen() {
     setOpenPicker(null);
     if (selected) {
       lastPickedTimeRef.current = selected;
-      setReminderDate((prev) => withLocalTime(prev, selected));
+      setReminderDate((prev) => withLocalTime(prev ?? reminderDateSeed(), selected));
     }
   }
 
@@ -214,7 +260,16 @@ export function PenseeDetailScreen() {
       Alert.alert('Contenu manquant', 'Écris au moins un mot pour enregistrer cette pensée.');
       return;
     }
-    if (reminderEnabled && __DEV__) {
+    // CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — `reminderDate` (CONFIRMÉ) peut désormais être `null`
+    // (aucun choix explicitement confirmé, voir sa déclaration plus haut) : un rappel activé mais
+    // jamais confirmé ne doit JAMAIS être sauvegardé avec une valeur par défaut simplement parce que
+    // le switch a été activé — même discipline que "Rappel dans le passé" ci-dessous, qui bloque déjà
+    // explicitement plutôt que de deviner à la place de l'utilisateur.
+    if (reminderEnabled && !reminderDate) {
+      Alert.alert('Rappel incomplet', 'Choisis une date et une heure pour ce rappel, ou désactive-le.');
+      return;
+    }
+    if (reminderEnabled && reminderDate && __DEV__) {
       // Diagnostic temporaire (BUG PENSÉES V2 ANDROID) — ne journalise aucune donnée Supabase,
       // uniquement les valeurs de date/heure impliquées dans la comparaison qui suit.
       console.log('[Pensées V2][reminder debug] new Date().toString() =', new Date().toString());
@@ -224,11 +279,11 @@ export function PenseeDetailScreen() {
       console.log('[Pensées V2][reminder debug] constructedReminder.toISOString() =', reminderDate.toISOString());
       console.log('[Pensées V2][reminder debug] constructedReminder.getTime() - Date.now() =', reminderDate.getTime() - Date.now());
     }
-    if (reminderEnabled && !isFutureReminder(reminderDate)) {
+    if (reminderEnabled && reminderDate && !isFutureReminder(reminderDate)) {
       Alert.alert('Rappel dans le passé', 'Choisis une date et une heure dans le futur, ou désactive le rappel.');
       return;
     }
-    const reminderAt = reminderEnabled ? reminderDate.toISOString() : null;
+    const reminderAt = reminderEnabled && reminderDate ? reminderDate.toISOString() : null;
 
     // Verrou posé ICI seulement — après TOUTE validation (un retour anticipé au-dessus n'a jamais
     // engagé la garde, donc rien à libérer pour ces cas-là, voir FicheScreen.tsx pour le même
@@ -480,30 +535,40 @@ export function PenseeDetailScreen() {
           (2026-09-18) — le rappel utilise désormais le MÊME état centralisé `openPicker` que
           l'événement (garantit l'exclusivité globale) : iOS gagne un contrôle "fermable" (chip +
           Terminé, la roulette n'est plus affichée en permanence dès l'activation) ; Android garde ses
-          deux dialogs natifs séparés, strictement inchangés visuellement. Aucune sémantique de
-          `reminderAt` modifiée, aucune seed de rappel modifiée (voir `reminderDate`/`reminderLabel`,
-          inchangés). */}
+          deux dialogs natifs séparés, strictement inchangés visuellement. CHANTIER SEEDS TEMPORELS 1
+          (2026-09-18) — `reminderDate` (CONFIRMÉ) est désormais nullable : voir sa déclaration plus
+          haut, `reminderDateSeed()` (PROPOSÉ, "demain 9h" inchangée), et `confirmReminderSeed()`/
+          `openReminderDateTimePicker()` pour la confirmation À LA FERMETURE (plus à l'ouverture). */}
       {reminderEnabled && (
         <View style={{ marginTop: 10 }}>
           {Platform.OS === 'ios' ? (
             <>
               <Pressable
-                onPress={() => togglePicker('reminderDateTime')}
+                onPress={openReminderDateTimePicker}
                 style={[styles.input, styles.dateBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
               >
-                <Text style={{ color: theme.ink }}>{reminderLabel}</Text>
+                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>
+                  {reminderDate ? reminderLabel : 'Choisir une date et une heure'}
+                </Text>
                 <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
               </Pressable>
               {openPicker === 'reminderDateTime' ? (
                 <>
                   <DateTimePicker
-                    value={reminderDate}
+                    value={reminderDateSeed()}
                     mode="datetime"
                     display="spinner"
                     locale={IOS_PICKER_LOCALE}
                     onChange={onDateTimeChangeIOS}
                   />
-                  <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                  <Pressable
+                    onPress={() => {
+                      confirmReminderSeed();
+                      setOpenPicker(null);
+                    }}
+                    style={styles.pickerDoneBtn}
+                    hitSlop={8}
+                  >
                     <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
                   </Pressable>
                 </>
@@ -515,27 +580,27 @@ export function PenseeDetailScreen() {
                 onPress={() => togglePicker('reminderDate')}
                 style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
               >
-                <Text style={{ color: theme.ink }}>{reminderLabel.split(' à ')[0]}</Text>
+                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>{reminderDate ? reminderLabel.split(' à ')[0] : 'Date'}</Text>
                 <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
               </Pressable>
               <Pressable
                 onPress={() => togglePicker('reminderTime')}
                 style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
               >
-                <Text style={{ color: theme.ink }}>{reminderLabel.split(' à ')[1]}</Text>
+                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>{reminderDate ? reminderLabel.split(' à ')[1] : 'Heure'}</Text>
                 <Ionicons name="time-outline" size={16} color={theme.inkSoft} />
               </Pressable>
             </View>
           )}
           {Platform.OS === 'android' && openPicker === 'reminderDate' ? (
-            <DateTimePicker value={reminderDate} mode="date" display="calendar" onChange={onDateChange} />
+            <DateTimePicker value={reminderDateSeed()} mode="date" display="calendar" onChange={onDateChange} />
           ) : null}
           {/* is24Hour={true} : BUG AM/PM ANDROID — sans ce prop, le TimePickerDialog natif suit le
               format système (12h sur cet appareil), et une saisie "6:00" pensée comme 18:00 est
               alors retournée comme 06:00 sans qu'aucune ambiguïté ne soit visible à l'écran. Forcer
               le 24h ici supprime toute conversion AM/PM, quel que soit le format système. */}
           {Platform.OS === 'android' && openPicker === 'reminderTime' ? (
-            <DateTimePicker value={reminderDate} mode="time" display="clock" is24Hour onChange={onTimeChange} />
+            <DateTimePicker value={reminderDateSeed()} mode="time" display="clock" is24Hour onChange={onTimeChange} />
           ) : null}
         </View>
       )}
