@@ -43,6 +43,7 @@ function makeCard(cardId: string): CaptureCard {
     confidence: 0.9,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
   };
 }
 

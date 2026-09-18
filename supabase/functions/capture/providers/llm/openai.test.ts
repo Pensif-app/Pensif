@@ -3,8 +3,8 @@
 // benchmark #2, 9/10 — voir le commentaire d'en-tête d'openai.ts). Pas de test contre un vrai
 // transcript ici : la validation sémantique réelle se fait via le benchmark
 // (scripts/benchmark-capture-llm-providers.ts), qui nécessite un vrai appel réseau et donc une clé API.
-import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { buildOpenaiRequestBody, OPENAI_REINFORCEMENT_SYSTEM_PROMPT, PENSEE_JSON_SCHEMA } from './openai.ts';
+import { assert, assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { buildOpenaiRequestBody, OPENAI_REINFORCEMENT_SYSTEM_PROMPT, openaiLlmProvider, PENSEE_JSON_SCHEMA } from './openai.ts';
 import { TemporalContext } from '../../../_shared/captureContract.ts';
 
 const CONTEXT: TemporalContext = { timezone: 'Europe/Paris', localDateTime: '2026-09-18T10:00:00', weekday: 'vendredi' };
@@ -198,4 +198,303 @@ Deno.test('OPENAI_REINFORCEMENT_SYSTEM_PROMPT — règle EVENT.TIME ≠ REMINDER
 Deno.test('OPENAI_REINFORCEMENT_SYSTEM_PROMPT — règle 3 (EVENT ≠ REMINDER) historique inchangée au-delà de l\'ajout EVENT.TIME', () => {
   assert(OPENAI_REINFORCEMENT_SYSTEM_PROMPT.includes("3. EVENT ≠ REMINDER — Une date mentionnée à propos d'un fait ou d'un événement RÉEL"));
   assert(OPENAI_REINFORCEMENT_SYSTEM_PROMPT.includes('Paul passe son permis mardi'));
+});
+
+// --- CHANTIER "Capture robustness — retry LLM ciblé + observabilité minimale" (2026-09-18) --------
+// `openaiLlmProvider.extract` fait maintenant JUSQU'À 2 appels OpenAI (1 tentative + 1 retry ciblé) —
+// couvert ici avec un `fetch` mocké (aucun réseau réel, aucune clé nécessaire). Aucun test ne dépend
+// de `buildOpenaiRequestBody`/du prompt/du modèle — cible exclusivement la logique de retry/logging.
+
+const OPTIONS = { model: 'gpt-5-mini' };
+
+/** Pensée JSON minimale, valide selon PENSEE_JSON_SCHEMA — le CONTENU exact n'importe pas pour ces
+ *  tests (aucune assertion sur une valeur métier), seulement sa validité structurelle. */
+function validPenseeeJson(texte = 'x'): string {
+  return JSON.stringify({
+    pensees: [
+      {
+        texte,
+        heardContactName: null,
+        event: { hasDate: false, date: null, time: null, heardExpression: null, confidence: 0 },
+        reminder: { hasReminder: false, date: null, time: null, heardExpression: null, confidence: 0, recurrence: null },
+        confidence: 0.9,
+      },
+    ],
+  });
+}
+
+function chatCompletionResponse(content: string | null, finishReason = 'stop', status = 200): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [{ message: { content }, finish_reason: finishReason }],
+      usage: { prompt_tokens: 42, completion_tokens: 17 },
+    }),
+    { status, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+function httpErrorResponse(status: number, body = 'erreur'): Response {
+  return new Response(body, { status });
+}
+
+/** Remplace `globalThis.fetch` par une file de réponses/actions successives — la Nème réponse (ou la
+ *  dernière si la file est plus courte que le nombre d'appels) sert pour le Nème appel. Compte les
+ *  appels réellement effectués. Toujours restauré via `finally` par l'appelant. */
+function installFetchMock(handlers: Array<() => Response | Promise<Response>>) {
+  const original = globalThis.fetch;
+  let callCount = 0;
+  globalThis.fetch = (() => {
+    const handler = handlers[callCount] ?? handlers[handlers.length - 1];
+    callCount += 1;
+    return Promise.resolve(handler());
+  }) as typeof fetch;
+  return {
+    callCount: () => callCount,
+    restore: () => {
+      globalThis.fetch = original;
+    },
+  };
+}
+
+/** Capture les appels `console.log` pendant `run()` — sert à vérifier qu'aucune donnée utilisateur
+ *  (transcript/contenu LLM brut) ne fuite dans les logs structurés (voir test dédié plus bas). */
+async function captureConsoleLogs(run: () => Promise<void>): Promise<string[]> {
+  const original = console.log;
+  const lines: string[] = [];
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+  };
+  try {
+    await run();
+  } finally {
+    console.log = original;
+  }
+  return lines;
+}
+
+Deno.test('extract — 1. premier appel réussi → exactement 1 fetch', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => chatCompletionResponse(validPenseeeJson())]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 1);
+    assert(result !== null, 'doit retourner le JSON parsé');
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — CONTRAT DE RETOUR (2026-09-18, suite à "Capture réelle toujours cassée après v16") : retourne EXACTEMENT le JSON.parse(content) du LLM, jamais un wrapper {success,data,...} ni aucune enveloppe interne', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const rawContentString = validPenseeeJson('vérification du contrat exact');
+  const expectedParsed = JSON.parse(rawContentString);
+  const mock = installFetchMock([() => chatCompletionResponse(rawContentString)]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    // Égalité STRUCTURELLE avec JSON.parse(content) — pas juste "non null" : si un futur refactor
+    // enveloppait le résultat dans { success: true, data: ... } ou { outcome: ... }, cette assertion
+    // échouerait immédiatement (ce test aurait attrapé exactement la régression suspectée sur v16).
+    assertEquals(result, expectedParsed);
+    // Vérifie EXPLICITEMENT l'ABSENCE des clés d'un wrapper plausible, pour que l'intention du test
+    // reste lisible même si `assertEquals` ci-dessus venait à être affaibli par erreur plus tard.
+    assert(typeof result === 'object' && result !== null);
+    assert(!('success' in (result as Record<string, unknown>)), 'extract() ne doit jamais envelopper dans { success, ... }');
+    assert(!('data' in (result as Record<string, unknown>)), 'extract() ne doit jamais envelopper dans { data, ... }');
+    assert('pensees' in (result as Record<string, unknown>), 'le contrat attendu par validateLlmOutput est { pensees: [...] } directement, à la racine');
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — CONTRAT DE RETOUR après un retry réussi : identique à un succès direct (aucune trace du 1er échec dans la forme du résultat)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const rawContentString = validPenseeeJson('après retry');
+  const expectedParsed = JSON.parse(rawContentString);
+  const mock = installFetchMock([() => httpErrorResponse(429, 'rate limited'), () => chatCompletionResponse(rawContentString)]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(result, expectedParsed);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 2. HTTP 429 puis succès → exactement 2 fetch, retour normal (aucune trace de retry dans le résultat)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => httpErrorResponse(429, 'rate limited'), () => chatCompletionResponse(validPenseeeJson())]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+    assert(result !== null);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 3. HTTP 500 puis succès → exactement 2 fetch', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => httpErrorResponse(500, 'server error'), () => chatCompletionResponse(validPenseeeJson())]);
+  try {
+    await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+// CHANTIER "Capture — standardisation GPT-5-mini, validation finale" (2026-09-19), point 5 :
+// reproduction EXACTE demandée (tentative 1 = HTTP 500, tentative 2 = réponse valide) — vérifie à
+// la fois le nombre d'appels ET l'égalité STRUCTURELLE avec un succès direct (le contrat renvoyé à
+// validateLlmOutput ne doit jamais porter la moindre trace du 1er échec).
+Deno.test('extract — 500 puis succès : pipeline final identique à un succès direct (aucune altération du contrat par le wrapper retry)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const rawContentString = validPenseeeJson('reprise après 500');
+  const expectedParsed = JSON.parse(rawContentString);
+  const mock = installFetchMock([() => httpErrorResponse(500, 'server error'), () => chatCompletionResponse(rawContentString)]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+    assertEquals(result, expectedParsed);
+    assert(!('success' in (result as Record<string, unknown>)));
+    assert(!('data' in (result as Record<string, unknown>)));
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 4. erreur réseau/fetch puis succès → exactement 2 fetch', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([
+    () => {
+      throw new TypeError('network error (simulé)');
+    },
+    () => chatCompletionResponse(validPenseeeJson()),
+  ]);
+  try {
+    await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 5. contenu vide puis succès → exactement 2 fetch', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => chatCompletionResponse(null, 'length'), () => chatCompletionResponse(validPenseeeJson())]);
+  try {
+    await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 6. JSON invalide puis succès → exactement 2 fetch, réponse finale valide', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => chatCompletionResponse('{ ceci n’est pas du JSON'), () => chatCompletionResponse(validPenseeeJson())]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 2);
+    assert(result !== null, 'le succès du 2e essai doit être retourné normalement');
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 7. HTTP 400 → exactement 1 fetch, jamais de retry, throw', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => httpErrorResponse(400, 'bad request')]);
+  try {
+    await assertRejects(() => openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS));
+    assertEquals(mock.callCount(), 1);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 8. HTTP 401 → exactement 1 fetch, jamais de retry, throw', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => httpErrorResponse(401, 'unauthorized')]);
+  try {
+    await assertRejects(() => openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS));
+    assertEquals(mock.callCount(), 1);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 9. deux HTTP 500 successifs → exactement 2 fetch puis échec (throw)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => httpErrorResponse(500, 'server error 1'), () => httpErrorResponse(500, 'server error 2')]);
+  try {
+    await assertRejects(() => openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS));
+    assertEquals(mock.callCount(), 2);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 10. deux JSON invalides successifs → exactement 2 fetch puis échec (comportement d’échec existant : throw, jamais un 3e essai)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const mock = installFetchMock([() => chatCompletionResponse('{ pas valide 1'), () => chatCompletionResponse('{ pas valide 2')]);
+  try {
+    await assertRejects(() => openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS));
+    assertEquals(mock.callCount(), 2);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 11. JSON valide mais sémantiquement "imparfait" (aucun rappel détecté) → PAS de retry artificiel (1 seul fetch)', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  // "imparfait" au sens métier (ex. reminder.hasReminder=false alors qu'un rappel était peut-être
+  // voulu) reste un JSON PARFAITEMENT valide du point de vue de extract() — cette notion n'existe
+  // même pas à ce niveau (seul validateLlmOutput, jamais appelé ici, pourrait en juger).
+  const mock = installFetchMock([() => chatCompletionResponse(validPenseeeJson('pensée sans rappel'))]);
+  try {
+    const result = await openaiLlmProvider.extract('transcript', CONTEXT, OPTIONS);
+    assertEquals(mock.callCount(), 1, 'un JSON structurellement valide ne déclenche jamais de 2e appel, quel que soit son contenu métier');
+    assert(result !== null);
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
+});
+
+Deno.test('extract — 12. logs structurés : aucun transcript/contenu utilisateur, uniquement des métadonnées techniques', async () => {
+  Deno.env.set('OPENAI_API_KEY', 'test-key');
+  const secretTranscript = 'Rappelle-moi tous les jours à 20h39 de tester Pensif pendant 3 jours SECRET_MARKER_9F3A';
+  const mock = installFetchMock([() => httpErrorResponse(429, 'rate limited'), () => chatCompletionResponse(validPenseeeJson('texte de pensée confidentiel SECRET_MARKER_9F3A'))]);
+  try {
+    const logs = await captureConsoleLogs(async () => {
+      await openaiLlmProvider.extract(secretTranscript, CONTEXT, OPTIONS);
+    });
+    assert(logs.length >= 2, 'au moins une ligne de log par tentative (2 tentatives ici)');
+    for (const line of logs) {
+      assert(!line.includes('SECRET_MARKER_9F3A'), `une ligne de log contient une donnée utilisateur : ${line}`);
+      assert(!line.includes(secretTranscript), 'le transcript ne doit jamais apparaître dans les logs');
+    }
+    // Vérifie que les logs contiennent bien les métadonnées ATTENDUES (structure exploitable), pas
+    // juste "rien de sensible" — les deux propriétés comptent.
+    const parsed = logs.map((l) => JSON.parse(l));
+    assert(parsed.every((p) => p.event === 'capture_llm_attempt'));
+    assert(parsed.some((p) => p.attempt === 1 && p.success === false && p.failureStage === 'http' && p.httpStatus === 429 && p.retrying === true));
+    assert(parsed.some((p) => p.attempt === 2 && p.success === true));
+  } finally {
+    mock.restore();
+    Deno.env.delete('OPENAI_API_KEY');
+  }
 });

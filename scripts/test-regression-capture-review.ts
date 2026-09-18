@@ -119,6 +119,7 @@ console.log('\n[carte invalide] reminder activé mais date manquante → invalid
     confidence: 0.9,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
   };
   check('invalide (date manquante)', !isCardValid(card, FUTURE_NOW));
 }
@@ -143,7 +144,12 @@ console.log('\n[repli transcript brut] parseError non nul → une seule carte, t
   const cards = buildInitialCards(result, noMatch, NO_CONTACTS);
   check('exactement une carte', cards.length === 1);
   check('texte = transcript brut', cards[0].texte === 'audio incompréhensible');
-  check('carte valide (simple mémo)', isCardValid(cards[0], FUTURE_NOW));
+  // CHANTIER "Capture robustness — filet de sécurité" (2026-09-18) : cette carte de repli est
+  // désormais `analysisFailed: true` — plus jamais considérée "valide" comme un simple mémo
+  // silencieusement enregistrable (voir isCardValid, gardée explicitement pour ce cas ; couverture
+  // dédiée dans scripts/test-regression-capture-analysis-failed.ts).
+  check('analysisFailed = true (nouveau garde-fou)', cards[0].analysisFailed === true);
+  check('carte désormais INVALIDE tant qu’elle n’a pas été réanalysée avec succès', !isCardValid(cards[0], FUTURE_NOW));
 }
 
 console.log('\n["Tout enregistrer"] activé seulement si toutes les cartes pending sont valides');
@@ -164,6 +170,7 @@ console.log('\n["Tout enregistrer"] activé seulement si toutes les cartes pendi
     confidence: 0.9,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
   };
   const invalid: CaptureCard = { ...valid, cardId: 'i', reminderEnabled: true, reminderDate: null, reminderTime: null };
   check('désactivé si une carte pending est invalide', !canSaveAll([valid, invalid], FUTURE_NOW));
@@ -194,6 +201,7 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       confidence: 0.9,
       status: 'pending',
       saveError: null,
+      analysisFailed: false,
     },
     {
       cardId: 'b',
@@ -211,6 +219,7 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       confidence: 0.9,
       status: 'pending',
       saveError: null,
+      analysisFailed: false,
     },
   ];
   cards = markSaving(cards, 'a');
@@ -227,8 +236,8 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
 console.log('\n[discardCard] supprime uniquement la carte visée');
 {
   const cards: CaptureCard[] = [
-    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null },
-    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null },
+    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null, analysisFailed: false },
+    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null, analysisFailed: false },
   ];
   const next = discardCard(cards, 'x');
   check('carte x retirée', !next.some((c) => c.cardId === 'x'));

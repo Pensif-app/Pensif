@@ -65,11 +65,23 @@ export type ExtractedPensee = {
   confidence: number;
 };
 
+// CHANTIER "Capture bloquante — diagnostic parseError" (2026-09-18), priorité 3 : catégorie
+// GROSSIÈRE et NON SENSIBLE de la cause d'un `parseError` — jamais un texte libre, jamais dérivée
+// d'un transcript/prompt/contenu LLM/donnée contact. `null` tant que `parseError` l'est aussi (pas
+// d'échec = pas de catégorie). Voir providers/llm/types.ts (LlmFailureCategory) pour les catégories
+// d'échec LLM elles-mêmes ; `'validation'` (JSON du LLM syntaxiquement valide mais rejeté par
+// validate.ts) et `'unknown'` (toute autre cause, ex. provider qui ne type pas encore son erreur)
+// sont ajoutées ICI, au niveau du contrat, car elles ne concernent pas un provider LLM spécifique.
+export type CaptureParseErrorCategory = 'llm_http' | 'llm_network' | 'empty_content' | 'json_parse' | 'validation' | 'unknown';
+
 export type CaptureContract = {
   transcript: string;
   meta?: { sttProvider?: string; llmProvider?: string };
   pensees: ExtractedPensee[];
   parseError: string | null;
+  /** UNIQUEMENT informatif/diagnostic (`__DEV__` côté client) — jamais utilisé pour une décision
+   *  métier. `null` si `parseError` est `null`. */
+  parseErrorCategory: CaptureParseErrorCategory | null;
 };
 
 /** Contexte temporel dérivé côté serveur (voir context.ts) — jamais fourni tel quel par le client

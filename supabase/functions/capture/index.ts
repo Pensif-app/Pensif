@@ -8,10 +8,12 @@ import { buildTemporalContext, InvalidContextError } from './context.ts';
 import { getSttProvider, UnknownSttProviderError } from './providers/stt/index.ts';
 import { getLlmProvider, UnknownLlmProviderError } from './providers/llm/index.ts';
 import { SttProvider } from './providers/stt/types.ts';
-import { LlmProvider } from './providers/llm/types.ts';
+import { LlmExtractionError, LlmProvider } from './providers/llm/types.ts';
 import { buildCaptureContract, validateLlmOutput } from './validate.ts';
+import { CaptureParseErrorCategory } from '../_shared/captureContract.ts';
 import { CAPTURE_USAGE_ERROR_CODE, CaptureUsageResult, defaultRegisterCaptureUsage } from './rateLimit.ts';
 import { resolveSupabasePublishableKey } from '../_shared/supabaseEnv.ts';
+import { normalizeBrandMentions } from './textNormalization.ts';
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -180,6 +182,12 @@ export async function handleRequest(req: Request, deps: CaptureDeps = defaultDep
       return jsonResponse({ error: 'stt_failed', message: e instanceof Error ? e.message : String(e) }, 502);
     }
   }
+  // CHANTIER "Capture robustness — Pensif/Pansif" (2026-09-18) — appliquée ICI, un seul point,
+  // AVANT le LLM (pour qu'il voie le nom de marque correctement orthographié) ET avant
+  // `buildCaptureContract` (pour que le transcript renvoyé au client — y compris dans le repli
+  // "texte brut" d'un parseError — porte déjà la correction). Voir textNormalization.ts : substitution
+  // ciblée UNIQUEMENT sur le mot "pansif", jamais sur l'adjectif français "pensif".
+  transcript = normalizeBrandMentions(transcript);
 
   const meta = { sttProvider: sttProvider.name, llmProvider: llmProvider.name };
 
@@ -189,7 +197,12 @@ export async function handleRequest(req: Request, deps: CaptureDeps = defaultDep
   } catch (e) {
     // Un échec RÉSEAU/API du LLM n'empêche pas de renvoyer le transcript déjà obtenu — le client
     // sait déjà replier sur un simple mémo (voir captureReview.ts, buildInitialCards).
-    const outcome = { ok: false as const, parseError: `Extraction LLM indisponible : ${e instanceof Error ? e.message : String(e)}` };
+    // CHANTIER "Capture bloquante — diagnostic parseError" (2026-09-18), priorité 3 : `LlmExtractionError`
+    // porte sa catégorie précise (voir providers/llm/types.ts, toLlmFailureCategory dans openai.ts) ;
+    // toute autre exception (provider qui ne la lève pas encore) retombe sur `'unknown'`, jamais une
+    // catégorie devinée.
+    const category: CaptureParseErrorCategory = e instanceof LlmExtractionError ? e.category : 'unknown';
+    const outcome = { ok: false as const, parseError: `Extraction LLM indisponible : ${e instanceof Error ? e.message : String(e)}`, category };
     return jsonResponse(buildCaptureContract(transcript, meta, outcome), 200);
   }
 

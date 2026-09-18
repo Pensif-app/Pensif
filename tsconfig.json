@@ -17,6 +17,9 @@
     "scripts/benchmark-capture-recurrence-ambiguity-isolation.ts",
     "scripts/benchmark-capture-event-reminder-veille.ts",
     "scripts/benchmark-capture-event-time.ts",
-    "scripts/benchmark-capture-texte-concis-events.ts"
+    "scripts/benchmark-capture-texte-concis-events.ts",
+    "scripts/benchmark-capture-anthropic-recurrence.ts",
+    "scripts/benchmark-capture-openai-mini-recurrence.ts",
+    "scripts/test-regression-capture-openai-pipeline-fixture.ts"
   ]
 }

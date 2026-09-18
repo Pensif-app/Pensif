@@ -84,4 +84,11 @@ export type CaptureResult = {
    *  LLM incohérente, etc.) — dans ce cas `pensees` est vide et l'app doit replier sur le transcript
    *  brut (voir buildInitialCards, captureReview.ts) : rien n'est jamais perdu. */
   parseError: string | null;
+  /** CHANTIER "Capture bloquante — diagnostic parseError" (2026-09-18), priorité 3. Catégorie
+   *  GROSSIÈRE et non sensible de la cause de `parseError` (jamais dérivée d'un transcript/prompt/
+   *  contenu LLM/donnée contact) — UNIQUEMENT informatif/debug (voir logCaptureResultDev,
+   *  captureApi.ts), jamais lu par la logique métier de l'app. Optionnel/absent si le backend n'a pas
+   *  encore été redéployé avec ce champ — même discipline que `reminder.recurrence` ci-dessus :
+   *  traiter `undefined` exactement comme `null`. */
+  parseErrorCategory?: 'llm_http' | 'llm_network' | 'empty_content' | 'json_parse' | 'validation' | 'unknown' | null;
 };

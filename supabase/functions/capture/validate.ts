@@ -5,6 +5,7 @@
 import {
   CaptureContract,
   CaptureEventInfo,
+  CaptureParseErrorCategory,
   CaptureRecurrenceInfo,
   CaptureReminderInfo,
   ExtractedPensee,
@@ -170,9 +171,14 @@ function normalizeExtractedPensee(raw: unknown): ExtractedPensee | null {
   };
 }
 
+// CHANTIER "Capture bloquante — diagnostic parseError" (2026-09-18), priorité 3 : toute sortie
+// `ok: false` d'ICI (validateLlmOutput) correspond par construction à un JSON structurellement
+// reçu mais rejeté par CETTE validation stricte — jamais un échec réseau/HTTP du LLM (ça, c'est
+// LlmExtractionError, voir providers/llm/types.ts, intercepté séparément par index.ts). D'où la
+// catégorie FIXE `'validation'`, jamais dérivée dynamiquement ici.
 export type ValidationOutcome =
   | { ok: true; pensees: ExtractedPensee[] }
-  | { ok: false; parseError: string };
+  | { ok: false; parseError: string; category: CaptureParseErrorCategory };
 
 /**
  * Point d'entrée : valide la sortie BRUTE (non fiable) du LLM. Ne lève jamais — retourne un
@@ -181,15 +187,19 @@ export type ValidationOutcome =
  */
 export function validateLlmOutput(raw: unknown): ValidationOutcome {
   if (typeof raw !== 'object' || raw === null) {
-    return { ok: false, parseError: 'Réponse du LLM non exploitable (pas un objet JSON)' };
+    return { ok: false, parseError: 'Réponse du LLM non exploitable (pas un objet JSON)', category: 'validation' };
   }
   const penseesRaw = (raw as Record<string, unknown>).pensees;
   if (!Array.isArray(penseesRaw)) {
-    return { ok: false, parseError: 'Réponse du LLM non exploitable (champ "pensees" absent ou non-tableau)' };
+    return { ok: false, parseError: 'Réponse du LLM non exploitable (champ "pensees" absent ou non-tableau)', category: 'validation' };
   }
   const pensees = penseesRaw.map(normalizeExtractedPensee).filter((p): p is ExtractedPensee => p !== null);
   if (pensees.length === 0) {
-    return { ok: false, parseError: 'Aucune pensée exploitable dans la réponse du LLM (texte manquant sur toutes les entrées)' };
+    return {
+      ok: false,
+      parseError: 'Aucune pensée exploitable dans la réponse du LLM (texte manquant sur toutes les entrées)',
+      category: 'validation',
+    };
   }
   return { ok: true, pensees };
 }
@@ -203,7 +213,7 @@ export function buildCaptureContract(
   outcome: ValidationOutcome,
 ): CaptureContract {
   if (outcome.ok) {
-    return { transcript, meta, pensees: outcome.pensees, parseError: null };
+    return { transcript, meta, pensees: outcome.pensees, parseError: null, parseErrorCategory: null };
   }
-  return { transcript, meta, pensees: [], parseError: outcome.parseError };
+  return { transcript, meta, pensees: [], parseError: outcome.parseError, parseErrorCategory: outcome.category };
 }

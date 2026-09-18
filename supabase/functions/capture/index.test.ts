@@ -384,6 +384,58 @@ Deno.test('reset/changement de mois : un compteur mensuel épuisé pour un mois 
   assertEquals(okOctober.status, 200);
 });
 
+// ─────────────────────── CHANTIER "Capture robustness — Pensif/Pansif" (2026-09-18) ───────────────────────
+
+Deno.test('mode transcript (JSON) : "Pansif" (erreur STT) normalisé en "Pensif" AVANT le LLM ET dans le transcript renvoyé', async () => {
+  let receivedTranscript: string | null = null;
+  const spyLlm: LlmProvider = {
+    name: 'spy-llm',
+    extract: async (transcript) => {
+      receivedTranscript = transcript;
+      return { pensees: [] };
+    },
+  };
+  const res = await handleRequest(
+    jsonRequest({ transcript: 'Rappelle-moi tous les jours à 22h55 de tester Pansif pendant 3 jours.', context: VALID_CONTEXT }),
+    depsWith({ getLlmProvider: () => spyLlm }),
+  );
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.transcript, 'Rappelle-moi tous les jours à 22h55 de tester Pensif pendant 3 jours.');
+  assertEquals(receivedTranscript, 'Rappelle-moi tous les jours à 22h55 de tester Pensif pendant 3 jours.', 'le LLM doit recevoir le transcript DÉJÀ corrigé, jamais "Pansif"');
+});
+
+Deno.test('multipart (audio réel) : "Pansif" normalisé en "Pensif" également (même point de normalisation, indépendant du mode d’entrée)', async () => {
+  let receivedTranscript: string | null = null;
+  const spyLlm: LlmProvider = {
+    name: 'spy-llm',
+    extract: async (transcript) => {
+      receivedTranscript = transcript;
+      return { pensees: [] };
+    },
+  };
+  const form = new FormData();
+  form.append('audio', new Blob([new TextEncoder().encode('tester Pansif ce soir')], { type: 'text/plain' }), 'audio.wav');
+  form.append('context', JSON.stringify(VALID_CONTEXT));
+  const req = new Request('http://localhost/capture', { method: 'POST', headers: AUTHORIZED_HEADERS, body: form });
+
+  const res = await handleRequest(req, depsWith({ getLlmProvider: () => spyLlm }));
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.transcript, 'tester Pensif ce soir');
+  assertEquals(receivedTranscript, 'tester Pensif ce soir');
+});
+
+Deno.test('l’adjectif français "pensif" (déjà correct) traverse tout le pipeline INCHANGÉ', async () => {
+  const res = await handleRequest(
+    jsonRequest({ transcript: "Il avait l'air pensif après cette nouvelle.", context: VALID_CONTEXT }),
+    depsWith(),
+  );
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.transcript, "Il avait l'air pensif après cette nouvelle.");
+});
+
 Deno.test('500 server_error si registerCaptureUsage lève (ex. Postgres indisponible) — AUCUN appel provider', async () => {
   const spy = spyProviders();
   const res = await handleRequest(

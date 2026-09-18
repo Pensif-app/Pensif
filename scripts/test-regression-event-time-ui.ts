@@ -57,6 +57,7 @@ function makeCard(overrides: Partial<CaptureCard>): CaptureCard {
     confidence: 0.9,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
     ...overrides,
   };
 }

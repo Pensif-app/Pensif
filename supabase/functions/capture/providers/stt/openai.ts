@@ -36,6 +36,10 @@ export const openaiSttProvider: SttProvider = {
 
     const form = new FormData();
     form.append('model', options.model);
+    // CHANTIER "Capture robustness — Pensif/Pansif" (2026-09-18) : même hint minimal que
+    // l'adaptateur Groq (API Whisper-compatible, champ "prompt") — voir son commentaire pour le
+    // raisonnement complet. Uniquement le nom de marque, jamais une liste de vocabulaire.
+    form.append('prompt', 'Pensif');
     // Copie défensive dans un ArrayBuffer autonome : `audio.bytes` peut être une vue sur un buffer
     // partagé/décalé (TS le type large, `ArrayBufferLike`), alors que `Blob` exige un `ArrayBuffer`
     // concret.

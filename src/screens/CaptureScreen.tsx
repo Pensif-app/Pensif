@@ -39,7 +39,7 @@ import { RecurrenceEditorMode, RecurrenceEditorSheet } from '../components/Recur
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
 import { RootStackParamList } from '../navigation/types';
-import { uploadAudioForCapture, CaptureApiError } from '../lib/captureApi';
+import { uploadAudioForCapture, reextractCapture, CaptureApiError } from '../lib/captureApi';
 import { matchContactByHeardName } from '../data/contactMatching';
 import { toLocalDateTimeParts } from '../data/reminderDate';
 import { isPressTooShort } from '../data/pushToTalk';
@@ -68,6 +68,7 @@ import {
   markSaving,
   needsReview,
   pendingConfirmationHelpText,
+  reanalyzeFailedCard,
   recurrenceEndLabel,
   recurrenceFrequencyLabel,
   recurrenceReminderPickerSeedDate,
@@ -615,7 +616,14 @@ export function CaptureScreen() {
       const weakAudioEvidence =
         voiceSnapshot.meteringUnreliable || voiceSnapshot.peakDb === null || voiceSnapshot.peakDb < STRONG_PEAK_THRESHOLD_DB;
       if (__DEV__) {
-        console.log('[Pensif][exploitability-guard]', { weakAudioEvidence, transcript: result.transcript });
+        // CHANTIER "Capture diagnostic V19 — fix isCaptureExploitable" (2026-09-18) : le transcript
+        // brut (contenu vocal réel) n'a plus sa place dans ce log, même en DEV local — remplacé par
+        // sa seule présence/longueur, suffisant pour le diagnostic.
+        console.log('[Pensif][exploitability-guard]', {
+          weakAudioEvidence,
+          transcriptPresent: result.transcript.trim().length > 0,
+          transcriptLength: result.transcript.length,
+        });
       }
       // Garde-fou "aucune parole exploitable" — AVANT toute carte/sauvegarde : du bruit transcrit
       // en texte incohérent (ou une capture vide/hors-français) ne doit jamais atteindre Review.
@@ -885,6 +893,31 @@ export function CaptureScreen() {
    *  unique iOS — voir le bloc ÉVÉNEMENT du JSX). */
   function setEventTimePart(cardId: string, date: Date) {
     setCards((prev) => applyEventTimeChange(prev, cardId, date));
+  }
+
+  // CHANTIER "Capture robustness — filet de sécurité" (2026-09-18), point 7 : relance UNIQUEMENT
+  // l'étape d'extraction sur le transcript déjà obtenu (`transcript`, déjà en state — voir
+  // setTranscript(result.transcript) plus haut), jamais un nouvel enregistrement audio/STT.
+  // `analysisRetryingCardIds` évite un double tap pendant la requête (même motif que
+  // savingCardIdsRef) — état purement local à l'écran, jamais persisté.
+  const [analysisRetryingCardIds, setAnalysisRetryingCardIds] = useState<Set<string>>(new Set());
+
+  async function handleRetryAnalysis(cardId: string) {
+    if (analysisRetryingCardIds.has(cardId)) return;
+    setAnalysisRetryingCardIds((prev) => new Set(prev).add(cardId));
+    try {
+      const result = await reextractCapture(transcript);
+      setCards((prev) => reanalyzeFailedCard(prev, cardId, result, (heard) => matchContactByHeardName(heard, contacts), contacts));
+    } catch {
+      // Échec réseau/API de la relance elle-même — la carte reste `analysisFailed`, l'utilisateur
+      // peut retaper "Réessayer" ; jamais de crash, jamais un état intermédiaire incohérent.
+    } finally {
+      setAnalysisRetryingCardIds((prev) => {
+        const next = new Set(prev);
+        next.delete(cardId);
+        return next;
+      });
+    }
   }
 
   function handleDiscard(cardId: string) {
@@ -1268,6 +1301,33 @@ export function CaptureScreen() {
                   erreur, seulement une confirmation à donner (voir §13/§14). */}
               {cardNeedsReview && card.status === 'pending' ? <Pill label="À vérifier" tone="plum" theme={theme} /> : null}
             </View>
+
+            {/* CHANTIER "Capture robustness — filet de sécurité" (2026-09-18), point 7 : une carte
+                `analysisFailed` (deux tentatives LLM ont échoué côté serveur) ne doit JAMAIS
+                ressembler à une pensée normalement analysée avec un rappel simplement absent — bannière
+                VISUELLEMENT distincte (corail, jamais confondue avec l'accent violet habituel), texte
+                brut conservé en dessous (TextInput inchangé), bouton dédié qui relance UNIQUEMENT
+                l'extraction sur le transcript déjà obtenu (aucun nouvel enregistrement). */}
+            {card.analysisFailed ? (
+              <View style={[styles.analysisFailedBanner, { backgroundColor: theme.plumTint, borderColor: theme.plum }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="alert-circle-outline" size={16} color={theme.plum} />
+                  <Text style={{ color: theme.plum, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                    Pensif n'a pas réussi à analyser cette capture.
+                  </Text>
+                </View>
+                <Pressable
+                  disabled={analysisRetryingCardIds.has(card.cardId)}
+                  onPress={() => handleRetryAnalysis(card.cardId)}
+                  style={[styles.analysisRetryBtn, { borderColor: theme.plum, opacity: analysisRetryingCardIds.has(card.cardId) ? 0.5 : 1 }]}
+                  hitSlop={8}
+                >
+                  <Text style={{ color: theme.plum, fontWeight: '700', fontSize: 13 }}>
+                    {analysisRetryingCardIds.has(card.cardId) ? 'Analyse en cours…' : "Réessayer l'analyse"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             <TextInput
               value={card.texte}
@@ -1894,6 +1954,11 @@ function LogoWithHeart({ progress, fillColor }: { progress: Animated.Value; fill
 }
 
 const styles = StyleSheet.create({
+  // CHANTIER "Capture robustness — filet de sécurité" (2026-09-18) — bannière compacte, jamais un
+  // gros bloc alarmant : un contour fin (1px, même discipline que le reste de l'écran) suffit à
+  // distinguer visuellement l'état "analyse échouée" sans dramatiser.
+  analysisFailedBanner: { borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10, gap: 8 },
+  analysisRetryBtn: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
   // Toujours utilisé par l'écran d'erreur (centrage classique, pas de repositionnement demandé
   // pour cet état) — voir pushToTalkContainer pour idle/listening/processing.
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },

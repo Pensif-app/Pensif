@@ -45,6 +45,7 @@ function makeCard(cardId: string, eventDate: string | null = '2026-09-20'): Capt
     confidence: 0.9,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
   };
 }
 

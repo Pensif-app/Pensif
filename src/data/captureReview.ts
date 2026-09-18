@@ -116,6 +116,14 @@ export type CaptureCard = {
   status: CaptureCardStatus;
   /** Message d'erreur de la dernière tentative de sauvegarde, si `status === 'failed'`. */
   saveError: string | null;
+  /** CHANTIER "Capture robustness — filet de sécurité" (2026-09-18), point 7. `true` UNIQUEMENT
+   *  pour la carte de repli produite quand l'analyse LLM a échoué DEUX FOIS côté serveur
+   *  (`CaptureResult.parseError` non nul, voir buildInitialCards) — jamais pour une carte
+   *  normalement extraite, même incomplète/à vérifier. Distingue explicitement "Pensif n'a pas pu
+   *  analyser cette dictée" de "Pensif a analysé et n'a simplement rien trouvé à structurer" — les
+   *  deux ne doivent JAMAIS se présenter de la même façon à l'écran (voir consigne : ne plus faire
+   *  croire silencieusement qu'une phrase de rappel explicite est une simple note sans rappel). */
+  analysisFailed: boolean;
 };
 
 const LOW_CONFIDENCE_THRESHOLD = 0.6;
@@ -218,13 +226,17 @@ function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: Contac
     confidence: extracted.confidence,
     status: 'pending',
     saveError: null,
+    analysisFailed: false,
   };
 }
 
 /**
  * Point d'entrée principal : construit les cartes initiales à partir du contrat backend.
- * `parseError` non nul (ou `pensees` vide) → repli total sur le transcript brut, une seule carte
- * sans aucune extraction — rien n'est jamais perdu même si le backend n'a rien pu structurer.
+ * `parseError` non nul (ou `pensees` vide, cas défensif — le contrat serveur pose déjà `parseError`
+ * dans ce cas, voir validate.ts) → repli total sur le transcript brut, une seule carte marquée
+ * `analysisFailed: true` (CHANTIER "Capture robustness — filet de sécurité", 2026-09-18) — jamais
+ * perdu, mais jamais non plus présenté comme une extraction normale silencieusement vide (voir
+ * `analysisFailed` sur `CaptureCard` et le rendu dédié dans CaptureScreen.tsx).
  */
 export function buildInitialCards(
   result: CaptureResult,
@@ -249,10 +261,36 @@ export function buildInitialCards(
         confidence: 0,
         status: 'pending',
         saveError: null,
+        analysisFailed: true,
       },
     ];
   }
   return result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName), contacts));
+}
+
+/**
+ * CHANTIER "Capture robustness — filet de sécurité" (2026-09-18), point 7. Relance l'analyse d'UNE
+ * carte `analysisFailed` à partir d'un NOUVEAU `CaptureResult` (obtenu via `reextractCapture`,
+ * captureApi.ts — même transcript déjà connu, aucun nouvel enregistrement). Deux issues possibles :
+ * - toujours en échec (`parseError`/aucune pensée) : la carte reste `analysisFailed` telle quelle
+ *   (son `texte` — déjà le transcript — ne change pas), l'utilisateur peut réessayer à nouveau ;
+ * - succès : la carte échouée est REMPLACÉE (à sa place exacte dans le tableau) par la ou les
+ *   carte(s) normalement construites depuis la nouvelle extraction — jamais ajoutées en double,
+ *   jamais laissée en plus à côté du résultat corrigé.
+ * `cardId` introuvable (carte supprimée entre-temps) → tableau inchangé, jamais d'erreur.
+ */
+export function reanalyzeFailedCard(
+  cards: CaptureCard[],
+  cardId: string,
+  result: CaptureResult,
+  matchContact: (heardContactName: string | null) => ContactMatchResult,
+  contacts: Contact[],
+): CaptureCard[] {
+  const index = cards.findIndex((c) => c.cardId === cardId);
+  if (index === -1) return cards;
+  if (result.parseError || result.pensees.length === 0) return cards;
+  const rebuilt = result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName), contacts));
+  return [...cards.slice(0, index), ...rebuilt, ...cards.slice(index + 1)];
 }
 
 /**
@@ -540,8 +578,19 @@ export function recurrenceEndLabel(draft: RecurrenceDraft): string | null {
  *   - untilDate (si présente) n'est jamais antérieure à la date de première occurrence.
  * Un proche ambigu laissé sur "Aucun" (contactId === null, choix explicite) NE bloque PAS —
  * uniquement signalé par `needsReview`.
+ *
+ * CHANTIER "Capture robustness — filet de sécurité" (2026-09-18), point 2 : une carte
+ * `analysisFailed` (double échec LLM, voir buildInitialCards) bloque TOUJOURS — même si son
+ * `texte` (le transcript brut) est non vide et `reminderEnabled` reste `false` (donc, sans ce
+ * garde, structurellement "valide" au sens des règles ci-dessous). "Faire confiance à Pensif" ne
+ * doit jamais pouvoir enregistrer silencieusement une capture jamais réellement analysée comme un
+ * simple mémo — la seule sortie de cet état est une réanalyse RÉUSSIE (`reanalyzeFailedCard`,
+ * qui remplace entièrement la carte par le résultat de la nouvelle extraction, `analysisFailed:
+ * false` inclus) ; éditer le texte à la main (TextInput, voir CaptureScreen.tsx) ne suffit jamais
+ * à lever ce garde.
  */
 export function isCardValid(card: CaptureCard, now: Date = new Date()): boolean {
+  if (card.analysisFailed) return false;
   if (!card.texte.trim()) return false;
   if (card.reminderEnabled) {
     if (!card.reminderDate || !card.reminderTime) return false;

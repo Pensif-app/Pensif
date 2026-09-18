@@ -170,13 +170,55 @@ const CASES: Expectation[] = [
       return { ok, detail: `reminder=${JSON.stringify(r)}, event=${JSON.stringify(p[0]?.event)}` };
     },
   },
+  // --- DIAGNOSTIC "STOP Notifications — Régression Capture recurrence" (2026-09-18) ---------------
+  // Cas 12 : phrase EXACTE dictée sur iPhone qui a produit un `parseError` (Capture Review vide —
+  // ME LE RAPPELER OFF, aucune date/heure/répétition). Structure volontairement DIFFÉRENTE du cas 2
+  // ("...pendant 5 jours de faire mes étirements", durée AVANT l'action) : ici "pendant 3 jours" est
+  // en FIN de phrase, APRÈS l'action ("...de tester Pensif pendant 3 jours") — jamais testé sous
+  // cette forme jusqu'ici. Objectif : obtenir une preuve empirique (finish_reason/tokens/JSON), pas
+  // supposer la cause.
+  {
+    label: '12. [DIAGNOSTIC] "pendant N jours" APRÈS l’action (phrase iPhone fautive)',
+    transcript: 'Rappelle-moi tous les jours à 20h39 de tester Pensif pendant 3 jours.',
+    check: (p) => {
+      const r = p[0]?.reminder.recurrence;
+      const ok = p.length === 1 && r?.detected === true && r.frequency === 'daily' && r.occurrenceCount === 3 && p[0].reminder.time === '20:39';
+      return { ok, detail: `reminder=${JSON.stringify(p[0]?.reminder)}` };
+    },
+  },
 ];
 
-type CallResult = { outcome: ValidationOutcome; latencyMs: number; inputTokens: number | null; outputTokens: number | null; error: string | null };
+// --- DIAGNOSTIC "STOP Notifications — Régression Capture recurrence" (2026-09-18) : champs bruts
+// demandés explicitement (consigne §3) — HTTP status, finish_reason, présence/longueur de content,
+// JSON.parse OK/FAIL (distinct de validateLlmOutput), et les tokens d'usage RÉELLEMENT renvoyés par
+// l'API (jamais une métrique inventée si absente — `reasoningTokens` reste `null` si
+// `usage.completion_tokens_details.reasoning_tokens` n'est pas présent dans la réponse). -----------
+type DiagnosticFields = {
+  httpStatus: number | null;
+  finishReason: string | null;
+  contentPresent: boolean;
+  contentLength: number;
+  jsonParseOk: boolean | null; // null = pas de content à parser du tout
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+};
+
+type CallResult = { outcome: ValidationOutcome; latencyMs: number; error: string | null } & DiagnosticFields;
 
 async function callMini(transcript: string): Promise<CallResult> {
+  const emptyDiag: DiagnosticFields = {
+    httpStatus: null,
+    finishReason: null,
+    contentPresent: false,
+    contentLength: 0,
+    jsonParseOk: null,
+    inputTokens: null,
+    outputTokens: null,
+    reasoningTokens: null,
+  };
   const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!apiKey) return { outcome: { ok: false, parseError: 'OPENAI_API_KEY absent' }, latencyMs: 0, inputTokens: null, outputTokens: null, error: 'clé absente' };
+  if (!apiKey) return { outcome: { ok: false, parseError: 'OPENAI_API_KEY absent' }, latencyMs: 0, error: 'clé absente', ...emptyDiag };
   const start = performance.now();
   try {
     const body = buildOpenaiRequestBody(transcript, FIXED_CONTEXT, MINI_MODEL);
@@ -188,24 +230,43 @@ async function callMini(transcript: string): Promise<CallResult> {
     const latencyMs = performance.now() - start;
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { outcome: { ok: false, parseError: `HTTP ${response.status}: ${errBody}` }, latencyMs, inputTokens: null, outputTokens: null, error: `HTTP ${response.status}` };
+      return { outcome: { ok: false, parseError: `HTTP ${response.status}: ${errBody}` }, latencyMs, error: `HTTP ${response.status}`, ...emptyDiag, httpStatus: response.status };
     }
     const data = (await response.json()) as {
-      choices?: { message?: { content?: string | null } }[];
-      usage?: { prompt_tokens: number; completion_tokens: number };
+      choices?: { message?: { content?: string | null }; finish_reason?: string | null }[];
+      usage?: { prompt_tokens: number; completion_tokens: number; completion_tokens_details?: { reasoning_tokens?: number } };
     };
     const content = data.choices?.[0]?.message?.content;
+    const finishReason = data.choices?.[0]?.finish_reason ?? null;
+    const contentPresent = typeof content === 'string' && content.length > 0;
+    const contentLength = typeof content === 'string' ? content.length : 0;
     let parsed: unknown = null;
-    if (content) {
+    let jsonParseOk: boolean | null = null;
+    if (contentPresent) {
       try {
-        parsed = JSON.parse(content);
+        parsed = JSON.parse(content as string);
+        jsonParseOk = true;
       } catch {
         parsed = null;
+        jsonParseOk = false;
       }
     }
-    return { outcome: validateLlmOutput(parsed), latencyMs, inputTokens: data.usage?.prompt_tokens ?? null, outputTokens: data.usage?.completion_tokens ?? null, error: null };
+    return {
+      outcome: validateLlmOutput(parsed),
+      latencyMs,
+      error: null,
+      httpStatus: response.status,
+      finishReason,
+      contentPresent,
+      contentLength,
+      jsonParseOk,
+      inputTokens: data.usage?.prompt_tokens ?? null,
+      outputTokens: data.usage?.completion_tokens ?? null,
+      // Absent des réponses OpenAI plus anciennes/non-reasoning — jamais inventé, `null` si absent.
+      reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens ?? null,
+    };
   } catch (e) {
-    return { outcome: { ok: false, parseError: String(e) }, latencyMs: performance.now() - start, inputTokens: null, outputTokens: null, error: e instanceof Error ? e.message : String(e) };
+    return { outcome: { ok: false, parseError: String(e) }, latencyMs: performance.now() - start, error: e instanceof Error ? e.message : String(e), ...emptyDiag };
   }
 }
 
@@ -227,14 +288,46 @@ async function run() {
     const pensees = r.outcome.ok ? r.outcome.pensees : [];
     const check = r.outcome.ok ? c.check(pensees) : { ok: false, detail: r.outcome.parseError };
     if (check.ok) passCount += 1;
+    const reminder = pensees[0]?.reminder;
+    const recurrence = reminder?.recurrence;
     console.log(`  ${check.ok ? 'OK' : 'FAIL'} — ${check.detail}`);
-    console.log(`  (${r.latencyMs.toFixed(0)}ms, in=${r.inputTokens}, out=${r.outputTokens}, coût≈${estimateCostUsd(r.inputTokens, r.outputTokens)?.toFixed(6) ?? 'n/a'})`);
+    // CHAMPS DIAGNOSTIC EXPLICITES (consigne §3) — imprimés pour CHAQUE cas, pas seulement le cas
+    // fautif, pour permettre la classification A/B/C/D par comparaison entre cas.
+    console.log(
+      `  HTTP=${r.httpStatus ?? 'n/a'} finish_reason=${r.finishReason ?? 'n/a'} content_present=${r.contentPresent} content_length=${r.contentLength} json_parse=${
+        r.jsonParseOk === null ? 'n/a' : r.jsonParseOk ? 'OK' : 'FAIL'
+      } validateLlmOutput=${r.outcome.ok ? 'OK' : `parseError(${r.outcome.parseError})`}`,
+    );
+    console.log(
+      `  reminder.hasReminder=${reminder?.hasReminder ?? 'n/a'} recurrence.detected=${recurrence?.detected ?? 'n/a'} frequency=${
+        recurrence?.frequency ?? 'n/a'
+      } occurrenceCount=${recurrence?.occurrenceCount ?? 'n/a'} date=${reminder?.date ?? 'n/a'} time=${reminder?.time ?? 'n/a'}`,
+    );
+    console.log(
+      `  (${r.latencyMs.toFixed(0)}ms, in=${r.inputTokens}, out=${r.outputTokens}, reasoning=${r.reasoningTokens ?? 'n/a'}, coût≈${
+        estimateCostUsd(r.inputTokens, r.outputTokens)?.toFixed(6) ?? 'n/a'
+      })`,
+    );
 
     lines.push(`## ${c.label}`);
     lines.push(`Transcript : "${c.transcript}"\n`);
     lines.push(`- Résultat : ${check.ok ? '✅' : '❌'} — ${check.detail}`);
     lines.push(`- Pensées extraites (brut) : \`${JSON.stringify(pensees)}\``);
-    lines.push(`- Latence : ${r.latencyMs.toFixed(0)}ms · Tokens in/out : ${r.inputTokens ?? 'n/a'}/${r.outputTokens ?? 'n/a'} · Coût estimé : ${estimateCostUsd(r.inputTokens, r.outputTokens) !== null ? `$${estimateCostUsd(r.inputTokens, r.outputTokens)!.toFixed(6)}` : 'n/a'}`);
+    lines.push(
+      `- Diagnostic : HTTP=${r.httpStatus ?? 'n/a'} · finish_reason=${r.finishReason ?? 'n/a'} · content_present=${r.contentPresent} · content_length=${r.contentLength} · json_parse=${
+        r.jsonParseOk === null ? 'n/a' : r.jsonParseOk ? 'OK' : 'FAIL'
+      } · validateLlmOutput=${r.outcome.ok ? 'OK' : `parseError(${r.outcome.parseError})`}`,
+    );
+    lines.push(
+      `- Champs reminder : hasReminder=${reminder?.hasReminder ?? 'n/a'} · recurrence.detected=${recurrence?.detected ?? 'n/a'} · frequency=${
+        recurrence?.frequency ?? 'n/a'
+      } · occurrenceCount=${recurrence?.occurrenceCount ?? 'n/a'} · date=${reminder?.date ?? 'n/a'} · time=${reminder?.time ?? 'n/a'}`,
+    );
+    lines.push(
+      `- Latence : ${r.latencyMs.toFixed(0)}ms · Tokens in/out/reasoning : ${r.inputTokens ?? 'n/a'}/${r.outputTokens ?? 'n/a'}/${r.reasoningTokens ?? 'n/a'} · Coût estimé : ${
+        estimateCostUsd(r.inputTokens, r.outputTokens) !== null ? `$${estimateCostUsd(r.inputTokens, r.outputTokens)!.toFixed(6)}` : 'n/a'
+      }`,
+    );
     lines.push('- Jugement manuel : ');
     lines.push('');
   }

@@ -27,7 +27,7 @@
 // GÉNÉRALE (aucune règle propre aux 10 phrases du benchmark, seulement des reformulations/exemples
 // génériques avec des noms différents), plus des descriptions de champs dans le schéma JSON.
 import { TemporalContext } from '../../../_shared/captureContract.ts';
-import { LlmOptions, LlmProvider } from './types.ts';
+import { LlmExtractionError, LlmFailureCategory, LlmOptions, LlmProvider } from './types.ts';
 import { buildExtractionPrompt } from './prompt.ts';
 
 // Schéma JSON strict (OpenAI Structured Outputs) — reflète EXACTEMENT la forme décrite en prose dans
@@ -227,37 +227,210 @@ export function buildOpenaiRequestBody(transcript: string, context: TemporalCont
   return body;
 }
 
+// --- CHANTIER "Capture robustness — retry LLM ciblé + observabilité minimale" (2026-09-18) --------
+// Diagnostic préalable (classification D, voir audit dédié) : le benchmark réel rejoue le pipeline
+// EXACT (même buildOpenaiRequestBody, même modèle/reasoning_effort par défaut) et réussit 12/12 pour
+// la phrase iPhone qui avait échoué en production — l'échec était un incident TRANSITOIRE côté
+// provider/réseau, jamais un problème de prompt/schéma/validation. AUCUNE tentative de "réparer" en
+// changeant le prompt/le modèle/max_completion_tokens ici — seulement une tolérance à UN incident
+// isolé, par une seconde tentative INDÉPENDANTE (voir consigne : "une seconde génération indépendante
+// peut produire un JSON valide"), jamais plus de 2 appels OpenAI au total pour une extraction.
+
+/** Une seule constante explicite pour le délai entre les deux tentatives — jamais un exponential
+ *  backoff pour seulement 2 appels (voir consigne "pas de grosse infrastructure"). 400ms = milieu de
+ *  la fourchette 300–500ms demandée. */
+const RETRY_DELAY_MS = 400;
+const MAX_ATTEMPTS = 2;
+
+/** AUDIT Retry-After (consigne "auditer sans complexifier") : une réponse 429 d'OpenAI peut exposer un
+ *  en-tête `Retry-After`, mais pour UN SEUL retry avec un délai déjà court (300-500ms), l'exploiter
+ *  ajouterait une branche de complexité (parsing, clamping, unités secondes/date HTTP) pour un
+ *  bénéfice marginal — décision : ne PAS le lire, garder `RETRY_DELAY_MS` fixe et unique, comme
+ *  demandé explicitement. Rien à implémenter au-delà de ce commentaire d'audit.
+ */
+
+/** Catégorie d'échec — voir consigne §"Observabilité serveur", jamais une donnée utilisateur. */
+type FailureStage = 'http' | 'network' | 'empty_content' | 'json_parse';
+
+/** CHANTIER "Capture bloquante — diagnostic parseError" (2026-09-18), priorité 3. Traduit la
+ *  catégorie INTERNE de ce fichier (`FailureStage`) vers la catégorie PARTAGÉE exposée jusqu'au
+ *  client (`LlmFailureCategory`, types.ts) — seuls les libellés `http`/`network` sont renommés
+ *  (`llm_http`/`llm_network`, pour rester non ambigus une fois sortis du contexte de ce fichier),
+ *  `empty_content`/`json_parse` restent identiques. Fonction PURE, aucun effet de bord. */
+function toLlmFailureCategory(stage: FailureStage): LlmFailureCategory {
+  if (stage === 'http') return 'llm_http';
+  if (stage === 'network') return 'llm_network';
+  return stage;
+}
+
+/** Un échec de CETTE catégorie mérite-t-il l'unique retry autorisé ? Volontairement STRICT : un 4xx
+ *  hors 429 (mauvaise requête/config) n'est jamais retenté (répéter ne réparera rien) ; un JSON valide
+ *  mais sémantiquement imparfait n'atteint même jamais cette fonction (ce n'est pas un `FailureStage`,
+ *  voir plus bas — comportement existant conservé à l'identique, `validateLlmOutput` reste seul juge). */
+function isRetryableFailure(stage: FailureStage, httpStatus: number | null): boolean {
+  if (stage === 'network' || stage === 'empty_content' || stage === 'json_parse') return true;
+  if (stage === 'http') return httpStatus === 429 || (httpStatus !== null && httpStatus >= 500);
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Log structuré JSON, une ligne par tentative — voir consigne : AUCUNE donnée utilisateur (jamais le
+ *  transcript, le prompt, le texte de pensée, le contenu brut du LLM, des données contacts). Seuls des
+ *  métadonnées techniques (compteurs, statuts, catégories) — `requestId` généré ici (non sensible,
+ *  sert uniquement à relier les lignes d'une même extraction dans les logs). */
+function logCaptureLlmAttempt(fields: {
+  requestId: string;
+  provider: string;
+  model: string;
+  attempt: number;
+  success: boolean;
+  failureStage?: FailureStage;
+  httpStatus?: number;
+  finishReason?: string;
+  contentPresent?: boolean;
+  contentLength?: number;
+  retrying: boolean;
+}): void {
+  console.log(JSON.stringify({ event: 'capture_llm_attempt', ...fields }));
+}
+
+type AttemptOutcome =
+  | { ok: true; parsed: unknown; httpStatus: number; finishReason: string | null; contentPresent: boolean; contentLength: number }
+  | {
+      ok: false;
+      failureStage: FailureStage;
+      httpStatus: number | null;
+      finishReason: string | null;
+      contentPresent: boolean;
+      contentLength: number;
+      error: unknown;
+    };
+
+/** UNE tentative d'appel — jamais de retry ici, uniquement la classification du résultat. Le retry
+ *  lui-même vit dans `extract` ci-dessous, seul endroit qui décide d'une deuxième tentative. */
+async function attemptOpenaiExtraction(transcript: string, context: TemporalContext, model: string, apiKey: string): Promise<AttemptOutcome> {
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(buildOpenaiRequestBody(transcript, context, model)),
+    });
+  } catch (e) {
+    // Erreur réseau/fetch (connexion interrompue, DNS, etc.) — jamais de httpStatus, voir consigne.
+    return { ok: false, failureStage: 'network', httpStatus: null, finishReason: null, contentPresent: false, contentLength: 0, error: e };
+  }
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    return {
+      ok: false,
+      failureStage: 'http',
+      httpStatus: response.status,
+      finishReason: null,
+      contentPresent: false,
+      contentLength: 0,
+      error: new Error(`OpenAI LLM a échoué (${response.status}): ${errBody}`),
+    };
+  }
+
+  const data = (await response.json()) as {
+    choices?: { message?: { content?: string | null }; finish_reason?: string | null }[];
+  };
+  const content = data.choices?.[0]?.message?.content;
+  const finishReason = data.choices?.[0]?.finish_reason ?? null;
+  const contentPresent = typeof content === 'string' && content.length > 0;
+  const contentLength = typeof content === 'string' ? content.length : 0;
+
+  if (!contentPresent) {
+    return {
+      ok: false,
+      failureStage: 'empty_content',
+      httpStatus: response.status,
+      finishReason,
+      contentPresent,
+      contentLength,
+      error: new Error('Réponse OpenAI inattendue (aucun contenu message)'),
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(content as string);
+    return { ok: true, parsed, httpStatus: response.status, finishReason, contentPresent, contentLength };
+  } catch (e) {
+    return { ok: false, failureStage: 'json_parse', httpStatus: response.status, finishReason, contentPresent, contentLength, error: e };
+  }
+}
+
 export const openaiLlmProvider: LlmProvider = {
   name: 'openai',
   async extract(transcript: string, context: TemporalContext, options: LlmOptions): Promise<unknown> {
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) throw new Error('OPENAI_API_KEY manquant (secret Supabase requis pour LLM_PROVIDER=openai)');
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(buildOpenaiRequestBody(transcript, context, options.model)),
-    });
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => '');
-      throw new Error(`OpenAI LLM a échoué (${response.status}): ${errBody}`);
+    const requestId = crypto.randomUUID();
+    let lastFailure: Extract<AttemptOutcome, { ok: false }> | null = null;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const outcome = await attemptOpenaiExtraction(transcript, context, options.model, apiKey);
+
+      if (outcome.ok) {
+        logCaptureLlmAttempt({
+          requestId,
+          provider: 'openai',
+          model: options.model,
+          attempt,
+          success: true,
+          httpStatus: outcome.httpStatus,
+          finishReason: outcome.finishReason ?? undefined,
+          contentPresent: outcome.contentPresent,
+          contentLength: outcome.contentLength,
+          retrying: false,
+        });
+        // Succès (éventuellement au 2e essai) — le client reçoit la réponse normale, SANS trace du
+        // retry : le fait qu'une tentative ait échoué avant ne doit jamais modifier le contrat API
+        // (voir consigne "le client doit recevoir strictement la réponse normale réussie").
+        return outcome.parsed;
+      }
+
+      const isLastAttempt = attempt >= MAX_ATTEMPTS;
+      const retrying = !isLastAttempt && isRetryableFailure(outcome.failureStage, outcome.httpStatus);
+
+      logCaptureLlmAttempt({
+        requestId,
+        provider: 'openai',
+        model: options.model,
+        attempt,
+        success: false,
+        failureStage: outcome.failureStage,
+        httpStatus: outcome.httpStatus ?? undefined,
+        finishReason: outcome.finishReason ?? undefined,
+        contentPresent: outcome.contentPresent,
+        contentLength: outcome.contentLength,
+        retrying,
+      });
+
+      lastFailure = outcome;
+      if (!retrying) {
+        const message = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+        throw new LlmExtractionError(message, toLlmFailureCategory(outcome.failureStage));
+      }
+
+      await sleep(RETRY_DELAY_MS);
     }
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: string | null } }[];
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('Réponse OpenAI inattendue (aucun contenu message)');
+
+    // Structurellement inatteignable (la boucle throw toujours avant si !retrying, et retrying est
+    // toujours faux au dernier tour) — uniquement pour satisfaire le typeur, jamais exécuté en pratique.
+    if (lastFailure) {
+      const message = lastFailure.error instanceof Error ? lastFailure.error.message : String(lastFailure.error);
+      throw new LlmExtractionError(message, toLlmFailureCategory(lastFailure.failureStage));
     }
-    try {
-      return JSON.parse(content);
-    } catch {
-      // Un JSON illisible n'est PAS une erreur réseau/API — c'est une sortie invalide, à faire
-      // gérer par validate.ts (repli transcript brut), pas une exception qui casserait la requête.
-      return null;
-    }
+    throw new Error('Échec extraction LLM (retries épuisés)');
   },
 };

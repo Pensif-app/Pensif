@@ -40,6 +40,24 @@ Le schéma est prêt dans `supabase/schema.sql` et le client dans `src/lib/supab
 4. Copie `.env.example` vers `.env` et renseigne `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Project Settings → API).
 5. Relance `npm run web` / `npm run ios` / `npm run android` — l'app se connecte automatiquement.
 
+## Capture — stability baseline (2026-09-19)
+
+- Production Capture LLM: OpenAI / gpt-5-mini.
+- reasoning_effort: low.
+- LLM_PROVIDER and LLM_MODEL must always be changed together.
+- suggest-message uses separate SUGGEST_MESSAGE_* secrets.
+- GPT-5-mini recurrence benchmark: 14/14 through the real openaiLlmProvider.extract path.
+- Transcript language guard and extracted-thought guard are intentionally different:
+  transcript keeps the French-language heuristic;
+  extracted thoughts use structural validation so short titles such as
+  "Tester Pensif", "Appeler Léa", "Faire sport" remain valid.
+- Never restore a French-marker requirement on extracted thought titles.
+- LLM failure must be explicit (`analysisFailed`), never silently presented as a valid memo with reminder OFF.
+- A failed analysis can be retried from the existing transcript without recording audio again.
+- STT hint "Pensif" + targeted Pansif→Pensif normalization are intentional.
+- Before changing Capture provider/prompt/schema/exploitability, run automated Capture suites and physical smoke tests:
+  simple memo / punctual reminder / daily recurrence / weekly recurrence.
+
 ## Autres pistes
 
 - Remplacer le petit moteur de mots-clés (`src/data/giftEngine.ts`) par un vrai catalogue produit avec liens d'affiliation, ou par un appel à un LLM pour des suggestions plus fines.

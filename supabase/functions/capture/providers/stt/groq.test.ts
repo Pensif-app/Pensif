@@ -92,6 +92,28 @@ Deno.test('groqSttProvider transmet le modèle demandé (jamais hardcodé)', asy
   assertEquals(capturedModel, 'un-modele-au-choix');
 });
 
+Deno.test('groqSttProvider — CHANTIER Pensif/Pansif (2026-09-18) : envoie un hint "prompt" minimal = "Pensif", rien d’autre', async () => {
+  const previousKey = Deno.env.get('GROQ_API_KEY');
+  Deno.env.set('GROQ_API_KEY', 'test-key');
+  let capturedPrompt: string | null = null;
+
+  await withFakeFetch(
+    async (_input, init) => {
+      const form = init!.body as FormData;
+      capturedPrompt = form.get('prompt') as string;
+      return new Response(JSON.stringify({ text: 'ok' }), { status: 200 });
+    },
+    async () => {
+      await groqSttProvider.transcribe({ bytes: new TextEncoder().encode('x'), mimeType: 'audio/wav', filename: '1.wav' }, { model: 'whisper-large-v3' });
+    },
+  );
+
+  if (previousKey === undefined) Deno.env.delete('GROQ_API_KEY');
+  else Deno.env.set('GROQ_API_KEY', previousKey);
+
+  assertEquals(capturedPrompt, 'Pensif');
+});
+
 Deno.test('groqSttProvider lève une erreur explicite si GROQ_API_KEY est absent', async () => {
   const previousKey = Deno.env.get('GROQ_API_KEY');
   Deno.env.delete('GROQ_API_KEY');

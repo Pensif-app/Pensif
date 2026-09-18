@@ -34,6 +34,13 @@ export const groqSttProvider: SttProvider = {
 
     const form = new FormData();
     form.append('model', options.model);
+    // CHANTIER "Capture robustness — Pensif/Pansif" (2026-09-18) : hint minimal (API Whisper/Groq
+    // compatible, champ "prompt" — guide le style/vocabulaire, jamais une transcription forcée).
+    // UNIQUEMENT le nom de marque lui-même, jamais une liste de vocabulaire — voir consigne. Le nom
+    // de l'app est prononcé dans quasi toute dictée qui la mentionne ("teste Pensif", "dis à
+    // Pensif..."), donc un seul mot suffit à orienter Whisper vers l'orthographe correcte sans
+    // biaiser le reste de la transcription.
+    form.append('prompt', 'Pensif');
     const bytesCopy = new Uint8Array(audio.bytes).buffer;
     const filename = ensureFileNameWithExtension(audio.filename, audio.mimeType);
     form.append('file', new Blob([bytesCopy], { type: audio.mimeType }), filename);

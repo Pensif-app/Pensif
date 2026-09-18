@@ -187,9 +187,11 @@ Deno.test('buildCaptureContract — repli parseError, transcript toujours prése
   const contract = buildCaptureContract('transcript brut', { sttProvider: 'mock', llmProvider: 'mock' }, {
     ok: false,
     parseError: 'raison',
+    category: 'validation',
   });
   assertEquals(contract.transcript, 'transcript brut');
   assertEquals(contract.parseError, 'raison');
+  assertEquals(contract.parseErrorCategory, 'validation');
   assertEquals(contract.pensees.length, 0);
 });
 
