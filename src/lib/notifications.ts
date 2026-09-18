@@ -4,11 +4,15 @@ import { canScheduleExactAlarms } from 'expo-exact-alarm';
 import { Contact, Pensee } from '../data/types';
 import { navigateToAttention } from '../data/homeAttention';
 import {
+  MAX_SCHEDULED_NOTIFICATIONS,
+  NotificationCandidate,
   buildCandidates,
   consumeNotificationResponseOnce,
   createPendingOnce,
   resolveNotificationAction,
-  selectCandidatesToSchedule,
+  scheduleCandidateGroupsAtomically,
+  selectCandidateGroupsToSchedule,
+  toExpoWeekday,
 } from './notificationPlanning';
 
 export type { NotificationTapData } from './notificationPlanning';
@@ -74,33 +78,38 @@ export async function cancelAllReminders() {
 
 /**
  * Recalcule et reprogramme tous les rappels locaux à partir des contacts et pensées actuels.
- * Annule d'abord tout ce qui était programmé (l'app n'utilise pas les notifications pour autre
- * chose), construit tous les candidats possibles (voir notificationPlanning.ts), les trie par
- * priorité (occurrence en cours avant occurrence suivante, puis par proximité), et n'en programme
- * qu'un nombre borné — jamais un anniversaire dans plus d'un an n'évince une pensée proche, et
- * jamais plus que le budget défini dans notificationPlanning.ts. Un échec individuel de
- * programmation (ex. budget déjà atteint côté OS) n'interrompt jamais les suivants.
  *
- * Appelée automatiquement (à chaque changement de données, au retour au premier plan…) — elle ne
- * doit donc JAMAIS déclencher le prompt système de permission (voir CHANTIER PRÉ-BÊTA 1 §5) : elle
- * se contente de VÉRIFIER l'état actuel (getNotificationPermissionStatus) et renonce silencieusement
- * si la permission n'est pas déjà accordée. Seule une action utilisateur explicite (le switch de
- * Réglages) doit appeler `ensureNotificationPermissions`, qui, elle, peut demander.
+ * CHANTIER NOTIFICATIONS RÉCURRENTES — incrément 3, "Décision overflow >56" (2026-09-18) — ORDRE
+ * CORRIGÉ (l'incrément 2 annulait l'ancien planning AVANT même de savoir si le nouveau tenait dans le
+ * budget, ce qui pouvait détruire un planning OS valide pour rien) :
+ *   1. construire la demande complète (`buildCandidates`) ;
+ *   2. résoudre la capacité par GROUPES ATOMIQUES (`selectCandidateGroupsToSchedule`) — jamais une
+ *      série représentée partiellement (voir sa docstring, notificationPlanning.ts) ;
+ *   3. le planning final est alors connu (`selection.scheduledCandidates`) ;
+ *   4. SEULEMENT ENSUITE annuler l'ancien planning ;
+ *   5. programmer le nouveau.
+ * Exception : si la permission n'est plus accordée, on nettoie immédiatement tout reliquat (aucun
+ * planning à protéger dans ce cas — voir branche dédiée ci-dessous) et on ne demande jamais la
+ * permission ici (seule une action utilisateur explicite doit le faire, voir
+ * `ensureNotificationPermissions`).
+ *
+ * Un groupe qui ne tient plus dans la capacité restante (`rejectedGroups`) est simplement absent du
+ * planning programmé — il n'empêche JAMAIS les autres groupes (rappels ponctuels, anniversaires,
+ * autres récurrences) d'être programmés normalement. Un échec individuel de programmation Expo (ex.
+ * budget OS dépassé) n'interrompt jamais les candidats suivants — voir la docstring de chaque boucle
+ * ci-dessous pour la limite connue de cette non-transactionnalité.
  */
 export async function rescheduleAllReminders(contacts: Contact[], pensees: Pensee[], today: Date, userName?: string | null) {
   if (Platform.OS === 'web') return;
 
-  // Annulation D'ABORD, indépendamment de la permission : si elle a été retirée depuis les réglages
-  // système entre-temps, on ne doit jamais laisser un planning programmé quand elle était encore
-  // accordée traîner silencieusement (voir §9) — annuler ne nécessite pas la permission elle-même.
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
   const status = await getNotificationPermissionStatus();
-  if (status !== 'granted') return;
-
-  // Voir le commentaire au-dessus d'ANDROID_CHANNEL_ID : condition nécessaire à la délivrance
-  // réelle sur Android 8+, pas seulement à la réussite de scheduleNotificationAsync().
-  await ensureAndroidNotificationChannel();
+  if (status !== 'granted') {
+    // Permission absente/retirée : aucun planning à construire ni à protéger — on se contente de
+    // nettoyer un éventuel reliquat programmé pendant qu'elle était encore accordée (voir ancien §9,
+    // comportement inchangé). Jamais de nouveau prompt ici.
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    return;
+  }
 
   if (__DEV__) {
     // Log allégé (BUG NOTIFICATIONS ANDROID "systématiquement en retard" — résolu et validé sur
@@ -120,31 +129,96 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
       const future = interpreted.getTime() > nowMs;
       console.log(
         `[Pensif][notif-debug] pensée ${p.id} — reminderAt=${p.reminderAt} interprété=${interpreted.toString()} → ${
-          future ? 'future, sera planifiée' : 'déjà passée, ignorée par selectCandidatesToSchedule'
+          future ? 'future, sera planifiée' : 'déjà passée, ignorée par selectCandidateGroupsToSchedule'
         }`,
       );
     }
   }
 
-  const candidates = selectCandidatesToSchedule(buildCandidates(contacts, pensees, today, userName), new Date());
+  // Étape 1 — demande complète. Une pensée en récurrence infinie n'y génère JAMAIS de `oneShot` pour
+  // sa "première occurrence" en plus de son trigger récurrent (voir buildPenseeReminderCandidates :
+  // un seul point de vérité par pensée, aucune double génération possible).
+  const allCandidates = buildCandidates(contacts, pensees, today, userName);
 
-  for (const c of candidates) {
-    try {
-      const trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.DATE as const,
-        date: c.triggerAt,
-        channelId: Platform.OS === 'android' ? ANDROID_CHANNEL_ID : undefined,
-      };
-      await Notifications.scheduleNotificationAsync({
-        content: { title: c.title, body: c.body, sound: true, data: c.data as unknown as Record<string, unknown> },
-        trigger,
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[Pensif] échec de programmation d’une notification', c.data, e);
-      // On continue avec les suivantes — un échec isolé (ex. limite système atteinte) ne doit
-      // jamais faire perdre le reste du lot déjà trié par priorité.
-    }
+  // Étape 2 — résolution de capacité par GROUPES ATOMIQUES : une pensée (ponctuelle, récurrence finie
+  // ou infinie) forme un seul groupe — soit intégralement programmée, soit intégralement absente.
+  // `rejectedGroups` (actuellement seulement journalisé en __DEV__ — pas encore d'UI, voir consigne)
+  // documente précisément ce qui a dû être écarté pour un futur écran de diagnostic utilisateur.
+  const selection = selectCandidateGroupsToSchedule(allCandidates, new Date());
+  if (__DEV__ && selection.rejectedGroups.length > 0) {
+    console.warn(
+      `[Pensif][notifications] ${selection.rejectedGroups.length} groupe(s) non représentable(s) faute de capacité ` +
+        `(${selection.scheduledSlots}/${selection.requiredSlots} slots programmés, budget=${MAX_SCHEDULED_NOTIFICATIONS}) :`,
+      selection.rejectedGroups,
+    );
   }
+
+  // Étape 3 (implicite) — `selection.scheduledCandidates` EST le planning final cohérent : à ce stade
+  // plus aucune décision de capacité ne reste à prendre.
+
+  // Étape 4 — annulation SEULEMENT MAINTENANT que le planning final est connu (jamais avant, voir
+  // consigne "on ne doit jamais détruire le planning OS existant simplement parce que le nouveau
+  // planning brut dépasse 56").
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  // Voir le commentaire au-dessus d'ANDROID_CHANNEL_ID : condition nécessaire à la délivrance réelle
+  // sur Android 8+, pour CHAQUE trigger (DATE, DAILY ou WEEKLY) — pas seulement à la réussite de
+  // scheduleNotificationAsync().
+  await ensureAndroidNotificationChannel();
+  const androidChannelId = Platform.OS === 'android' ? ANDROID_CHANNEL_ID : undefined;
+
+  // Étape 5 — programmation ATOMIQUE PAR GROUPE (CHANTIER NOTIFICATIONS RÉCURRENTES, incrément 3,
+  // "atomicité réelle du scheduling", 2026-09-18) : `scheduleCandidateGroupsAtomically`
+  // (notificationPlanning.ts, pure) garantit qu'un groupe accepté par la sélection finit RÉELLEMENT
+  // 100% programmé côté OS ou 0% — jamais un résultat partiel (ex. 2/5 occurrences d'une série finie)
+  // — en annulant (par `identifier` déterministe, AUCUNE persistance supplémentaire) tout ce qui a
+  // été programmé pour un groupe dès que l'un de ses candidats échoue. Un groupe en échec (scheduling
+  // OU rollback) reste totalement ISOLÉ : il n'affecte jamais le sort des autres groupes.
+  const scheduling = await scheduleCandidateGroupsAtomically(selection.scheduledCandidates, {
+    schedule: (c) => scheduleOneCandidate(c, androidChannelId),
+    cancel: (identifier) => Notifications.cancelScheduledNotificationAsync(identifier),
+    onCancelError: (identifier, error) => {
+      // Rollback impossible pour CET identifiant précis — capturé, jamais fatal : les autres
+      // annulations du même rollback continuent (voir scheduleCandidateGroupsAtomically), et le
+      // prochain rescheduleAllReminders (cancelAllScheduledNotificationsAsync global, voir plus haut)
+      // reste le filet de sécurité final. Aucun système transactionnel plus complexe ici (consigne).
+      if (__DEV__) console.warn('[Pensif] échec de l’annulation de rollback pour', identifier, error);
+    },
+  });
+  if (__DEV__ && scheduling.failedGroups.length > 0) {
+    console.warn(
+      `[Pensif][notifications] ${scheduling.failedGroups.length} groupe(s) intégralement annulé(s) après un échec de programmation Expo en cours de route :`,
+      scheduling.failedGroups,
+    );
+  }
+}
+
+/** Traduit UN candidat en appel `scheduleNotificationAsync` — traduction EXHAUSTIVE par `kind` (voir
+ *  consigne "incrément 2, point 2") : `oneShot` → trigger DATE ; `recurringDaily`/`recurringWeekly` →
+ *  trigger natif DAILY/WEEKLY (`toExpoWeekday` — conversion EXPLICITE et VÉRIFIÉE, jamais supposée
+ *  identique à `Date.getDay()`, voir notificationPlanning.ts). Identifiant déterministe transmis tel
+ *  quel (`NotificationRequestInput.identifier`, confirmé par l'audit) — aucun stockage d'ID
+ *  supplémentaire côté Pensif : c'est ce même `identifier` qui permet un rollback ciblé (voir
+ *  `scheduleCandidateGroupsAtomically`). Isolée dans sa propre fonction pour être injectée telle
+ *  quelle comme `ops.schedule` (le moteur d'atomicité ne connaît, lui, aucun détail Expo). */
+async function scheduleOneCandidate(c: NotificationCandidate, androidChannelId: string | undefined): Promise<void> {
+  const trigger =
+    c.kind === 'oneShot'
+      ? { type: Notifications.SchedulableTriggerInputTypes.DATE as const, date: c.triggerAt, channelId: androidChannelId }
+      : c.kind === 'recurringDaily'
+      ? { type: Notifications.SchedulableTriggerInputTypes.DAILY as const, hour: c.hour, minute: c.minute, channelId: androidChannelId }
+      : {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY as const,
+          weekday: toExpoWeekday(c.weekday),
+          hour: c.hour,
+          minute: c.minute,
+          channelId: androidChannelId,
+        };
+  await Notifications.scheduleNotificationAsync({
+    identifier: c.identifier,
+    content: { title: c.title, body: c.body, sound: true, data: c.data as unknown as Record<string, unknown> },
+    trigger,
+  });
 }
 
 /**

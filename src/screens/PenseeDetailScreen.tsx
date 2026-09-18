@@ -13,6 +13,7 @@ import { useTheme } from '../theme';
 import { RootStackParamList } from '../navigation/types';
 import { Pensee } from '../data/types';
 import { isFutureReminder, withLocalDate, withLocalTime } from '../data/reminderDate';
+import { resolveReminderRecurrenceForSave } from '../data/penseeReminderRecurrence';
 import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm';
 
 // CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — locale explicite pour les pickers iOS inline de cet
@@ -308,6 +309,7 @@ export function PenseeDetailScreen() {
           // l'événement est retiré (même règle que `endDate` : une heure sans date n'a pas de sens).
           eventTime: eventDate ? eventTime : null,
           pinned,
+          reminderRecurrence: resolveReminderRecurrenceForSave(existing, reminderEnabled),
         };
         updatePensee(updated);
       } else {

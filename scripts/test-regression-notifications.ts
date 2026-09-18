@@ -13,13 +13,23 @@
 
 import { Contact, Pensee } from '../src/data/types';
 import {
-  buildCandidates,
+  buildCandidates as buildCandidatesReal,
   selectCandidatesToSchedule,
   resolveNotificationAction,
   MAX_SCHEDULED_NOTIFICATIONS,
-  NotificationCandidate,
+  OneShotCandidate,
 } from '../src/lib/notificationPlanning';
 import { familyFetes, addDays, dIso, subtractMinutesLocal } from '../src/data/calendar';
+
+// CHANTIER NOTIFICATIONS RÉCURRENTES — incrément 2 (2026-09-18) : `buildCandidates` retourne
+// désormais l'union complète (`NotificationCandidate[]`, une pensée en récurrence infinie pouvant
+// produire des candidats `recurringDaily`/`recurringWeekly`). Aucune pensée de ce fichier n'utilise
+// `reminderRecurrence` (couvert par test-regression-notification-recurrence-planning.ts) — ce wrapper
+// ne fait donc que réaffirmer le type `OneShotCandidate[]` déjà garanti en pratique ici, sans changer
+// une seule ligne des tests existants ci-dessous.
+function buildCandidates(contacts: Contact[], pensees: Pensee[], today: Date, userName?: string | null): OneShotCandidate[] {
+  return buildCandidatesReal(contacts, pensees, today, userName).filter((c): c is OneShotCandidate => c.kind === 'oneShot');
+}
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -113,7 +123,9 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
 // --- 5. Budget maximal respecté -----------------------------------------------------------------
 {
   console.log('\n[5] Budget maximal respecté');
-  const many: NotificationCandidate[] = Array.from({ length: MAX_SCHEDULED_NOTIFICATIONS + 30 }, (_, i) => ({
+  const many: OneShotCandidate[] = Array.from({ length: MAX_SCHEDULED_NOTIFICATIONS + 30 }, (_, i) => ({
+    kind: 'oneShot' as const,
+    identifier: `test-${i}`,
     triggerAt: addDays(TODAY, i + 1),
     tier: 0 as const,
     title: `Test ${i}`,
@@ -128,8 +140,18 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
 // --- 6. Priorité aux notifications proches (une pensée proche n'est jamais évincée) --------------
 {
   console.log('\n[6] Priorité : une pensée proche (tier 0) n’est jamais évincée par des anniversaires tier 1 lointains');
-  const nearPensee: NotificationCandidate = { triggerAt: addDays(TODAY, 2), tier: 0, title: 'Pensée proche', body: '', data: { kind: 'pensee', penseeId: 'p-near' } };
-  const farBirthdays: NotificationCandidate[] = Array.from({ length: MAX_SCHEDULED_NOTIFICATIONS }, (_, i) => ({
+  const nearPensee: OneShotCandidate = {
+    kind: 'oneShot',
+    identifier: 'test-near-pensee',
+    triggerAt: addDays(TODAY, 2),
+    tier: 0,
+    title: 'Pensée proche',
+    body: '',
+    data: { kind: 'pensee', penseeId: 'p-near' },
+  };
+  const farBirthdays: OneShotCandidate[] = Array.from({ length: MAX_SCHEDULED_NOTIFICATIONS }, (_, i) => ({
+    kind: 'oneShot' as const,
+    identifier: `test-far-birthday-${i}`,
     triggerAt: new Date(2027, 0, 1 + i),
     tier: 1 as const,
     title: `Anniv lointain ${i}`,

@@ -58,6 +58,21 @@ Le schéma est prêt dans `supabase/schema.sql` et le client dans `src/lib/supab
 - Before changing Capture provider/prompt/schema/exploitability, run automated Capture suites and physical smoke tests:
   simple memo / punctual reminder / daily recurrence / weekly recurrence.
 
+## Notifications recurrence V1 baseline (2026-09-19)
+
+- finite recurrence → individual DATE notifications
+- infinite daily → native DAILY
+- infinite weekly → one native WEEKLY trigger per weekday
+- finite groups are atomic: all occurrences or none
+- scheduling rollback cancels partial group on failure
+- global capacity budget remains enforced
+- scheduler uses cancel-all + rebuild-all after pensees changes
+- reminder OFF must clear both reminderAt and reminderRecurrence
+- reactivating a disabled reminder is punctual unless recurrence is explicitly set again
+- changing only date/time while reminder stays ON preserves existing recurrence
+- deleting a pensee triggers rebuild and removes its scheduled notifications
+- full recurrence editing in PenseeDetail is NOT part of this V1 and remains a separate chantier
+
 ## Autres pistes
 
 - Remplacer le petit moteur de mots-clés (`src/data/giftEngine.ts`) par un vrai catalogue produit avec liens d'affiliation, ou par un appel à un LLM pour des suggestions plus fines.
