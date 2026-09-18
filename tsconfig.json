@@ -11,6 +11,12 @@
     "scripts/benchmark-suggest-message-corpus.ts",
     "scripts/benchmark-suggest-message-final-mini.ts",
     "scripts/benchmark-suggest-message-targeted-regression.ts",
-    "scripts/benchmark-suggest-message-complice-regression.ts"
+    "scripts/benchmark-suggest-message-complice-regression.ts",
+    "scripts/benchmark-capture-recurrence.ts",
+    "scripts/benchmark-capture-texte-concision.ts",
+    "scripts/benchmark-capture-recurrence-ambiguity-isolation.ts",
+    "scripts/benchmark-capture-event-reminder-veille.ts",
+    "scripts/benchmark-capture-event-time.ts",
+    "scripts/benchmark-capture-texte-concis-events.ts"
   ]
 }

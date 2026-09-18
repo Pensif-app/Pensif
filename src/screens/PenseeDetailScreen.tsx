@@ -15,6 +15,13 @@ import { Pensee } from '../data/types';
 import { isFutureReminder, withLocalDate, withLocalTime } from '../data/reminderDate';
 import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm';
 
+// CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — locale explicite pour les pickers iOS inline de cet
+// écran (`@react-native-community/datetimepicker` 9.1.0, prop `locale` IOSNativeProps UNIQUEMENT,
+// ignorée sur Android). Même constante/valeur que CaptureScreen.tsx — voir son commentaire pour le
+// détail (identifiant BCP-47 "fr-FR" accepté nativement par NSLocale). Ne change aucune logique de
+// date/heure, seulement la langue d'affichage native du picker.
+const IOS_PICKER_LOCALE = 'fr-FR';
+
 /**
  * Détail/édition d'une pensée (CHANTIER PENSÉES V2) : un seul écran pour créer ET modifier, même
  * principe que FicheScreen pour un proche. Le contenu est la seule chose obligatoire — proche lié
@@ -46,7 +53,36 @@ export function PenseeDetailScreen() {
   // valeur par défaut : reste `null` tant que l'utilisateur ne choisit pas explicitement une date via
   // le picker (jamais une date "silencieusement" écrite juste en activant un champ).
   const [eventDate, setEventDate] = useState<string | null>(existing?.date ?? null);
-  const [showEventDatePicker, setShowEventDatePicker] = useState(false);
+  // CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) : heure d'événement, INDÉPENDANTE du
+  // rappel (jamais dérivée de reminderDate/reminderTime, jamais l'inverse) — n'a de sens qu'en
+  // relation avec `eventDate` (voir le bloc "ÉVÉNEMENT (FACULTATIF)" plus bas, rendu seulement si
+  // `eventDate` est renseignée, et le clear de `eventDate` ci-dessous qui l'efface avec elle).
+  const [eventTime, setEventTime] = useState<string | null>(existing?.eventTime ?? null);
+  // CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — UN SEUL état pour TOUS les pickers de cet
+  // écran (événement + rappel, iOS + Android) : garantit qu'au plus UN picker natif est visible à la
+  // fois (en ouvrir un referme automatiquement celui précédemment ouvert, un seul slot possible) —
+  // remplace les 4 booléens indépendants précédents (`showEventDatePicker`/`showEventTimePicker`/
+  // `showDatePicker`/`showTimePicker`) ET le picker iOS du rappel qui n'avait ELLE-MÊME aucun état
+  // "fermé" (toujours affichée dès `reminderEnabled`, ce qui permettait plusieurs roulettes iOS
+  // visibles simultanément — voir audit). `'event'` sert aux DEUX plateformes pour le contrôle
+  // principal ÉVÉNEMENT (iOS : picker "date"/"datetime" unique ; Android : dialog de DATE seule,
+  // Android n'a pas de mode datetime combiné dans ce composant — voir JSX). `'eventTime'` : dialog
+  // Android dédié pour éditer l'heure d'événement séparément (action secondaire). `'reminderDateTime'`
+  // : picker iOS combiné du rappel. `'reminderDate'`/`'reminderTime'` : les deux dialogs Android du
+  // rappel (comportement Android inchangé, seulement centralisé dans ce même état).
+  type DetailPickerKind = 'event' | 'eventTime' | 'reminderDateTime' | 'reminderDate' | 'reminderTime';
+  const [openPicker, setOpenPicker] = useState<DetailPickerKind | null>(null);
+  /** Retape le contrôle déjà ouvert → referme (même règle que CaptureScreen.tsx) ; sinon ouvre celui
+   *  demandé, remplaçant implicitement tout autre picker précédemment ouvert (un seul slot). */
+  function togglePicker(kind: DetailPickerKind) {
+    setOpenPicker((prev) => (prev === kind ? null : kind));
+  }
+  /** Ferme le picker actuellement ouvert s'il concerne l'événement (`event`/`eventTime`) — utilisé
+   *  par les suppressions (événement entier, ou heure seule) pour ne jamais laisser un picker ouvert
+   *  sur une donnée qui vient de disparaître. */
+  function closeEventPickerIfOpen() {
+    setOpenPicker((prev) => (prev === 'event' || prev === 'eventTime' ? null : prev));
+  }
   // CHANTIER PENSÉES V3 §6 — épingler/désépingler, MÊME PATTERN que le favori proche
   // (FicheScreen.tsx `headerRight` + Switch local persistée par save()) : audit des interactions
   // existantes (tap ouvre l'écran, appui long = sélection multiple sur PenseesScreen — jamais
@@ -67,8 +103,8 @@ export function PenseeDetailScreen() {
   // Android : deux champs séparés (date puis heure), jamais affichés automatiquement — voir le
   // même principe déjà appliqué à l'anniversaire d'un proche (FicheScreen.tsx). iOS : une seule
   // roulette combinée date+heure, cohérente avec le mode spinner déjà utilisé ailleurs dans l'app.
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  // Ouverture/fermeture pilotée par `openPicker` (kinds 'reminderDate'/'reminderTime'/
+  // 'reminderDateTime') — voir sa déclaration plus haut.
   // Dernière valeur BRUTE renvoyée par chaque picker natif — conservée uniquement pour le
   // diagnostic (voir save()) : permet de voir si la déviation vient du picker lui-même ou de la
   // fusion (BUG PENSÉES V2 ANDROID : rappel pourtant futur rejeté comme "dans le passé"). Des refs
@@ -129,7 +165,7 @@ export function PenseeDetailScreen() {
   function onDateChange(_: unknown, selected?: Date) {
     // Cette poignée n'est câblée QUE côté Android (le bouton qui l'ouvre ne rend rien sur iOS,
     // qui utilise le picker combiné plus bas) — toujours refermer, pas de branche iOS ici.
-    setShowDatePicker(false);
+    setOpenPicker(null);
     if (selected) {
       lastPickedDateRef.current = selected;
       // withLocalDate reconstruit un Date NEUF à partir des composants locaux des deux dates
@@ -140,7 +176,7 @@ export function PenseeDetailScreen() {
   }
 
   function onTimeChange(_: unknown, selected?: Date) {
-    setShowTimePicker(false);
+    setOpenPicker(null);
     if (selected) {
       lastPickedTimeRef.current = selected;
       setReminderDate((prev) => withLocalTime(prev, selected));
@@ -211,6 +247,11 @@ export function PenseeDetailScreen() {
           reminderAt,
           date: eventDate,
           endDate: eventDate ? existing.endDate ?? null : null,
+          // CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) : `eventTime` reflète désormais
+          // l'état d'édition RÉEL de cet écran (bloc "ÉVÉNEMENT (FACULTATIF)" plus bas) — jamais un
+          // repli silencieux sur `existing.eventTime`. Remis à `null` avec `date`/`endDate` si
+          // l'événement est retiré (même règle que `endDate` : une heure sans date n'a pas de sens).
+          eventTime: eventDate ? eventTime : null,
           pinned,
         };
         updatePensee(updated);
@@ -223,6 +264,7 @@ export function PenseeDetailScreen() {
           createdAt: new Date().toISOString(),
           date: eventDate,
           endDate: null,
+          eventTime: eventDate ? eventTime : null,
         });
       }
       navigation.goBack();
@@ -279,36 +321,78 @@ export function PenseeDetailScreen() {
         onClose={() => setContactPickerOpen(false)}
       />
 
-      {/* CHANTIER UX §4 — Date OPTIONNELLE, indépendante du rappel (voir docstring en tête). Simple
-          chip Pressable (comme "Anniversaire" dans FicheScreen.tsx) plutôt qu'un Switch : aucune date
-          n'est écrite tant que le picker n'a pas explicitement renvoyé un choix (jamais de valeur par
-          défaut silencieuse), et retirer une date déjà choisie est un simple tap sur la croix. */}
-      <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>DATE (FACULTATIF)</Text>
+      {/* CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — remplace les deux blocs séparés DATE +
+          HEURE par UN SEUL bloc principal "ÉVÉNEMENT (FACULTATIF)" (voir docstring en tête pour
+          l'indépendance vis-à-vis du rappel). "date + eventTime=null" reste un état pleinement
+          valide : le contrôle principal ci-dessous n'invente JAMAIS une heure (mode "date" tant
+          qu'aucune heure n'existe, jamais "datetime" silencieusement) — seule l'action secondaire
+          heure (plus bas) peut en créer une, explicitement. */}
+      <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>ÉVÉNEMENT (FACULTATIF)</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Pressable
-          onPress={() => setShowEventDatePicker(true)}
+          onPress={() => togglePicker('event')}
           style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
         >
           <Text style={{ color: eventDate ? theme.ink : theme.inkSoft }}>
-            {eventDate ? eventDate.split('-').reverse().join('/') : 'Ajouter une date'}
+            {eventDate ? `${eventDate.split('-').reverse().join('/')}${eventTime ? ` à ${eventTime}` : ''}` : 'Ajouter un événement'}
           </Text>
           <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
         </Pressable>
         {eventDate && (
-          <Pressable onPress={() => setEventDate(null)} hitSlop={8} accessibilityLabel="Retirer la date">
+          <Pressable
+            onPress={() => {
+              // Suppression de l'événement ENTIER — date ET heure (même règle que `endDate`, voir
+              // docstring en tête et save() plus haut) : jamais une heure orpheline sans date.
+              setEventDate(null);
+              setEventTime(null);
+              closeEventPickerIfOpen();
+            }}
+            hitSlop={8}
+            accessibilityLabel="Retirer l’événement"
+          >
             <Ionicons name="close-circle-outline" size={22} color={theme.inkSoft} />
           </Pressable>
         )}
       </View>
-      {showEventDatePicker && (
+
+      {/* Contrôle principal — iOS : UNE roulette unique, mode "datetime" si une heure existe déjà,
+          "date" sinon (jamais inventée par ce contrôle). Android : dialog de DATE seule (pas de mode
+          "datetime" combiné dans ce composant sur cette plateforme, voir l'action secondaire heure
+          ci-dessous pour éditer l'heure). "Terminé" (iOS uniquement) ne modifie AUCUNE donnée, ferme
+          seulement le picker. */}
+      {Platform.OS === 'ios' && openPicker === 'event' ? (
+        <DateTimePicker
+          value={eventDate ? new Date(`${eventDate}T${eventTime ?? '00:00'}:00`) : new Date()}
+          mode={eventTime ? 'datetime' : 'date'}
+          display="spinner"
+          locale={IOS_PICKER_LOCALE}
+          is24Hour
+          onChange={(_, selected) => {
+            // Ne ferme jamais automatiquement — même discipline que le rappel (roulette iOS,
+            // onChange à chaque segment tourné) : seul un retap ou "Terminé" ferme.
+            if (!selected) return;
+            const y = selected.getFullYear();
+            const m = String(selected.getMonth() + 1).padStart(2, '0');
+            const d = String(selected.getDate()).padStart(2, '0');
+            setEventDate(`${y}-${m}-${d}`);
+            // Mode "date" (eventTime actuellement null) : le cadran heure n'existe pas, IGNORE
+            // délibérément toute composante horaire de `selected` — ne jamais l'écrire.
+            if (eventTime) {
+              const h = String(selected.getHours()).padStart(2, '0');
+              const mi = String(selected.getMinutes()).padStart(2, '0');
+              setEventTime(`${h}:${mi}`);
+            }
+          }}
+          style={{ marginTop: 8 }}
+        />
+      ) : null}
+      {Platform.OS === 'android' && openPicker === 'event' ? (
         <DateTimePicker
           value={eventDate ? new Date(`${eventDate}T00:00:00`) : new Date()}
           mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+          display="calendar"
           onChange={(_, selected) => {
-            // Même discipline que FicheScreen.tsx (anniversaire) : composants locaux du Date choisi,
-            // jamais toISOString() qui déciderait en UTC et pourrait décaler le jour affiché.
-            setShowEventDatePicker(Platform.OS === 'ios');
+            setOpenPicker(null);
             if (selected) {
               const y = selected.getFullYear();
               const m = String(selected.getMonth() + 1).padStart(2, '0');
@@ -317,7 +401,67 @@ export function PenseeDetailScreen() {
             }
           }}
         />
+      ) : null}
+
+      {/* CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — CORRECTIF : le contrôle principal ci-dessus
+          affiche déjà "07/03/2027 à 20:00" (ou "07/03/2027" sans heure) — un second champ/chip heure
+          était donc redondant (supprimé). Action DISCRÈTE (texte seul, pas un champ) pour
+          ajouter/retirer UNIQUEMENT l'heure, jamais la date — rendue seulement si une date événement
+          existe déjà. Sur iOS, "+ Ajouter une heure" écrit une valeur RÉELLE (12:00) AVANT d'ouvrir le
+          contrôle principal (désormais en mode "datetime") — même correctif "seed confirmée à
+          l'ouverture" que les autres pickers de l'app (jamais un cadran affiché sans valeur déjà
+          enregistrée derrière). Sur Android, rien n'est préempli avant ouverture du dialog HEURE dédié
+          : le dialog natif ne commet que sur son propre bouton OK — préremplir risquerait de laisser
+          une heure fantôme si l'utilisateur annule.
+          CORRECTIF ALIGNEMENT (2026-09-18) — "Retirer l'heure"/"+ Ajouter une heure" et "Terminé"
+          (roulette iOS) partagent désormais une seule row (`justifyContent: 'space-between'`), sous
+          la roulette : gauche/droite, séparation maximale (jamais rapprochées), même ligne
+          horizontale — auparavant "Terminé" (à l'intérieur du picker iOS) et cette action (rendue
+          plus bas, hors de tout row) apparaissaient à des hauteurs différentes. Textes/couleurs/
+          handlers/comportement strictement inchangés — seul le POSITIONNEMENT change. */}
+      {eventDate && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <Pressable
+            onPress={() => {
+              if (eventTime) {
+                setEventTime(null);
+                closeEventPickerIfOpen();
+              } else if (Platform.OS === 'ios') {
+                setEventTime('12:00');
+                setOpenPicker('event');
+              } else {
+                togglePicker('eventTime');
+              }
+            }}
+            hitSlop={6}
+          >
+            <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>
+              {eventTime ? 'Retirer l’heure' : '+ Ajouter une heure'}
+            </Text>
+          </Pressable>
+          {Platform.OS === 'ios' && openPicker === 'event' ? (
+            <Pressable onPress={() => setOpenPicker(null)} hitSlop={8}>
+              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
+            </Pressable>
+          ) : null}
+        </View>
       )}
+      {Platform.OS === 'android' && openPicker === 'eventTime' ? (
+        <DateTimePicker
+          value={eventTime ? new Date(`2000-01-01T${eventTime}:00`) : new Date(2000, 0, 1, 12, 0, 0, 0)}
+          mode="time"
+          display="clock"
+          is24Hour
+          onChange={(_, selected) => {
+            setOpenPicker(null);
+            if (selected) {
+              const h = String(selected.getHours()).padStart(2, '0');
+              const mi = String(selected.getMinutes()).padStart(2, '0');
+              setEventTime(`${h}:${mi}`);
+            }
+          }}
+        />
+      ) : null}
 
       <View style={[styles.reminderToggleRow, { marginTop: 16 }]}>
         <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>ME LE RAPPELER</Text>
@@ -332,22 +476,50 @@ export function PenseeDetailScreen() {
       {/* Tant que le rappel est désactivé, aucune date/heure n'est demandée — voir CHANTIER
           PENSÉES V2 §"Comportement attendu". Aucun raccourci "veille/J-3" ici : sans date
           d'événement à laquelle se rattacher, ce serait artificiel (voir la même consigne) — on
-          demande directement une date/heure explicite. */}
+          demande directement une date/heure explicite. CHANTIER UNIFICATION UX PICKERS iOS
+          (2026-09-18) — le rappel utilise désormais le MÊME état centralisé `openPicker` que
+          l'événement (garantit l'exclusivité globale) : iOS gagne un contrôle "fermable" (chip +
+          Terminé, la roulette n'est plus affichée en permanence dès l'activation) ; Android garde ses
+          deux dialogs natifs séparés, strictement inchangés visuellement. Aucune sémantique de
+          `reminderAt` modifiée, aucune seed de rappel modifiée (voir `reminderDate`/`reminderLabel`,
+          inchangés). */}
       {reminderEnabled && (
         <View style={{ marginTop: 10 }}>
           {Platform.OS === 'ios' ? (
-            <DateTimePicker value={reminderDate} mode="datetime" display="spinner" onChange={onDateTimeChangeIOS} />
+            <>
+              <Pressable
+                onPress={() => togglePicker('reminderDateTime')}
+                style={[styles.input, styles.dateBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
+              >
+                <Text style={{ color: theme.ink }}>{reminderLabel}</Text>
+                <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
+              </Pressable>
+              {openPicker === 'reminderDateTime' ? (
+                <>
+                  <DateTimePicker
+                    value={reminderDate}
+                    mode="datetime"
+                    display="spinner"
+                    locale={IOS_PICKER_LOCALE}
+                    onChange={onDateTimeChangeIOS}
+                  />
+                  <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                    <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </>
           ) : (
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable
-                onPress={() => setShowDatePicker(true)}
+                onPress={() => togglePicker('reminderDate')}
                 style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
               >
                 <Text style={{ color: theme.ink }}>{reminderLabel.split(' à ')[0]}</Text>
                 <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
               </Pressable>
               <Pressable
-                onPress={() => setShowTimePicker(true)}
+                onPress={() => togglePicker('reminderTime')}
                 style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
               >
                 <Text style={{ color: theme.ink }}>{reminderLabel.split(' à ')[1]}</Text>
@@ -355,12 +527,16 @@ export function PenseeDetailScreen() {
               </Pressable>
             </View>
           )}
-          {showDatePicker && <DateTimePicker value={reminderDate} mode="date" display="calendar" onChange={onDateChange} />}
+          {Platform.OS === 'android' && openPicker === 'reminderDate' ? (
+            <DateTimePicker value={reminderDate} mode="date" display="calendar" onChange={onDateChange} />
+          ) : null}
           {/* is24Hour={true} : BUG AM/PM ANDROID — sans ce prop, le TimePickerDialog natif suit le
               format système (12h sur cet appareil), et une saisie "6:00" pensée comme 18:00 est
               alors retournée comme 06:00 sans qu'aucune ambiguïté ne soit visible à l'écran. Forcer
               le 24h ici supprime toute conversion AM/PM, quel que soit le format système. */}
-          {showTimePicker && <DateTimePicker value={reminderDate} mode="time" display="clock" is24Hour onChange={onTimeChange} />}
+          {Platform.OS === 'android' && openPicker === 'reminderTime' ? (
+            <DateTimePicker value={reminderDate} mode="time" display="clock" is24Hour onChange={onTimeChange} />
+          ) : null}
         </View>
       )}
 
@@ -411,4 +587,7 @@ const styles = StyleSheet.create({
   messageLink: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingTop: 14, marginTop: 18 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 20 },
   deleteText: { fontWeight: '700', fontSize: 13 },
+  // CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — action discrète "Terminé" associée à un
+  // picker iOS inline visible (ferme SEULEMENT le picker, aucune modification de donnée).
+  pickerDoneBtn: { alignSelf: 'flex-end', marginTop: 4, paddingVertical: 6, paddingHorizontal: 4 },
 });

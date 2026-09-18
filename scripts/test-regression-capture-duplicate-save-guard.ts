@@ -24,7 +24,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CaptureCard, isCardValid, markFailed, markSaved, markSaving } from '../src/data/captureReview';
+import { CaptureCard, DEFAULT_RECURRENCE_DRAFT, isCardValid, markFailed, markSaved, markSaving } from '../src/data/captureReview';
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -52,6 +52,7 @@ function makeCard(overrides: Partial<CaptureCard> = {}): CaptureCard {
     reminderEnabled: false,
     reminderDate: null,
     reminderTime: null,
+    recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
     status: 'pending',
     saveError: null,
     ...overrides,

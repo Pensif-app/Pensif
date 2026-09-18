@@ -35,6 +35,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { Pill } from '../components/Pill';
 import { ContactAssociationField } from '../components/ContactAssociationField';
 import { ContactPicker } from '../components/ContactPicker';
+import { RecurrenceEditorMode, RecurrenceEditorSheet } from '../components/RecurrenceEditorSheet';
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
 import { RootStackParamList } from '../navigation/types';
@@ -48,11 +49,15 @@ import {
   CaptureCard,
   LocalDate,
   OpenPicker,
+  RecurrenceDraftFrequency,
+  applyEventChange,
   applyEventDateChange,
+  applyEventTimeChange,
   applyReminderDateTimeChange,
   buildInitialCards,
   buildPenseeFromCard,
   canSaveAll,
+  clearEventTime,
   confirmContactForCard,
   finalizeCardTextForSave,
   discardCard,
@@ -61,11 +66,29 @@ import {
   markSaved,
   markSaving,
   needsReview,
-  toggleEventDatePicker,
+  recurrenceEndLabel,
+  recurrenceFrequencyLabel,
+  recurrenceStartDateLabel,
+  recurrenceTimeLabel,
+  setRecurrenceFrequency,
+  setRecurrenceOccurrenceCount,
+  setRecurrenceUntilDate,
+  toggleEventPicker,
+  toggleRecurrence,
+  toggleRecurrenceDay,
   toggleReminderDateTimePicker,
 } from '../data/captureReview';
 
 type Phase = 'idle' | 'listening' | 'processing' | 'review' | 'error' | 'unclear' | 'silence';
+
+// CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — locale explicite pour les pickers iOS inline de cet
+// écran (`@react-native-community/datetimepicker` 9.1.0, prop `locale` IOSNativeProps UNIQUEMENT,
+// ignorée sur Android — voir index.d.ts du package : `RCT_EXPORT_VIEW_PROPERTY(locale, NSLocale)`
+// côté natif, qui accepte un identifiant BCP-47 standard comme "fr-FR"). Ne change AUCUNE logique de
+// résolution de date/heure — uniquement la LANGUE d'affichage native du picker (ex. "dim. 7 mars" au
+// lieu de "Sun 7 Mar"). Jamais un picker custom : on continue d'utiliser exactement le rendu
+// typographique d'iOS, seulement dans la langue attendue.
+const IOS_PICKER_LOCALE = 'fr-FR';
 
 // Bouton principal ~3-4x plus grand que l'ancien micro (84px) — voir mockup validé.
 const BUTTON_SIZE = 280;
@@ -157,12 +180,32 @@ function localDateToJsDate(date: LocalDate): Date {
   return new Date(date.year, date.month, date.day);
 }
 
+/** CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : pilote UNIQUEMENT la couleur de la ligne
+ *  "Répétition" (accent = interactif, jamais un warning) — la validité réelle reste needsReview/
+ *  isCardValid (captureReview.ts), jamais recalculée ici. */
+function needsRecurrenceFrequency(card: CaptureCard): boolean {
+  return card.recurrenceDraft.frequency === null || (card.recurrenceDraft.frequency === 'weekly' && card.recurrenceDraft.daysOfWeek.length === 0);
+}
+
 /** Même principe que `reminderPickerSeed` ci-dessous, pour la roulette de date d'événement iOS
  *  (2026-09-18) : valeur purement visuelle, jamais écrite tant que l'utilisateur n'interagit pas. */
 function eventDatePickerSeed(card: CaptureCard): Date {
   if (!card.eventHint?.date) return new Date();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(card.eventHint.date);
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
+}
+
+/** CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) : même principe que `eventDatePickerSeed`
+ *  ci-dessus pour la roulette d'HEURE d'événement — valeur purement visuelle. Défaut 12:00 (jamais
+ *  9h, pour ne jamais laisser croire à un lien avec le défaut du rappel `reminderPickerSeed`, deux
+ *  notions strictement indépendantes) quand aucune heure n'est encore connue. La base (jour) reprend
+ *  `eventDatePickerSeed` — cette fonction n'est appelée que si `card.eventHint?.date` existe déjà
+ *  (voir JSX : le bloc ÉVÉNEMENT entier est conditionné à cette date). */
+function eventTimePickerSeed(card: CaptureCard): Date {
+  const base = eventDatePickerSeed(card);
+  const hour = card.eventHint?.time ? Number(card.eventHint.time.slice(0, 2)) : 12;
+  const minute = card.eventHint?.time ? Number(card.eventHint.time.slice(3, 5)) : 0;
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute, 0, 0);
 }
 
 /** Valeur purement visuelle pour positionner la roulette d'un picker natif quand rien n'est encore
@@ -213,6 +256,9 @@ export function CaptureScreen() {
   // Modification UI UNIQUEMENT : ne touche ni contactMatch/contactId (contactMatching.ts inchangé),
   // ni la sauvegarde, ni l'outbox, ni STT/LLM.
   const [contactPickerCardId, setContactPickerCardId] = useState<string | null>(null);
+  // CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : UN SEUL éditeur partagé (même principe que
+  // contactPickerCardId/openPicker) — jamais un state par carte.
+  const [recurrenceEditor, setRecurrenceEditor] = useState<{ cardId: string; mode: RecurrenceEditorMode } | null>(null);
   // CHANTIER ROBUSTESSE PRÉ-BÊTA — doublons (2026-09-16) : mêmes garde-fous anti-double-tap que
   // PenseeDetailScreen/FicheScreen (`savingRef`), jamais appliqués ici. `saveOne`/`handleSaveAll`
   // sont entièrement synchrones (aucun `await` avant `addPensee`) — un double-tap physique peut
@@ -707,7 +753,50 @@ export function CaptureScreen() {
 
   function setEventDate(cardId: string, date: Date) {
     const card = cards.find((c) => c.cardId === cardId);
-    patchCard(cardId, { eventHint: { date: formatDateISO(date), heardExpression: card?.eventHint?.heardExpression ?? null } });
+    // CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) : ce picker (Android) ne modifie QUE la
+    // date — `time`/`heardExpression` déjà présents sont conservés tels quels, jamais réinterprétés.
+    patchCard(cardId, {
+      eventHint: { date: formatDateISO(date), time: card?.eventHint?.time ?? null, heardExpression: card?.eventHint?.heardExpression ?? null },
+    });
+  }
+
+  /**
+   * CORRECTIF picker iOS — seed non confirmée (2026-09-18). Symptôme diagnostiqué : `display="spinner"`
+   * ne déclenche `onChange` que lorsque l'utilisateur fait RÉELLEMENT tourner une roulette — jamais au
+   * simple montage. La carte affichait donc une valeur crédible (`reminderPickerSeed`) sans qu'elle
+   * n'existe encore dans `card.reminderDate`/`reminderTime`, obligeant à bouger la roulette puis
+   * revenir pour que la valeur affichée devienne réelle.
+   *
+   * Correction : au moment précis où l'utilisateur OUVRE explicitement le picker (jamais à la
+   * fermeture, jamais au montage de l'écran, jamais dans buildInitialCards), on écrit immédiatement
+   * la valeur actuellement affichée (`reminderPickerSeed`, la même fonction que le rendu utilise déjà)
+   * dans la carte. Si une composante existe déjà, `reminderPickerSeed` renvoie déjà cette valeur
+   * réelle telle quelle (voir sa définition : `card.reminderDate ?? demain`, `card.reminderTime ?? 9h`)
+   * — réécrire la seed est donc un no-op strict dans ce cas, jamais une valeur qui change ce qui
+   * existait déjà. Le comportement `onChange` existant (`applyReminderDateTimeChange`) n'est pas
+   * touché : cette confirmation ne fait qu'amorcer l'état, la roulette continue de fonctionner
+   * normalement par-dessus. Appelée uniquement pour le picker COMBINÉ iOS (reminderDateTime) — les
+   * dialogs natifs Android (`DateTimePickerHost`) confirment déjà correctement sur leur propre bouton
+   * OK, qui déclenche systématiquement `onChange`, seed ou non.
+   */
+  function confirmReminderSeed(cardId: string) {
+    const card = cards.find((c) => c.cardId === cardId);
+    if (!card) return;
+    const parts = toLocalDateTimeParts(reminderPickerSeed(card));
+    patchCard(cardId, {
+      reminderDate: { year: parts.year, month: parts.month, day: parts.day },
+      reminderTime: { hour: parts.hour, minute: parts.minute },
+    });
+  }
+
+  /** Toggle explicite du picker combiné iOS (voir toggleReminderDateTimePicker, captureReview.ts) —
+   *  confirme la seed UNIQUEMENT à l'ouverture (`next !== null`), jamais à la fermeture. Centralisé
+   *  ici pour être réutilisé identiquement par les 3 points d'entrée (rappel ponctuel, et les deux
+   *  lignes "Date de début"/"Heure" du bloc récurrent). */
+  function openReminderDateTimePicker(cardId: string) {
+    const next = toggleReminderDateTimePicker(openPicker, cardId);
+    if (next) confirmReminderSeed(cardId);
+    setOpenPicker(next);
   }
 
   function toggleReminder(cardId: string, enabled: boolean) {
@@ -722,6 +811,37 @@ export function CaptureScreen() {
         ],
       );
     }
+  }
+
+  // --- CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : de simples relais vers les fonctions
+  // PURES de captureReview.ts (déjà testées, incrément 3) — AUCUNE décision de validité ici,
+  // needsReview/isCardValid restent l'unique source de vérité. ------------------------------------
+
+  function handleToggleRecurrence(cardId: string, enabled: boolean) {
+    setCards((prev) => toggleRecurrence(prev, cardId, enabled));
+    if (!enabled) setRecurrenceEditor((prev) => (prev?.cardId === cardId ? null : prev));
+  }
+
+  function handleChooseRecurrenceFrequency(cardId: string, frequency: RecurrenceDraftFrequency) {
+    setCards((prev) => setRecurrenceFrequency(prev, cardId, frequency));
+  }
+
+  function handleToggleRecurrenceDay(cardId: string, day: number) {
+    setCards((prev) => toggleRecurrenceDay(prev, cardId, day));
+  }
+
+  // "Une seule borne éditable à la fois" (consigne explicite) — chaque choix nettoie EXPLICITEMENT
+  // l'autre borne via les fonctions pures existantes, jamais une coexistence résiduelle.
+  function handleChooseRecurrenceNever(cardId: string) {
+    setCards((prev) => setRecurrenceUntilDate(setRecurrenceOccurrenceCount(prev, cardId, null), cardId, null));
+  }
+
+  function handleChooseRecurrenceCount(cardId: string, count: number) {
+    setCards((prev) => setRecurrenceUntilDate(setRecurrenceOccurrenceCount(prev, cardId, count), cardId, null));
+  }
+
+  function handleChooseRecurrenceUntilDate(cardId: string, date: LocalDate) {
+    setCards((prev) => setRecurrenceOccurrenceCount(setRecurrenceUntilDate(prev, cardId, date), cardId, null));
   }
 
   function setReminderDateTime(cardId: string, date: Date) {
@@ -740,6 +860,13 @@ export function CaptureScreen() {
   function setReminderTimePart(cardId: string, date: Date) {
     const parts = toLocalDateTimeParts(date);
     patchCard(cardId, { reminderTime: { hour: parts.hour, minute: parts.minute } });
+  }
+
+  /** Android — dispatché par `DateTimePickerHost` (dialog natif, confirme toujours réellement sur son
+   *  propre bouton OK, aucun préremplissage nécessaire avant ouverture, contrairement au contrôle
+   *  unique iOS — voir le bloc ÉVÉNEMENT du JSX). */
+  function setEventTimePart(cardId: string, date: Date) {
+    setCards((prev) => applyEventTimeChange(prev, cardId, date));
   }
 
   function handleDiscard(cardId: string) {
@@ -1151,47 +1278,95 @@ export function CaptureScreen() {
               onOpenPicker={() => setContactPickerCardId(card.cardId)}
             />
 
-            {/* Événement (informatif, purement daté — indépendant du rappel) */}
+            {/* Événement (informatif, purement daté — indépendant du rappel). CHANTIER UNIFICATION UX
+                PICKERS iOS, incrément 5 (2026-09-18) : UN SEUL contrôle principal date+heure sur iOS
+                (remplace les deux chips séparées de l'incrément précédent) — mode "datetime" si une
+                heure existe déjà, "date" sinon, décidé par `card.eventHint.time` : ouvrir ce contrôle
+                n'invente donc JAMAIS une heure silencieusement. "Date sans heure" reste un état
+                pleinement valide (voir action secondaire "+ Ajouter une heure"/"Retirer l'heure"
+                ci-dessous, qui seule peut créer/retirer une heure). */}
             {card.eventHint?.date ? (
               <View style={{ marginTop: 10 }}>
                 <Text style={[styles.fieldLabel, { color: theme.inkSoft }]}>ÉVÉNEMENT</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Pressable
                     disabled={disabled}
-                    // CORRECTIF picker iOS ÉVÉNEMENT (2026-09-18) — même toggle explicite que le
-                    // rappel (voir toggleEventDatePicker) : ouvre/referme le picker LOCAL à cette
-                    // carte. Android inchangé : `setOpenPicker` direct, toujours géré par le
-                    // DateTimePickerHost partagé plus bas (dialog natif, la position ne compte pas).
+                    // iOS : toggle explicite du contrôle UNIQUE (voir toggleEventPicker) — ouvre/
+                    // referme, un retap sur le même champ referme. Android inchangé : `setOpenPicker`
+                    // direct, géré par le DateTimePickerHost partagé plus bas (dialog natif de date
+                    // SEULE — Android n'a pas de mode "datetime" combiné dans ce composant).
                     onPress={() =>
                       setOpenPicker(
                         Platform.OS === 'ios'
-                          ? toggleEventDatePicker(openPicker, card.cardId)
+                          ? toggleEventPicker(openPicker, card.cardId)
                           : { cardId: card.cardId, kind: 'eventDate' },
                       )
                     }
                     style={[styles.dateChip, { borderColor: theme.line, backgroundColor: theme.paperDim }]}
                   >
                     <Ionicons name="calendar-outline" size={14} color={theme.ink} />
-                    <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>{formatDateFR(card.eventHint.date)}</Text>
+                    <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
+                      {formatDateFR(card.eventHint.date)}
+                      {card.eventHint.time ? ` à ${card.eventHint.time}` : ''}
+                    </Text>
                   </Pressable>
-                  <Pressable disabled={disabled} onPress={() => clearEventDate(card.cardId)} hitSlop={8}>
+                  <Pressable disabled={disabled} onPress={() => clearEventDate(card.cardId)} hitSlop={8} accessibilityLabel="Retirer l’événement">
                     <Ionicons name="close-circle-outline" size={18} color={theme.inkSoft} />
                   </Pressable>
                 </View>
-                {/* CORRECTIF picker iOS ÉVÉNEMENT (2026-09-18) — rendu INLINE dans la carte, comme le
-                    rappel (voir le bloc reminderDateTime plus bas pour l'explication complète du
-                    bug initial). `onChange` n'appelle jamais `setOpenPicker` : ne ferme jamais la
-                    roulette, seul le tap sur le champ ci-dessus le fait. */}
-                {Platform.OS === 'ios' && openPicker?.cardId === card.cardId && openPicker.kind === 'eventDate' ? (
-                  <DateTimePicker
-                    value={eventDatePickerSeed(card)}
-                    mode="date"
-                    display="spinner"
-                    onChange={(_, selected) => {
-                      if (selected) setCards((prev) => applyEventDateChange(prev, card.cardId, selected));
-                    }}
-                    style={{ marginTop: 8 }}
-                  />
+
+                {/* Action secondaire — ajoute/retire UNIQUEMENT l'heure, jamais la date. "+ Ajouter
+                    une heure" écrit une valeur par défaut RÉELLEMENT (12:00, via applyEventTimeChange)
+                    AVANT d'ouvrir le picker iOS — même correctif "seed confirmée" que les pickers
+                    existants (jamais un cadran affiché sans valeur déjà enregistrée derrière). Sur
+                    Android, ne préremplit RIEN avant ouverture : le dialog natif ne commet que sur son
+                    propre bouton OK — préremplir avant risquerait de laisser une heure fantôme si
+                    l'utilisateur annule le dialog. */}
+                <Pressable
+                  disabled={disabled}
+                  onPress={() => {
+                    if (card.eventHint?.time) {
+                      setCards((prev) => clearEventTime(prev, card.cardId));
+                      if (openPicker?.cardId === card.cardId && (openPicker.kind === 'event' || openPicker.kind === 'eventTime')) {
+                        setOpenPicker(null);
+                      }
+                    } else if (Platform.OS === 'ios') {
+                      setCards((prev) => applyEventTimeChange(prev, card.cardId, eventTimePickerSeed(card)));
+                      setOpenPicker({ cardId: card.cardId, kind: 'event' });
+                    } else {
+                      setOpenPicker({ cardId: card.cardId, kind: 'eventTime' });
+                    }
+                  }}
+                  style={{ marginTop: 6 }}
+                  hitSlop={6}
+                >
+                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>
+                    {card.eventHint.time ? 'Retirer l’heure' : '+ Ajouter une heure'}
+                  </Text>
+                </Pressable>
+
+                {/* Contrôle UNIQUE iOS — rendu INLINE dans la carte, comme le rappel (voir le bloc
+                    reminderDateTime plus bas). `onChange` n'appelle jamais `setOpenPicker` : ne ferme
+                    jamais la roulette, seul le tap sur le champ ou "Terminé" le fait (EXCLUSIVITÉ :
+                    openPicker est une valeur UNIQUE pour tout l'écran — en ouvrir un referme
+                    automatiquement tout autre picker précédemment ouvert, quelle que soit sa carte). */}
+                {Platform.OS === 'ios' && openPicker?.cardId === card.cardId && openPicker.kind === 'event' ? (
+                  <>
+                    <DateTimePicker
+                      value={card.eventHint.time ? eventTimePickerSeed(card) : eventDatePickerSeed(card)}
+                      mode={card.eventHint.time ? 'datetime' : 'date'}
+                      display="spinner"
+                      locale={IOS_PICKER_LOCALE}
+                      is24Hour
+                      onChange={(_, selected) => {
+                        if (selected) setCards((prev) => applyEventChange(prev, card.cardId, selected));
+                      }}
+                      style={{ marginTop: 8 }}
+                    />
+                    <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                      <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
+                    </Pressable>
+                  </>
                 ) : null}
               </View>
             ) : null}
@@ -1208,87 +1383,191 @@ export function CaptureScreen() {
               />
             </View>
             {card.reminderEnabled ? (
-              <View style={{ marginTop: 8 }}>
-                {Platform.OS === 'ios' ? (
-                  <>
-                    {(() => {
-                      const isThisCardOpen = openPicker?.cardId === card.cardId && openPicker.kind === 'reminderDateTime';
-                      return (
-                        <>
-                          <Pressable
-                            disabled={disabled}
-                            // CORRECTIF picker iOS (2026-09-17) — TOGGLE explicite (voir
-                            // toggleReminderDateTimePicker dans captureReview.ts) : un second tap sur le
-                            // champ déjà ouvert (pour CETTE carte) referme la roulette (ex. ouverte par
-                            // erreur), plutôt que de se contenter d'écraser un `openPicker` déjà identique
-                            // (ce qui la laissait ouverte sans jamais permettre de la refermer au clic).
-                            onPress={() => setOpenPicker(toggleReminderDateTimePicker(openPicker, card.cardId))}
-                            style={[styles.dateChip, { borderColor: theme.line, backgroundColor: theme.paperDim, alignSelf: 'flex-start' }]}
-                          >
-                            <Ionicons name="time-outline" size={14} color={theme.ink} />
-                            <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
-                              {card.reminderDate && card.reminderTime
-                                ? `${pad2(card.reminderDate.day)}/${pad2(card.reminderDate.month + 1)}/${card.reminderDate.year} à ${pad2(card.reminderTime.hour)}:${pad2(card.reminderTime.minute)}`
-                                : 'Choisir une date et une heure'}
-                            </Text>
-                          </Pressable>
-                          {/* CORRECTIF picker iOS (2026-09-17) — rendu INLINE dans la carte (et non plus
-                              via le DateTimePickerHost partagé monté en bas de l'écran) : en mode
-                              `display="spinner"`, iOS peint le picker à l'endroit exact où il est monté
-                              dans l'arbre, jamais en overlay/modal. Le monter tout en bas pour N cartes
-                              l'éloignait donc visuellement de la carte concernée. Un seul `openPicker`
-                              possible à la fois (state partagé, inchangé) : ouvrir celui d'une autre
-                              carte referme automatiquement celui-ci (sa condition `isThisCardOpen`
-                              devient fausse).
-                              CORRECTIF (2026-09-17) — `onChange` n'appelle PLUS `setOpenPicker(null)` :
-                              la roulette iOS déclenche `onChange` à CHAQUE segment (jour/heure/minute)
-                              tourné, pas seulement à la fin. La fermer à chaque fois empêchait toute
-                              modification successive (elle se refermait après le premier segment
-                              touché). Le picker ne se ferme donc plus que par le toggle du Pressable
-                              ci-dessus — jamais automatiquement depuis une sélection. */}
-                          {isThisCardOpen ? (
-                            <DateTimePicker
-                              value={reminderPickerSeed(card)}
-                              mode="datetime"
-                              display="spinner"
-                              is24Hour
-                              onChange={(_, selected) => {
-                                if (selected) setCards((prev) => applyReminderDateTimeChange(prev, card.cardId, selected));
-                              }}
-                              style={{ marginTop: 8 }}
-                            />
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </>
-                ) : (
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+              // CHANTIER POLISH — hiérarchie/zones tactiles (2026-09-18) : marge légèrement accrue
+              // (8 → 12) sous le toggle "ME LE RAPPELER" — éloigne la première zone tactile (Date de
+              // début, désormais une ligne entière avec minHeight:44) du Switch au-dessus.
+              <View style={{ marginTop: 12 }}>
+                {card.recurrenceDraft.enabled ? (
+                  // CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : état compact, 4 lignes au
+                  // plus (Date de début / Heure / Répétition / Fin — cette dernière SEULEMENT si une
+                  // borne existe déjà, voir recurrenceEndLabel). "Date de début"/"Heure" RÉUTILISENT
+                  // exactement les pickers existants (même chip iOS combiné, mêmes kinds Android
+                  // 'reminderDate'/'reminderTime') — seul l'affichage devient deux lignes indépendantes
+                  // (nécessaire pour le cas critique "date manquante, heure connue", qu'un chip combiné
+                  // unique ne peut pas représenter séparément). Aucune valeur "À définir"/"À préciser"
+                  // n'est un warning : couleur accent (le violet Pensif, jamais le corail d'alerte),
+                  // simplement plus interactive.
+                  <View style={{ marginTop: 4 }}>
                     <Pressable
                       disabled={disabled}
-                      onPress={() => setOpenPicker({ cardId: card.cardId, kind: 'reminderDate' })}
-                      style={[styles.dateChip, { flex: 1, borderColor: theme.line, backgroundColor: theme.paperDim }]}
+                      onPress={() => (Platform.OS === 'ios' ? openReminderDateTimePicker(card.cardId) : setOpenPicker({ cardId: card.cardId, kind: 'reminderDate' }))}
+                      style={styles.recurrenceFieldRow}
                     >
-                      <Ionicons name="calendar-outline" size={14} color={theme.ink} />
-                      <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
-                        {card.reminderDate ? `${pad2(card.reminderDate.day)}/${pad2(card.reminderDate.month + 1)}/${card.reminderDate.year}` : 'Date'}
+                      <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>DATE DE DÉBUT</Text>
+                      <Text style={{ color: card.reminderDate ? theme.ink : theme.accent, fontSize: 13, fontWeight: '700' }}>
+                        {recurrenceStartDateLabel(card.reminderDate)}
                       </Text>
                     </Pressable>
                     <Pressable
                       disabled={disabled}
-                      onPress={() => setOpenPicker({ cardId: card.cardId, kind: 'reminderTime' })}
-                      style={[styles.dateChip, { flex: 1, borderColor: theme.line, backgroundColor: theme.paperDim }]}
+                      onPress={() => (Platform.OS === 'ios' ? openReminderDateTimePicker(card.cardId) : setOpenPicker({ cardId: card.cardId, kind: 'reminderTime' }))}
+                      style={[styles.recurrenceFieldRow, { marginTop: 10 }]}
                     >
-                      <Ionicons name="time-outline" size={14} color={theme.ink} />
-                      <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
-                        {card.reminderTime ? `${pad2(card.reminderTime.hour)}:${pad2(card.reminderTime.minute)}` : 'Heure'}
+                      <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>HEURE</Text>
+                      <Text style={{ color: card.reminderTime ? theme.ink : theme.accent, fontSize: 13, fontWeight: '700' }}>
+                        {recurrenceTimeLabel(card.reminderTime)}
                       </Text>
                     </Pressable>
+                    {/* Même roulette combinée que le rappel ponctuel (iOS) — un tap sur Date de début
+                        OU Heure l'ouvre indifféremment, voir commentaire ci-dessus. */}
+                    {Platform.OS === 'ios' && openPicker?.cardId === card.cardId && openPicker.kind === 'reminderDateTime' ? (
+                      <>
+                        <DateTimePicker
+                          value={reminderPickerSeed(card)}
+                          mode="datetime"
+                          display="spinner"
+                          locale={IOS_PICKER_LOCALE}
+                          is24Hour
+                          onChange={(_, selected) => {
+                            if (selected) setCards((prev) => applyReminderDateTimeChange(prev, card.cardId, selected));
+                          }}
+                          style={{ marginTop: 8 }}
+                        />
+                        <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                          <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
+
+                    <Pressable
+                      disabled={disabled}
+                      onPress={() => setRecurrenceEditor({ cardId: card.cardId, mode: 'frequency' })}
+                      style={[styles.recurrenceFieldRow, { marginTop: 10 }]}
+                    >
+                      <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>RÉPÉTITION</Text>
+                      <Text style={{ color: needsRecurrenceFrequency(card) ? theme.accent : theme.ink, fontSize: 13, fontWeight: '700' }}>
+                        {recurrenceFrequencyLabel(card.recurrenceDraft)}
+                      </Text>
+                    </Pressable>
+                    {recurrenceEndLabel(card.recurrenceDraft) ? (
+                      <Pressable
+                        disabled={disabled}
+                        onPress={() => setRecurrenceEditor({ cardId: card.cardId, mode: 'end' })}
+                        style={[styles.recurrenceFieldRow, { marginTop: 10 }]}
+                      >
+                        <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>FIN</Text>
+                        <Text style={{ color: theme.ink, fontSize: 13, fontWeight: '700' }}>{recurrenceEndLabel(card.recurrenceDraft)}</Text>
+                      </Pressable>
+                    ) : null}
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+                      <Pressable disabled={disabled} onPress={() => setRecurrenceEditor({ cardId: card.cardId, mode: 'end' })} hitSlop={8}>
+                        <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Modifier la fin</Text>
+                      </Pressable>
+                      <Pressable disabled={disabled} onPress={() => handleToggleRecurrence(card.cardId, false)} hitSlop={8}>
+                        <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Ne plus répéter</Text>
+                      </Pressable>
+                    </View>
                   </View>
+                ) : (
+                  <>
+                    {Platform.OS === 'ios' ? (
+                      <>
+                        {(() => {
+                          const isThisCardOpen = openPicker?.cardId === card.cardId && openPicker.kind === 'reminderDateTime';
+                          return (
+                            <>
+                              <Pressable
+                                disabled={disabled}
+                                // CORRECTIF picker iOS (2026-09-17) — TOGGLE explicite (voir
+                                // toggleReminderDateTimePicker dans captureReview.ts) : un second tap sur le
+                                // champ déjà ouvert (pour CETTE carte) referme la roulette (ex. ouverte par
+                                // erreur), plutôt que de se contenter d'écraser un `openPicker` déjà identique
+                                // (ce qui la laissait ouverte sans jamais permettre de la refermer au clic).
+                                // CORRECTIF seed non confirmée (2026-09-18) — voir openReminderDateTimePicker :
+                                // l'ouverture (pas la fermeture) écrit désormais immédiatement la valeur affichée.
+                                onPress={() => openReminderDateTimePicker(card.cardId)}
+                                style={[styles.dateChip, { borderColor: theme.line, backgroundColor: theme.paperDim, alignSelf: 'flex-start' }]}
+                              >
+                                <Ionicons name="time-outline" size={14} color={theme.ink} />
+                                <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
+                                  {card.reminderDate && card.reminderTime
+                                    ? `${pad2(card.reminderDate.day)}/${pad2(card.reminderDate.month + 1)}/${card.reminderDate.year} à ${pad2(card.reminderTime.hour)}:${pad2(card.reminderTime.minute)}`
+                                    : 'Choisir une date et une heure'}
+                                </Text>
+                              </Pressable>
+                              {/* CORRECTIF picker iOS (2026-09-17) — rendu INLINE dans la carte (et non plus
+                                  via le DateTimePickerHost partagé monté en bas de l'écran) : en mode
+                                  `display="spinner"`, iOS peint le picker à l'endroit exact où il est monté
+                                  dans l'arbre, jamais en overlay/modal. Le monter tout en bas pour N cartes
+                                  l'éloignait donc visuellement de la carte concernée. Un seul `openPicker`
+                                  possible à la fois (state partagé, inchangé) : ouvrir celui d'une autre
+                                  carte referme automatiquement celui-ci (sa condition `isThisCardOpen`
+                                  devient fausse).
+                                  CORRECTIF (2026-09-17) — `onChange` n'appelle PLUS `setOpenPicker(null)` :
+                                  la roulette iOS déclenche `onChange` à CHAQUE segment (jour/heure/minute)
+                                  tourné, pas seulement à la fin. La fermer à chaque fois empêchait toute
+                                  modification successive (elle se refermait après le premier segment
+                                  touché). Le picker ne se ferme donc plus que par le toggle du Pressable
+                                  ci-dessus — jamais automatiquement depuis une sélection. */}
+                              {isThisCardOpen ? (
+                                <>
+                                  <DateTimePicker
+                                    value={reminderPickerSeed(card)}
+                                    mode="datetime"
+                                    display="spinner"
+                                    locale={IOS_PICKER_LOCALE}
+                                    is24Hour
+                                    onChange={(_, selected) => {
+                                      if (selected) setCards((prev) => applyReminderDateTimeChange(prev, card.cardId, selected));
+                                    }}
+                                    style={{ marginTop: 8 }}
+                                  />
+                                  <Pressable onPress={() => setOpenPicker(null)} style={styles.pickerDoneBtn} hitSlop={8}>
+                                    <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
+                                  </Pressable>
+                                </>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <Pressable
+                          disabled={disabled}
+                          onPress={() => setOpenPicker({ cardId: card.cardId, kind: 'reminderDate' })}
+                          style={[styles.dateChip, { flex: 1, borderColor: theme.line, backgroundColor: theme.paperDim }]}
+                        >
+                          <Ionicons name="calendar-outline" size={14} color={theme.ink} />
+                          <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
+                            {card.reminderDate ? `${pad2(card.reminderDate.day)}/${pad2(card.reminderDate.month + 1)}/${card.reminderDate.year}` : 'Date'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={disabled}
+                          onPress={() => setOpenPicker({ cardId: card.cardId, kind: 'reminderTime' })}
+                          style={[styles.dateChip, { flex: 1, borderColor: theme.line, backgroundColor: theme.paperDim }]}
+                        >
+                          <Ionicons name="time-outline" size={14} color={theme.ink} />
+                          <Text style={{ color: theme.ink, fontSize: 12, fontWeight: '600' }}>
+                            {card.reminderTime ? `${pad2(card.reminderTime.hour)}:${pad2(card.reminderTime.minute)}` : 'Heure'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    {!card.reminderTime ? (
+                      <Text style={[styles.warnHint, { color: theme.plum }]}>Choisis une heure pour activer ce rappel.</Text>
+                    ) : null}
+                    {/* CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : activation MANUELLE sur un
+                        rappel ponctuel — n'invente jamais de motif (toggleRecurrence active la
+                        récurrence avec frequency=null, voir captureReview.ts), l'utilisateur choisit
+                        ensuite explicitement via la ligne RÉPÉTITION qui apparaît alors. */}
+                    <Pressable disabled={disabled} onPress={() => handleToggleRecurrence(card.cardId, true)} style={{ marginTop: 10 }} hitSlop={8}>
+                      <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Répéter ce rappel</Text>
+                    </Pressable>
+                  </>
                 )}
-                {!card.reminderTime ? (
-                  <Text style={[styles.warnHint, { color: theme.plum }]}>Choisis une heure pour activer ce rappel.</Text>
-                ) : null}
               </View>
             ) : null}
 
@@ -1299,25 +1578,33 @@ export function CaptureScreen() {
               </View>
             ) : null}
 
-            <View style={[styles.cardActions, { borderTopColor: theme.line }]}>
-              <Pressable disabled={disabled} onPress={() => handleDiscard(card.cardId)} style={styles.cardActionBtn} hitSlop={8}>
-                <Ionicons name="trash-outline" size={15} color={theme.danger} />
-                <Text style={{ color: theme.danger, fontSize: 12, fontWeight: '700' }}>Supprimer</Text>
-              </Pressable>
-              {card.status !== 'saved' ? (
-                <Pressable
-                  disabled={!cardValid || card.status === 'saving'}
-                  onPress={() => handleSaveCard(card.cardId)}
-                  style={[styles.cardActionBtn, styles.cardActionBtnPrimary, { backgroundColor: theme.accentTint, opacity: !cardValid || card.status === 'saving' ? 0.4 : 1 }]}
-                  hitSlop={8}
-                >
-                  <Ionicons name="checkmark-outline" size={15} color={theme.accent} />
-                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                    {card.status === 'saving' ? 'Enregistrement…' : 'Enregistrer'}
-                  </Text>
+            {/* CHANTIER POLISH — hiérarchie des actions (2026-09-18), PUREMENT VISUEL : avec une
+                seule carte, "Supprimer"/"Enregistrer" (+ leur séparateur, le borderTopWidth de
+                styles.cardActions) sont redondants avec le CTA global "Faire confiance à Pensif" —
+                masqués uniquement dans ce cas, aucun handler/protection anti-double-tap retiré
+                (handleDiscard/handleSaveCard restent strictement inchangés, simplement pas rendus
+                ici). Dès 2 cartes, comportement strictement identique à avant ce chantier. */}
+            {cards.length >= 2 ? (
+              <View style={[styles.cardActions, { borderTopColor: theme.line }]}>
+                <Pressable disabled={disabled} onPress={() => handleDiscard(card.cardId)} style={styles.cardActionBtn} hitSlop={8}>
+                  <Ionicons name="trash-outline" size={15} color={theme.danger} />
+                  <Text style={{ color: theme.danger, fontSize: 12, fontWeight: '700' }}>Supprimer</Text>
                 </Pressable>
-              ) : null}
-            </View>
+                {card.status !== 'saved' ? (
+                  <Pressable
+                    disabled={!cardValid || card.status === 'saving'}
+                    onPress={() => handleSaveCard(card.cardId)}
+                    style={[styles.cardActionBtn, styles.cardActionBtnPrimary, { backgroundColor: theme.accentTint, opacity: !cardValid || card.status === 'saving' ? 0.4 : 1 }]}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="checkmark-outline" size={15} color={theme.accent} />
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                      {card.status === 'saving' ? 'Enregistrement…' : 'Enregistrer'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         );
       })}
@@ -1335,6 +1622,30 @@ export function CaptureScreen() {
         }}
         onClose={() => setContactPickerCardId(null)}
       />
+
+      {/* UN SEUL éditeur de récurrence partagé (même principe que ContactPicker ci-dessus) — voir
+          recurrenceEditor plus haut. */}
+      {(() => {
+        const targetCard = recurrenceEditor ? cards.find((c) => c.cardId === recurrenceEditor.cardId) : undefined;
+        return (
+          <RecurrenceEditorSheet
+            visible={!!recurrenceEditor && !!targetCard}
+            mode={recurrenceEditor?.mode ?? 'frequency'}
+            theme={theme}
+            frequency={targetCard?.recurrenceDraft.frequency ?? null}
+            daysOfWeek={targetCard?.recurrenceDraft.daysOfWeek ?? []}
+            occurrenceCount={targetCard?.recurrenceDraft.occurrenceCount ?? null}
+            untilDate={targetCard?.recurrenceDraft.untilDate ?? null}
+            startDate={targetCard?.reminderDate ?? null}
+            onClose={() => setRecurrenceEditor(null)}
+            onChooseFrequency={(frequency) => recurrenceEditor && handleChooseRecurrenceFrequency(recurrenceEditor.cardId, frequency)}
+            onToggleDay={(day) => recurrenceEditor && handleToggleRecurrenceDay(recurrenceEditor.cardId, day)}
+            onChooseNever={() => recurrenceEditor && handleChooseRecurrenceNever(recurrenceEditor.cardId)}
+            onChooseOccurrenceCount={(count) => recurrenceEditor && handleChooseRecurrenceCount(recurrenceEditor.cardId, count)}
+            onChooseUntilDate={(date) => recurrenceEditor && handleChooseRecurrenceUntilDate(recurrenceEditor.cardId, date)}
+          />
+        );
+      })()}
 
       {hasPendingCards ? (
         <View style={{ marginTop: 8, marginBottom: hasPendingCards ? 12 : 20 }}>
@@ -1361,12 +1672,14 @@ export function CaptureScreen() {
           visuellement associés à la bonne pensée — ne pas les monter une seconde fois ici. Android
           continue de passer par ce host partagé pour les deux (dialog natif, la position ne compte
           pas). */}
-      {openPicker && !(Platform.OS === 'ios' && (openPicker.kind === 'reminderDateTime' || openPicker.kind === 'eventDate')) ? (
+      {openPicker &&
+      !(Platform.OS === 'ios' && (openPicker.kind === 'reminderDateTime' || openPicker.kind === 'event' || openPicker.kind === 'eventDate' || openPicker.kind === 'eventTime')) ? (
         <DateTimePickerHost
           openPicker={openPicker}
           cards={cards}
           onClose={() => setOpenPicker(null)}
           onEventDate={setEventDate}
+          onEventTime={setEventTimePart}
           onReminderDateTime={setReminderDateTime}
           onReminderDate={setReminderDatePart}
           onReminderTime={setReminderTimePart}
@@ -1384,14 +1697,20 @@ function DateTimePickerHost({
   cards,
   onClose,
   onEventDate,
+  onEventTime,
   onReminderDateTime,
   onReminderDate,
   onReminderTime,
 }: {
-  openPicker: { cardId: string; kind: 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'eventDate' };
+  // `PickerKind` complet accepté pour la sûreté de type de l'appelant (`openPicker` est typé
+  // `OpenPicker`, qui inclut `'event'`) — mais `'event'` (contrôle iOS UNIQUE) n'atteint jamais ce
+  // composant en pratique : toujours exclu par la condition de rendu (voir plus haut, "!(Platform.OS
+  // === 'ios' && ... openPicker.kind === 'event' ...)"), rendu INLINE dans la carte à la place.
+  openPicker: { cardId: string; kind: 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'event' | 'eventDate' | 'eventTime' };
   cards: CaptureCard[];
   onClose: () => void;
   onEventDate: (cardId: string, date: Date) => void;
+  onEventTime: (cardId: string, date: Date) => void;
   onReminderDateTime: (cardId: string, date: Date) => void;
   onReminderDate: (cardId: string, date: Date) => void;
   onReminderTime: (cardId: string, date: Date) => void;
@@ -1405,14 +1724,22 @@ function DateTimePickerHost({
           const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(card.eventHint!.date!);
           return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
         })()
+      : openPicker.kind === 'eventTime'
+      ? eventTimePickerSeed(card)
       : reminderPickerSeed(card);
 
-  const mode = openPicker.kind === 'eventDate' || openPicker.kind === 'reminderDate' ? 'date' : openPicker.kind === 'reminderTime' ? 'time' : 'datetime';
+  const mode =
+    openPicker.kind === 'eventDate' || openPicker.kind === 'reminderDate'
+      ? 'date'
+      : openPicker.kind === 'reminderTime' || openPicker.kind === 'eventTime'
+      ? 'time'
+      : 'datetime';
 
   function handleChange(_: unknown, selected?: Date) {
     onClose();
     if (!selected) return;
     if (openPicker.kind === 'eventDate') onEventDate(openPicker.cardId, selected);
+    else if (openPicker.kind === 'eventTime') onEventTime(openPicker.cardId, selected);
     else if (openPicker.kind === 'reminderDateTime') onReminderDateTime(openPicker.cardId, selected);
     else if (openPicker.kind === 'reminderDate') onReminderDate(openPicker.cardId, selected);
     else onReminderTime(openPicker.cardId, selected);
@@ -1525,9 +1852,19 @@ const styles = StyleSheet.create({
   },
   dateChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, minHeight: 44 },
   reminderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  // CHANTIER POLISH — hiérarchie/zones tactiles (2026-09-18) : ligne ENTIÈRE cliquable (label +
+  // valeur), pas seulement le texte de droite — `minHeight: 44` vise la cible tactile recommandée
+  // sans agrandir visuellement le contenu (`paddingVertical` modéré, la ligne reste compacte à
+  // l'écran, seule sa zone de tap grandit). Utilisée UNIQUEMENT pour Date de début/Heure/Répétition/
+  // Fin (bloc récurrent) — jamais pour le toggle "ME LE RAPPELER" lui-même, qui reste une zone
+  // strictement indépendante (Switch séparé, aucun chevauchement).
+  recurrenceFieldRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, paddingVertical: 8 },
   warnHint: { fontSize: 11, marginTop: 6 },
   errorBox: { borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 10 },
   cardActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTopWidth: 1 },
   cardActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, paddingHorizontal: 10, borderRadius: 10 },
   cardActionBtnPrimary: { paddingVertical: 8 },
+  // CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — action discrète "Terminé" associée à un
+  // picker iOS inline visible (ferme SEULEMENT le picker, aucune modification de donnée).
+  pickerDoneBtn: { alignSelf: 'flex-end', marginTop: 4, paddingVertical: 6, paddingHorizontal: 4 },
 });

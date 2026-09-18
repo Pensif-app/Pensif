@@ -10,6 +10,7 @@
 import { ContactMatchResult } from '../src/data/contactMatching';
 import {
   CaptureCard,
+  DEFAULT_RECURRENCE_DRAFT,
   OpenPicker,
   applyEventDateChange,
   toggleEventDatePicker,
@@ -36,10 +37,11 @@ function makeCard(cardId: string, eventDate: string | null = '2026-09-20'): Capt
     heardContactName: null,
     currentContactNameInText: null,
     originalContactMatchKind: 'none',
-    eventHint: eventDate ? { date: eventDate, heardExpression: null } : null,
+    eventHint: eventDate ? { date: eventDate, time: null, heardExpression: null } : null,
     reminderEnabled: false,
     reminderDate: null,
     reminderTime: null,
+    recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
     confidence: 0.9,
     status: 'pending',
     saveError: null,
@@ -77,7 +79,7 @@ console.log('\n[modification] changer la date événement → le picker reste ou
 console.log('\n[heardExpression préservé] la trace d’affichage originale n’est jamais réécrite par une correction de date');
 {
   const cards: CaptureCard[] = [
-    { ...makeCard('a', null), eventHint: { date: '2026-09-20', heardExpression: '20 septembre' } },
+    { ...makeCard('a', null), eventHint: { date: '2026-09-20', time: null, heardExpression: '20 septembre' } },
   ];
   const next = applyEventDateChange(cards, 'a', new Date(2026, 9, 1));
   check('date mise à jour', next[0].eventHint?.date === '2026-10-01');

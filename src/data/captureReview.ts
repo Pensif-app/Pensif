@@ -2,15 +2,74 @@
 // un CaptureResult (contrat backend) en cartes éditables, décide de leur validité et du calcul
 // "à vérifier", et construit la Pensee finale via le flux normal de création (jamais d'écriture
 // Supabase directe). Pur (aucun import react-native/expo/AsyncStorage), testable sous ts-node.
-import { Contact, Pensee } from './types';
-import { CaptureResult, ExtractedPensee } from './captureTypes';
+import { Contact, Pensee, ReminderRecurrence } from './types';
+import { CaptureRecurrenceInfo, CaptureResult, ExtractedPensee } from './captureTypes';
 import { ContactMatchResult } from './contactMatching';
 import { toLocalDateTimeParts } from './reminderDate';
+import { isoOf, monthFull } from './calendar';
+import { normalizeReminderRecurrence, reminderRecurrenceMatchesDate } from './reminderRecurrence';
 
 export type CaptureCardStatus = 'pending' | 'saving' | 'saved' | 'failed';
 
 export type LocalDate = { year: number; month: number; day: number };
 export type LocalTime = { hour: number; minute: number };
+
+// CHANTIER RAPPELS RÉCURRENTS — incrément 3 (2026-09-18). Brouillon de récurrence éditable d'une
+// carte de Review — pas encore d'écran (voir consigne), uniquement le modèle + les actions pures qui
+// le manipuleront. `frequency: null` représente DEUX situations distinctes qui se comportent pareil
+// pour needsReview/isCardValid : (a) la récurrence vient d'être activée sans choix encore fait, (b)
+// une récurrence 'unclear' (voir CaptureRecurrenceInfo) pas encore résolue par l'utilisateur — dans
+// les deux cas, ne JAMAIS deviner 'daily' ou 'weekly' à la place de l'utilisateur.
+export type RecurrenceDraftFrequency = 'daily' | 'weekly';
+
+export type RecurrenceDraft = {
+  enabled: boolean;
+  /** `null` = pas encore choisi (récurrence tout juste activée, ou 'unclear' non résolu) — jamais un
+   *  choix par défaut silencieux. Non pertinent si `enabled` est faux. */
+  frequency: RecurrenceDraftFrequency | null;
+  /** Pertinent uniquement si `frequency === 'weekly'` — toujours `[]` pour 'daily' ou `null`
+   *  frequency (voir setRecurrenceFrequency, qui vide ce tableau au changement de fréquence). */
+  daysOfWeek: number[];
+  occurrenceCount: number | null;
+  untilDate: LocalDate | null;
+  /** Trace de ce qui a été entendu (Capture) — affichage seulement, jamais réinterprété. `null` si la
+   *  récurrence n'a pas été détectée par Capture (créée manuellement par l'utilisateur, future UI). */
+  heardExpression: string | null;
+};
+
+/** Représentation canonique d'une carte SANS récurrence — jamais un objet partiellement rempli qui
+ *  laisserait un résidu de règle une fois désactivée (voir toggleRecurrence, exigence explicite du
+ *  chantier "sans résidu"). */
+export const DEFAULT_RECURRENCE_DRAFT: RecurrenceDraft = {
+  enabled: false,
+  frequency: null,
+  daysOfWeek: [],
+  occurrenceCount: null,
+  untilDate: null,
+  heardExpression: null,
+};
+
+/**
+ * Construit le brouillon initial à partir de ce que Capture a extrait — `recurrence` peut être
+ * `undefined` (backend pas encore redéployé) ou `null` (aucune récurrence détectée) : les deux sont
+ * traités de façon strictement identique (voir captureTypes.ts). 'daily'/'weekly' sont ACTIVÉS
+ * AUTOMATIQUEMENT (aucune ambiguïté à résoudre) ; 'unclear' est activé mais SANS fréquence choisie
+ * (voir RecurrenceDraft.frequency) — jamais un motif deviné à la place de l'utilisateur.
+ */
+function buildRecurrenceDraftFromExtracted(recurrence: CaptureRecurrenceInfo | null | undefined): RecurrenceDraft {
+  if (!recurrence || !recurrence.detected) return DEFAULT_RECURRENCE_DRAFT;
+  if (recurrence.frequency === 'unclear') {
+    return { ...DEFAULT_RECURRENCE_DRAFT, enabled: true, heardExpression: recurrence.heardExpression };
+  }
+  return {
+    enabled: true,
+    frequency: recurrence.frequency,
+    daysOfWeek: recurrence.frequency === 'weekly' ? recurrence.daysOfWeek ?? [] : [],
+    occurrenceCount: recurrence.occurrenceCount,
+    untilDate: parseIsoDate(recurrence.untilDate),
+    heardExpression: recurrence.heardExpression,
+  };
+}
 
 export type CaptureCard = {
   cardId: string;
@@ -41,11 +100,17 @@ export type CaptureCard = {
    *  'ambiguous'/'exact_ambiguous'/'unmatched'/'none', même si l'utilisateur choisit ensuite un
    *  contact précis pour ces cas-là. */
   originalContactMatchKind: ContactMatchResult['kind'];
-  /** Purement informatif — jamais écrit dans Pensee.date/endDate (voir captureTypes.ts). */
-  eventHint: { date: string | null; heardExpression: string | null } | null;
+  /** CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) : `time` complète `date` (voir
+   *  buildPenseeFromCard, qui transfère les deux vers `Pensee.date`/`Pensee.eventTime`) — jamais
+   *  copié depuis/vers `reminderTime` (deux notions strictement indépendantes, voir types.ts). */
+  eventHint: { date: string | null; time: string | null; heardExpression: string | null } | null;
   reminderEnabled: boolean;
   reminderDate: LocalDate | null;
   reminderTime: LocalTime | null;
+  /** CHANTIER RAPPELS RÉCURRENTS — incrément 3 (2026-09-18). Toujours présent (jamais `null`) —
+   *  `DEFAULT_RECURRENCE_DRAFT` (enabled:false) représente l'absence de récurrence, exactement comme
+   *  `reminderRecurrence` absent sur une `Pensee` classique. */
+  recurrenceDraft: RecurrenceDraft;
   /** Confiance globale donnée par le LLM pour cette pensée. */
   confidence: number;
   status: CaptureCardStatus;
@@ -139,10 +204,17 @@ function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: Contac
     heardContactName: extracted.heardContactName,
     currentContactNameInText,
     originalContactMatchKind: contactMatch.kind,
-    eventHint: extracted.event.hasDate ? { date: extracted.event.date, heardExpression: extracted.event.heardExpression } : null,
+    // `?? null` — traite `undefined` (backend pas encore redéployé, voir captureTypes.ts) exactement
+    // comme `null` (aucune heure d'événement connue), même discipline que `recurrence` plus bas.
+    eventHint: extracted.event.hasDate
+      ? { date: extracted.event.date, time: extracted.event.time ?? null, heardExpression: extracted.event.heardExpression }
+      : null,
     reminderEnabled: extracted.reminder.hasReminder,
     reminderDate: parseIsoDate(extracted.reminder.date),
     reminderTime: parseTime(extracted.reminder.time),
+    // `?? null` — traite `undefined` (backend pas encore redéployé) exactement comme `null` (aucune
+    // récurrence détectée), voir captureTypes.ts.
+    recurrenceDraft: buildRecurrenceDraftFromExtracted(extracted.reminder.recurrence ?? null),
     confidence: extracted.confidence,
     status: 'pending',
     saveError: null,
@@ -173,6 +245,7 @@ export function buildInitialCards(
         reminderEnabled: false,
         reminderDate: null,
         reminderTime: null,
+        recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
         confidence: 0,
         status: 'pending',
         saveError: null,
@@ -258,8 +331,27 @@ export function confirmContactForCard(card: CaptureCard, contactId: string | nul
 }
 
 /**
+ * Construit la règle de récurrence NORMALISÉE (voir reminderRecurrence.ts, incrément 1) à partir d'un
+ * brouillon — réutilise `normalizeReminderRecurrence` plutôt que de dupliquer sa logique de
+ * validation structurelle (weekly non vide, occurrenceCount entier >=1, untilDate calendaire valide).
+ * `null` si `frequency` n'est pas encore choisie (récurrence 'unclear' non résolue, ou tout juste
+ * activée) OU si la structure est incohérente — jamais une règle partiellement reconstruite.
+ */
+function toReminderRecurrenceRule(draft: RecurrenceDraft): ReminderRecurrence | null {
+  if (!draft.enabled || draft.frequency === null) return null;
+  return normalizeReminderRecurrence({
+    frequency: draft.frequency,
+    daysOfWeek: draft.daysOfWeek,
+    occurrenceCount: draft.occurrenceCount,
+    untilDate: draft.untilDate ? isoOf(draft.untilDate.year, draft.untilDate.month, draft.untilDate.day) : null,
+  });
+}
+
+/**
  * "À vérifier" (mise en évidence visuelle uniquement, ne bloque jamais l'enregistrement) : confiance
- * LLM basse, proche ambigu/non résolu, ou rappel voulu mais heure manquante.
+ * LLM basse, proche ambigu/non résolu, rappel voulu mais heure manquante, ou récurrence comprise mais
+ * incomplète (CHANTIER RAPPELS RÉCURRENTS, incrément 3, 2026-09-18) — une récurrence ne doit JAMAIS
+ * disparaître silencieusement faute de date/heure/fréquence, elle reste signalée jusqu'à complétion.
  */
 export function needsReview(card: CaptureCard): boolean {
   if (card.confidence < LOW_CONFIDENCE_THRESHOLD) return true;
@@ -268,7 +360,72 @@ export function needsReview(card: CaptureCard): boolean {
   if (card.contactMatch.kind === 'fuzzy_high_confidence') return true;
   if ((card.contactMatch.kind === 'ambiguous' || card.contactMatch.kind === 'exact_ambiguous') && card.contactId === null) return true;
   if (card.reminderEnabled && !card.reminderTime) return true;
+  if (card.recurrenceDraft.enabled) {
+    // 'unclear' (Capture) non résolu par l'utilisateur — jamais un motif deviné à sa place.
+    if (card.recurrenceDraft.frequency === null) return true;
+    // CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : 'weekly' choisi (ex. juste après avoir
+    // résolu un 'unclear') mais aucun jour encore coché — même besoin de signalement que 'unclear'
+    // lui-même, jamais un jour deviné à la place de l'utilisateur.
+    if (card.recurrenceDraft.frequency === 'weekly' && card.recurrenceDraft.daysOfWeek.length === 0) return true;
+    // Ex. "tous les jours à 21h40" : récurrence parfaitement comprise, mais aucune date de départ
+    // déterminable — la règle reste "daily", jamais perdue, seulement signalée.
+    if (!card.reminderDate) return true;
+    // Ex. "tous les jours" (sans heure) : même principe, l'heure manque encore.
+    if (!card.reminderTime) return true;
+  }
   return false;
+}
+
+// --- CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18). Formatage d'affichage PUR (aucun
+// react-native, aucune dépendance à un composant) — la logique de validité reste entièrement dans
+// needsReview/isCardValid ci-dessus ; ces fonctions ne font QUE traduire un RecurrenceDraft déjà
+// valide/invalide en texte, jamais une décision de validité elles-mêmes. ------------------------
+
+/** Ordre d'affichage FRANÇAIS (lundi → dimanche) — jamais l'ordre de stockage interne
+ *  (0=dimanche..6=samedi, convention `Date.getDay()`, voir ReminderRecurrence/types.ts). */
+const FRENCH_WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const WEEKDAY_SHORT_FR: Record<number, string> = { 0: 'Dim', 1: 'Lun', 2: 'Mar', 3: 'Mer', 4: 'Jeu', 5: 'Ven', 6: 'Sam' };
+
+/** 'YYYY-MM-DD' ou LocalDate → "18 septembre" (mois en toutes lettres, réutilise `monthFull` de
+ *  calendar.ts plutôt que dupliquer la liste des mois — même principe que MessageScreen.tsx). */
+export function recurrenceDateLabel(date: LocalDate): string {
+  return `${date.day} ${monthFull[date.month]}`;
+}
+
+/** Libellé de la ligne "Date de début" — jamais "aujourd'hui" ni aucune date silencieusement
+ *  choisie : "À définir" tant qu'aucune date n'a été explicitement posée. */
+export function recurrenceStartDateLabel(date: LocalDate | null): string {
+  return date ? recurrenceDateLabel(date) : 'À définir';
+}
+
+/** Libellé de la ligne "Heure". */
+export function recurrenceTimeLabel(time: LocalTime | null): string {
+  return time ? `${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}` : 'À définir';
+}
+
+/** Libellé de la ligne "Répétition" — "À préciser" pour une récurrence 'unclear' non résolue OU un
+ *  'weekly' sans aucun jour encore coché (les deux sont des états "compris mais incomplets",
+ *  jamais un motif deviné à la place de l'utilisateur). */
+export function recurrenceFrequencyLabel(draft: RecurrenceDraft): string {
+  if (draft.frequency === null) return 'À préciser';
+  if (draft.frequency === 'daily') return 'Tous les jours';
+  if (draft.daysOfWeek.length === 0) return 'À préciser';
+  return FRENCH_WEEK_DISPLAY_ORDER.filter((d) => draft.daysOfWeek.includes(d))
+    .map((d) => WEEKDAY_SHORT_FR[d])
+    .join(', ');
+}
+
+/** Libellé de la ligne "Fin" — `null` = ligne à ne PAS afficher du tout ("Jamais" n'a pas de ligne
+ *  "Fin" propre, voir consigne explicite : "éventuellement Fin, uniquement lorsqu'une borne
+ *  existe"). Ne présuppose jamais laquelle des deux bornes prévaut : `RecurrenceDraft` garantit déjà
+ *  qu'au plus une seule est réellement éditée à la fois côté UI (voir setRecurrenceOccurrenceCount/
+ *  setRecurrenceUntilDate, à appeler en paire pour nettoyer l'autre borne). */
+export function recurrenceEndLabel(draft: RecurrenceDraft): string | null {
+  if (draft.occurrenceCount !== null) {
+    return draft.occurrenceCount === 1 ? 'Après 1 fois' : `Après ${draft.occurrenceCount} fois`;
+  }
+  if (draft.untilDate) return `Jusqu'au ${recurrenceDateLabel(draft.untilDate)}`;
+  return null;
 }
 
 /**
@@ -279,6 +436,20 @@ export function needsReview(card: CaptureCard): boolean {
  * - un rappel activé doit rester dans le futur (même règle que PenseeDetailScreen, `isFutureReminder`
  *   n'est pas réimportée ici pour rester indépendante de la date d'exécution du test — voir
  *   buildPenseeFromCard qui fait la même construction que l'écran de détail).
+ * - CHANTIER RAPPELS RÉCURRENTS, incrément 3 (2026-09-18) : une récurrence active applique une
+ *   cohérence STRICTE À L'ÉCRITURE, volontairement plus exigeante que reminderRecurrence.ts
+ *   (incrément 1), qui reste tolérant face à une donnée déjà existante — ici on écrit une donnée
+ *   NEUVE, toute pièce manquante ou incohérente bloque explicitement la sauvegarde plutôt que de
+ *   laisser une règle bancale être persistée :
+ *   - récurrence active → reminder actif (jamais l'un sans l'autre) ;
+ *   - date de première occurrence ET heure présentes ;
+ *   - fréquence choisie (jamais 'unclear' non résolu — voir toReminderRecurrenceRule) ;
+ *   - structure cohérente (weekly avec au moins un jour valide, occurrenceCount entier >=1 si
+ *     présent, untilDate calendaire valide si présente — délégué à normalizeReminderRecurrence) ;
+ *   - la date de première occurrence appartient RÉELLEMENT au motif choisi (ex. "weekly" sur un jour
+ *     qui n'en fait pas partie est invalide — vérifié via reminderRecurrenceMatchesDate,
+ *     reminderRecurrence.ts) ;
+ *   - untilDate (si présente) n'est jamais antérieure à la date de première occurrence.
  * Un proche ambigu laissé sur "Aucun" (contactId === null, choix explicite) NE bloque PAS —
  * uniquement signalé par `needsReview`.
  */
@@ -296,6 +467,20 @@ export function isCardValid(card: CaptureCard, now: Date = new Date()): boolean 
       0,
     );
     if (reminderInstant.getTime() <= now.getTime()) return false;
+  }
+  if (card.recurrenceDraft.enabled) {
+    if (!card.reminderEnabled) return false; // récurrence active → reminder actif, jamais l'un sans l'autre
+    // Redondant avec le bloc `reminderEnabled` ci-dessus EN PRATIQUE (déjà garanti si on atteint ce
+    // point), mais explicite ici pour que ce bloc reste correct par lui-même si l'ordre des
+    // vérifications venait à changer un jour.
+    if (!card.reminderDate || !card.reminderTime) return false;
+    const rule = toReminderRecurrenceRule(card.recurrenceDraft);
+    if (!rule) return false; // fréquence non choisie, ou structure incohérente
+    if (!reminderRecurrenceMatchesDate(rule, card.reminderDate)) return false; // la date de départ doit appartenir au motif
+    if (rule.untilDate) {
+      const startIso = isoOf(card.reminderDate.year, card.reminderDate.month, card.reminderDate.day);
+      if (rule.untilDate < startIso) return false; // une fin avant le départ n'a pas de sens
+    }
   }
   return true;
 }
@@ -316,7 +501,15 @@ export function canSaveAll(cards: CaptureCard[], now: Date = new Date()): boolea
  *  `event.hasDate=true` écrit désormais `Pensee.date` — `eventHint` porte cette date (voir
  *  buildCardFromExtracted). `event` et `reminder` restent deux notions totalement indépendantes :
  *  une pensée peut avoir une date d'événement, un rappel, les deux, ou ni l'un ni l'autre. Jamais
- *  d'`endDate` en Capture V1 (pas de notion de période entendue à l'oral). */
+ *  d'`endDate` en Capture V1 (pas de notion de période entendue à l'oral).
+ *
+ *  CHANTIER RAPPELS RÉCURRENTS, incrément 3 (2026-09-18) : `reminderAt` reste STRICTEMENT le même
+ *  calcul qu'avant (comportement historique inchangé pour un rappel ponctuel). `reminderRecurrence`
+ *  n'est ajouté à l'objet retourné QUE si une règle valide existe — jamais la clé présente à `null`
+ *  pour un rappel ponctuel, afin que sa forme reste identique à avant ce chantier. Cette fonction
+ *  suppose que la carte a déjà passé `isCardValid` (appelée par CaptureScreen.tsx avant sauvegarde) ;
+ *  si elle est appelée sur une carte incomplète malgré tout, `toReminderRecurrenceRule` renvoie
+ *  `null` plutôt que de construire une règle bancale — jamais un crash. */
 export function buildPenseeFromCard(card: CaptureCard): Omit<Pensee, 'id'> {
   const reminderAt =
     card.reminderEnabled && card.reminderDate && card.reminderTime
@@ -330,6 +523,7 @@ export function buildPenseeFromCard(card: CaptureCard): Omit<Pensee, 'id'> {
           0,
         ).toISOString()
       : null;
+  const reminderRecurrence = card.recurrenceDraft.enabled ? toReminderRecurrenceRule(card.recurrenceDraft) : null;
   return {
     texte: card.texte.trim(),
     contactId: card.contactId,
@@ -337,11 +531,64 @@ export function buildPenseeFromCard(card: CaptureCard): Omit<Pensee, 'id'> {
     createdAt: new Date().toISOString(),
     date: card.eventHint?.date ?? null,
     endDate: null,
+    // CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) : transfère `eventHint.time` UNIQUEMENT
+    // quand une date d'événement valide existe (`eventHint` est déjà `null` sinon, voir
+    // buildCardFromExtracted) — jamais copié depuis/vers `reminderAt`/`reminderTime` (deux notions
+    // strictement indépendantes, voir types.ts).
+    eventTime: card.eventHint?.time ?? null,
+    ...(reminderRecurrence ? { reminderRecurrence } : {}),
   };
 }
 
 function updateCard(cards: CaptureCard[], cardId: string, patch: Partial<CaptureCard>): CaptureCard[] {
   return cards.map((c) => (c.cardId === cardId ? { ...c, ...patch } : c));
+}
+
+function updateRecurrenceDraft(cards: CaptureCard[], cardId: string, patch: Partial<RecurrenceDraft>): CaptureCard[] {
+  return cards.map((c) => (c.cardId === cardId ? { ...c, recurrenceDraft: { ...c.recurrenceDraft, ...patch } } : c));
+}
+
+// --- CHANTIER RAPPELS RÉCURRENTS, incrément 3 (2026-09-18) — manipulations PURES du brouillon de
+// récurrence, préparées pour un futur écran (pas de composant visuel dans cet incrément). Chacune ne
+// touche QU'UNE SEULE carte, comme le reste des actions de ce fichier. ------------------------------
+
+/** Active/désactive la récurrence d'une carte. Désactiver remet le brouillon à
+ *  `DEFAULT_RECURRENCE_DRAFT` — "sans résidu de règle" (consigne explicite) : jamais un jour/une
+ *  borne qui resterait en mémoire, prêt à ressurgir si l'utilisateur réactive plus tard. Le rappel
+ *  ponctuel (reminderEnabled/reminderDate/reminderTime) n'est JAMAIS touché ici — désactiver la
+ *  récurrence ramène simplement la carte à un rappel classique, sans rien perdre d'autre. */
+export function toggleRecurrence(cards: CaptureCard[], cardId: string, enabled: boolean): CaptureCard[] {
+  if (!enabled) return updateCard(cards, cardId, { recurrenceDraft: DEFAULT_RECURRENCE_DRAFT });
+  return updateRecurrenceDraft(cards, cardId, { enabled: true });
+}
+
+/** Choisit 'daily'/'weekly' — sert AUSSI à résoudre une récurrence 'unclear' (même opération :
+ *  `frequency` passe de `null` à une valeur choisie explicitement par l'utilisateur, jamais devinée).
+ *  Changer de fréquence VIDE toujours `daysOfWeek` : un jour choisi pour 'weekly' n'a aucun sens pour
+ *  'daily', et repartir de zéro évite qu'un ancien choix ne resurgisse après un aller-retour entre
+ *  les deux fréquences. */
+export function setRecurrenceFrequency(cards: CaptureCard[], cardId: string, frequency: RecurrenceDraftFrequency): CaptureCard[] {
+  return updateRecurrenceDraft(cards, cardId, { frequency, daysOfWeek: [] });
+}
+
+/** Coche/décoche un jour pour une récurrence 'weekly' — sans effet si la fréquence actuelle n'est
+ *  pas 'weekly' (ex. 'daily', ou pas encore choisie), pour ne jamais construire un état incohérent. */
+export function toggleRecurrenceDay(cards: CaptureCard[], cardId: string, day: number): CaptureCard[] {
+  const card = cards.find((c) => c.cardId === cardId);
+  if (!card || card.recurrenceDraft.frequency !== 'weekly') return cards;
+  const has = card.recurrenceDraft.daysOfWeek.includes(day);
+  const daysOfWeek = has ? card.recurrenceDraft.daysOfWeek.filter((d) => d !== day) : [...card.recurrenceDraft.daysOfWeek, day];
+  return updateRecurrenceDraft(cards, cardId, { daysOfWeek });
+}
+
+/** Définit ou retire (`null`) le nombre d'occurrences. */
+export function setRecurrenceOccurrenceCount(cards: CaptureCard[], cardId: string, occurrenceCount: number | null): CaptureCard[] {
+  return updateRecurrenceDraft(cards, cardId, { occurrenceCount });
+}
+
+/** Définit ou retire (`null`) la date de fin. */
+export function setRecurrenceUntilDate(cards: CaptureCard[], cardId: string, untilDate: LocalDate | null): CaptureCard[] {
+  return updateRecurrenceDraft(cards, cardId, { untilDate });
 }
 
 export function discardCard(cards: CaptureCard[], cardId: string): CaptureCard[] {
@@ -364,9 +611,13 @@ export function markFailed(cards: CaptureCard[], cardId: string, error: string):
   return updateCard(cards, cardId, { status: 'failed', saveError: error });
 }
 
-/** Les 4 pickers natifs possibles dans la review Capture (CaptureScreen.tsx) : rappel iOS combiné
- *  (date+heure en un seul spinner), rappel Android en 2 champs séparés, et date d'événement. */
-export type PickerKind = 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'eventDate';
+/** Les pickers natifs possibles dans la review Capture (CaptureScreen.tsx) : rappel iOS combiné
+ *  (date+heure en un seul spinner), rappel Android en 2 champs séparés, événement iOS combiné
+ *  (`event` — CHANTIER UNIFICATION UX PICKERS iOS, incrément 5, 2026-09-18 : un seul contrôle
+ *  date+heure, mode "datetime" si une heure existe déjà, "date" sinon — ne jamais inventer une heure
+ *  silencieusement), et `eventDate`/`eventTime` Android séparés (aucun mode "datetime" natif Android
+ *  dans ce composant) — strictement indépendants de `reminderTime`. */
+export type PickerKind = 'reminderDate' | 'reminderTime' | 'reminderDateTime' | 'event' | 'eventDate' | 'eventTime';
 
 /** Carte + type de picker actuellement ouvert dans la review — `null` si aucun. Un seul picker
  *  actif à la fois par construction (une seule valeur possible pour tout l'écran). */
@@ -398,6 +649,24 @@ export function toggleEventDatePicker(current: OpenPicker, cardId: string): Open
   return toggleOpenPicker(current, cardId, 'eventDate');
 }
 
+/** Toggle du picker d'HEURE d'événement iOS/Android séparé (CHANTIER CAPTURE EVENT TIME, incrément 4,
+ *  2026-09-18) — conservé pour Android (voir `toggleEventPicker` ci-dessous pour le contrôle iOS
+ *  UNIFIÉ date+heure, incrément 5) et pour l'action secondaire "+ Ajouter une heure"/"Retirer
+ *  l'heure" partagée par les deux plateformes. Même règle que les autres, voir `toggleOpenPicker`. */
+export function toggleEventTimePicker(current: OpenPicker, cardId: string): OpenPicker {
+  return toggleOpenPicker(current, cardId, 'eventTime');
+}
+
+/**
+ * CHANTIER UNIFICATION UX PICKERS iOS, incrément 5 (2026-09-18) — toggle du contrôle ÉVÉNEMENT
+ * UNIQUE iOS (remplace les deux contrôles séparés `eventDate`/`eventTime` sur cette plateforme,
+ * voir `applyEventChange` ci-dessous pour la logique associée). Même règle que les autres, voir
+ * `toggleOpenPicker`.
+ */
+export function toggleEventPicker(current: OpenPicker, cardId: string): OpenPicker {
+  return toggleOpenPicker(current, cardId, 'event');
+}
+
 /**
  * Applique une date/heure de rappel choisie dans la roulette iOS à LA SEULE carte concernée
  * (`updateCard` ne touche jamais les autres, voir plus haut) — factorise exactement ce que fait
@@ -418,14 +687,66 @@ export function applyReminderDateTimeChange(cards: CaptureCard[], cardId: string
 /**
  * Applique une date d'événement choisie dans la roulette iOS à LA SEULE carte concernée — même
  * discipline que `applyReminderDateTimeChange` (2026-09-18) : ne ferme jamais le picker, ne touche
- * jamais les autres cartes. Conserve `heardExpression` déjà présent (trace d'affichage seulement,
- * jamais réinterprété) — seule `date` change.
+ * jamais les autres cartes. Conserve `heardExpression` ET `time` déjà présents — ce picker ne modifie
+ * QUE la date, jamais réinterprétés ici (voir `applyEventTimeChange` pour son symétrique heure,
+ * CHANTIER CAPTURE EVENT TIME incrément 4, 2026-09-18).
  */
 export function applyEventDateChange(cards: CaptureCard[], cardId: string, date: Date): CaptureCard[] {
   const parts = toLocalDateTimeParts(date);
   const iso = `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
   const card = cards.find((c) => c.cardId === cardId);
   return updateCard(cards, cardId, {
-    eventHint: { date: iso, heardExpression: card?.eventHint?.heardExpression ?? null },
+    eventHint: { date: iso, time: card?.eventHint?.time ?? null, heardExpression: card?.eventHint?.heardExpression ?? null },
   });
+}
+
+/**
+ * CHANTIER CAPTURE EVENT TIME, incrément 4 (2026-09-18) — symétrique de `applyEventDateChange` pour
+ * l'heure : applique une heure d'événement choisie dans la roulette à LA SEULE carte concernée,
+ * conserve `date`/`heardExpression` déjà présents. No-op strict si `eventHint` est `null` (aucune
+ * date d'événement — une heure sans date n'a pas de sens, voir types.ts/`Pensee.eventTime`) : ce cas
+ * ne devrait jamais survenir en pratique (le picker n'est rendu que si `eventHint.date` existe, voir
+ * CaptureScreen.tsx), mais reste géré ici plutôt que de supposer silencieusement sa présence.
+ * STRICTEMENT INDÉPENDANTE de `applyReminderDateTimeChange`/`reminderTime` — ne les touche jamais.
+ */
+export function applyEventTimeChange(cards: CaptureCard[], cardId: string, date: Date): CaptureCard[] {
+  const card = cards.find((c) => c.cardId === cardId);
+  if (!card?.eventHint) return cards;
+  const parts = toLocalDateTimeParts(date);
+  const time = `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
+  return updateCard(cards, cardId, { eventHint: { ...card.eventHint, time } });
+}
+
+/** Retire UNIQUEMENT l'heure d'événement d'une carte (conserve `date`/`heardExpression`) — le pendant
+ *  de `clearEventDate` (CaptureScreen.tsx, qui retire l'événement ENTIER) mais limité à l'heure seule.
+ *  No-op si `eventHint` est déjà `null`. */
+export function clearEventTime(cards: CaptureCard[], cardId: string): CaptureCard[] {
+  const card = cards.find((c) => c.cardId === cardId);
+  if (!card?.eventHint) return cards;
+  return updateCard(cards, cardId, { eventHint: { ...card.eventHint, time: null } });
+}
+
+/**
+ * CHANTIER UNIFICATION UX PICKERS iOS, incrément 5 (2026-09-18) — logique du contrôle ÉVÉNEMENT
+ * UNIQUE iOS : un seul appel gère À LA FOIS le cas "date seule" et "date+heure", SANS jamais inventer
+ * une heure. Le mode du picker (`date` vs `datetime`, décidé dans CaptureScreen.tsx à partir de
+ * `card.eventHint.time`) détermine ce qui doit être lu dans `date` :
+ * - si `eventHint.time` était `null` AVANT cet appel (picker en mode "date" — aucun cadran d'heure
+ *   visible), seule la partie DATE de `date` est exploitable (iOS ne modifie pas l'heure d'un
+ *   UIDatePicker en mode date-only, mais on ignore explicitement cette partie plutôt que de lui faire
+ *   confiance) — `time` reste `null`, jamais silencieusement réglé à "00:00" ou toute autre valeur.
+ * - si `eventHint.time` était déjà renseignée (picker en mode "datetime"), DATE et HEURE sont toutes
+ *   deux mises à jour depuis `date`.
+ * No-op strict si `eventHint` est `null` (aucun événement à modifier — le contrôle n'est rendu que si
+ * une date existe déjà, voir CaptureScreen.tsx ; pour AJOUTER un tout premier événement, voir
+ * `applyEventDateChange`, toujours utilisé pour ce cas précis).
+ */
+export function applyEventChange(cards: CaptureCard[], cardId: string, date: Date): CaptureCard[] {
+  const card = cards.find((c) => c.cardId === cardId);
+  if (!card?.eventHint) return cards;
+  const parts = toLocalDateTimeParts(date);
+  const iso = `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  const hadTime = card.eventHint.time !== null;
+  const time = hadTime ? `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}` : null;
+  return updateCard(cards, cardId, { eventHint: { date: iso, time, heardExpression: card.eventHint.heardExpression } });
 }

@@ -1,4 +1,13 @@
 import { CalEvent, Contact, FamilyRole, Pensee } from './types';
+// CHANTIER "persistance reminderRecurrence" (2026-09-18) — `addDays`/`isoOf` extraites vers
+// `dateLocal.ts` (module bas niveau, sans dépendance vers ce fichier ni vers reminderRecurrence.ts)
+// pour permettre à `normalizePensee` (plus bas) d'importer `normalizeReminderRecurrence` sans créer
+// de cycle (reminderRecurrence.ts importe aussi `dateLocal.ts`, jamais `calendar.ts`). Réexportées
+// ici TELLES QUELLES (même implémentation, aucune reformulation) pour que les nombreux consommateurs
+// existants qui les importent depuis `./calendar` n'aient rien à changer.
+import { addDays, isoOf, pad2 } from './dateLocal';
+import { normalizeReminderRecurrence } from './reminderRecurrence';
+export { addDays, isoOf } from './dateLocal';
 
 export const monthAbbrev = ['jan', 'fév', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
 export const monthFull = [
@@ -8,8 +17,6 @@ export const monthFull = [
 export const weekdayLabels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 export const weekdayFull = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
-const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-export const isoOf = (y: number, m: number, d: number) => `${y}-${pad2(m + 1)}-${pad2(d)}`;
 export const dIso = (d: Date) => isoOf(d.getFullYear(), d.getMonth(), d.getDate());
 /** 'YYYY-MM-DD' → "12 sept." */
 export function frDate(iso: string) {
@@ -28,11 +35,6 @@ export function sameDate(a: Date, b: Date) {
 }
 export function isPastDate(y: number, m: number, d: number, today: Date) {
   return new Date(y, m, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
-}
-export function addDays(date: Date, n: number) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
 }
 export function mondayOf(date: Date) {
   const d = new Date(date);
@@ -363,6 +365,32 @@ function legacyReminderAt(raw: { date?: string | null; remind?: string; customOf
   return target.toISOString();
 }
 
+// CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18). Deux fonctions PURES et testables (aucune
+// dépendance react-native/Supabase) :
+const EVENT_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** Normalisation canonique de `Pensee.eventTime` — format strict "HH:mm", jamais une autre valeur
+ *  "corrigée" silencieusement. Réutilisée pour une pensée chargée du cache local (AsyncStorage, voir
+ *  normalizePensee ci-dessous) ET pour une ligne Supabase déjà adaptée par `postgresTimeToEventTime`
+ *  (voir supabaseRepo.ts) — même discipline que `normalizeTimeString` côté backend Capture
+ *  (validate.ts) : invalide/absent → `null`, jamais inventé. */
+export function normalizeEventTime(value: unknown): string | null {
+  return typeof value === 'string' && EVENT_TIME_PATTERN.test(value) ? value : null;
+}
+
+/** Adapte le format renvoyé par PostgREST pour une colonne Postgres `time` ("HH:mm:ss", parfois avec
+ *  microsecondes/fuseau selon la version) vers le format canonique client "HH:mm" — PURE, aucune
+ *  dépendance réseau. `null`/`undefined`/format inattendu → `null`, jamais une heure tronquée au
+ *  hasard ni inventée. Volontairement séparée de `normalizeEventTime` (qui, elle, REJETTE
+ *  "20:30:00" — un format déjà canonique client ne devrait jamais avoir besoin d'être tronqué) : ce
+ *  n'est qu'une étape d'ADAPTATION de format avant la validation stricte, pas une validation
+ *  elle-même — voir rowToPensee, supabaseRepo.ts, qui compose les deux. */
+export function postgresTimeToEventTime(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)/.exec(value);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
 /**
  * Comble les champs absents sur une pensée créée avant CHANTIER PENSÉES V2 (ancien cache
  * AsyncStorage, ou ligne Supabase pas encore migrée) — SEUL endroit du code qui doit connaître
@@ -384,6 +412,18 @@ export function normalizePensee(raw: any): Pensee {
     // CHANTIER PENSÉES V3 — jamais inventé pour une pensée plus ancienne qui ne connaît pas encore
     // ce champ : absent/`undefined` normalisé à `false` (comportement identique à avant son ajout).
     pinned: raw.pinned ?? false,
+    // CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) : absent/legacy/invalide → null, jamais
+    // inventé ni "corrigé" silencieusement (voir normalizeEventTime ci-dessous).
+    eventTime: normalizeEventTime(raw.eventTime),
+    // CHANTIER "persistance reminderRecurrence" (2026-09-18) — CORRECTIF : `normalizePensee` devient
+    // le point UNIQUE de normalisation d'une pensée, y compris pour ce champ (jusqu'ici silencieusement
+    // perdu à chaque lecture du cache local, voir l'audit précédent). Réutilise STRICTEMENT
+    // `normalizeReminderRecurrence` (reminderRecurrence.ts, incrément 1) — aucune duplication de sa
+    // validation "tout ou rien" (une règle incohérente à N'IMPORTE quel titre → `null` en bloc, jamais
+    // une réparation partielle). `undefined`/`null`/JSON invalide/fréquence invalide/daysOfWeek
+    // invalides/occurrenceCount invalide/untilDate invalide sont TOUS déjà traités par cette fonction
+    // et retombent uniformément sur `null` — même comportement legacy qu'avant l'ajout de ce champ.
+    reminderRecurrence: normalizeReminderRecurrence(raw.reminderRecurrence),
   };
 }
 
@@ -438,9 +478,16 @@ export function getDayEvents(
         : p.reminderAt
         ? `Pensée · rappel ${reminderAtLabel(p.reminderAt, iso)}`
         : 'Pensée';
+      // CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) — `eventTime` n'a de sens que pour
+      // l'ancre RÉELLE de l'événement (`p.date`), jamais pour le fallback `reminderAt` de
+      // `penseeAnchor` (deux notions indépendantes, voir types.ts) : `p.date` garanti par
+      // construction dès que `p.eventTime` est renseigné (buildPenseeFromCard/PenseeDetailScreen),
+      // vérifié ici explicitement plutôt que supposé. Seul point de rendu modifié pour cet incrément
+      // — EventRow (components/) affiche `label` tel quel, aucun redesign nécessaire.
+      const timePrefix = p.date && p.eventTime ? `${p.eventTime} · ` : '';
       list.push({
         type: 'pensee',
-        label: p.texte,
+        label: `${timePrefix}${p.texte}`,
         kind: `${periodLabel}${extra}`,
         contactId: p.contactId,
         penseeId: p.id,

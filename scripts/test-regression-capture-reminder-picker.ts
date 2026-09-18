@@ -9,6 +9,7 @@
 import { ContactMatchResult } from '../src/data/contactMatching';
 import {
   CaptureCard,
+  DEFAULT_RECURRENCE_DRAFT,
   OpenPicker,
   applyReminderDateTimeChange,
   toggleReminderDateTimePicker,
@@ -38,6 +39,7 @@ function makeCard(cardId: string): CaptureCard {
     reminderEnabled: true,
     reminderDate: null,
     reminderTime: null,
+    recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
     confidence: 0.9,
     status: 'pending',
     saveError: null,

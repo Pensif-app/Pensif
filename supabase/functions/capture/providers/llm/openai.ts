@@ -47,7 +47,11 @@ export const PENSEE_JSON_SCHEMA = {
         items: {
           type: 'object',
           properties: {
-            texte: { type: 'string', description: 'Contenu de la pensée, tel quel.' },
+            texte: {
+              type: 'string',
+              description:
+                'Contenu SÉMANTIQUE de la pensée. Si reminder.hasReminder=true, retire le verbe/la locution adressée à Pensif ("Rappelle-moi", "Pense à"...) et la date/heure/récurrence du rappel UNIQUEMENT quand leur rattachement au rappel est certain (elles restent de toute façon dans "reminder"). Si event.hasDate=true, retire de même la date de l’événement UNIQUEMENT si son rattachement est certain, et son heure UNIQUEMENT si elle a été correctement extraite dans event.time — sinon (heure non extraite, rattachement douteux) ne retire rien. En cas de doute sur le rattachement d’une expression temporelle, conserve-la dans "texte" — une information sans destination structurée ne doit jamais disparaître. Si ni reminder.hasReminder ni event.hasDate ne sont vrais, "texte" reste tel quel, inchangé.',
+            },
             heardContactName: {
               type: ['string', 'null'],
               description:
@@ -65,10 +69,15 @@ export const PENSEE_JSON_SCHEMA = {
                   type: ['string', 'null'],
                   description: '"YYYY-MM-DD" si hasDate=true, sinon null. Jamais la date actuelle du contexte si aucune date n’a été dite.',
                 },
+                time: {
+                  type: ['string', 'null'],
+                  description:
+                    '"HH:mm" (24h) UNIQUEMENT si une heure appartient explicitement à CET événement, sinon null — jamais inventée. STRICTEMENT INDÉPENDANT de reminder.time : ne copie jamais l’heure de l’un vers l’autre, même si une seule heure est prononcée dans toute la dictée.',
+                },
                 heardExpression: { type: ['string', 'null'] },
                 confidence: { type: 'number' },
               },
-              required: ['hasDate', 'date', 'heardExpression', 'confidence'],
+              required: ['hasDate', 'date', 'time', 'heardExpression', 'confidence'],
               additionalProperties: false,
             },
             reminder: {
@@ -81,17 +90,51 @@ export const PENSEE_JSON_SCHEMA = {
                 date: {
                   type: ['string', 'null'],
                   description:
-                    '"YYYY-MM-DD" si une date a été explicitement dite (ou une expression relative résolue), sinon null. NE JAMAIS recopier la date actuelle du contexte comme valeur par défaut.',
+                    '"YYYY-MM-DD" si une date a été explicitement dite (ou une expression relative résolue), sinon null. Pour une récurrence, la date de la PREMIÈRE occurrence UNIQUEMENT si elle est explicitement déterminable (ex. "à partir de demain", "chaque lundi") — sinon null, jamais "aujourd\'hui" choisi arbitrairement juste parce qu\'une règle "daily" existe. NE JAMAIS recopier la date actuelle du contexte comme valeur par défaut.',
                 },
                 time: {
                   type: ['string', 'null'],
                   description:
-                    '"HH:mm" (24h) SEULEMENT si une heure a été explicitement dite, sinon null. NE JAMAIS recopier l’heure actuelle du contexte, et jamais une heure par défaut comme "09:00".',
+                    '"HH:mm" (24h) SEULEMENT si une heure a été explicitement dite, sinon null. NE JAMAIS recopier l’heure actuelle du contexte, et jamais une heure par défaut comme "09:00" — même pour une récurrence.',
                 },
                 heardExpression: { type: ['string', 'null'] },
                 confidence: { type: 'number' },
+                recurrence: {
+                  type: ['object', 'null'],
+                  description:
+                    'null SAUF si une répétition est EXPLICITEMENT exprimée ("tous les jours", "chaque lundi"...) — jamais déduit de deux dates/jours isolés mentionnés dans la même phrase.',
+                  properties: {
+                    detected: { type: 'boolean' },
+                    frequency: {
+                      type: 'string',
+                      enum: ['daily', 'weekly', 'unclear'],
+                      description:
+                        '"unclear" si la répétition est certaine mais que sa PORTÉE (jours exacts, fin) ne l’est pas — ex. "tous les jours de la semaine" (7j/7 ? lundi-vendredi ? jusqu’à la fin de la semaine ?). Ne choisis jamais entre les interprétations possibles.',
+                    },
+                    daysOfWeek: {
+                      type: ['array', 'null'],
+                      items: { type: 'integer', minimum: 0, maximum: 6 },
+                      description:
+                        '0=dimanche..6=samedi. Tableau vide [] pour "daily" (implicite), null pour "unclear" (portée non déterminable), jours EXACTS et UNIQUES explicitement entendus pour "weekly".',
+                    },
+                    occurrenceCount: {
+                      type: ['integer', 'null'],
+                      description: 'Nombre total d’occurrences si explicitement donné ("pendant 5 jours"), sinon null — jamais inventé.',
+                    },
+                    untilDate: {
+                      type: ['string', 'null'],
+                      description: '"YYYY-MM-DD" si une date de fin est explicitement donnée, sinon null — jamais inventée.',
+                    },
+                    heardExpression: {
+                      type: ['string', 'null'],
+                      description: 'OBLIGATOIRE et non vide dès que detected=true — l’expression de récurrence entendue, TELLE QUELLE.',
+                    },
+                  },
+                  required: ['detected', 'frequency', 'daysOfWeek', 'occurrenceCount', 'untilDate', 'heardExpression'],
+                  additionalProperties: false,
+                },
               },
-              required: ['hasReminder', 'date', 'time', 'heardExpression', 'confidence'],
+              required: ['hasReminder', 'date', 'time', 'heardExpression', 'confidence', 'recurrence'],
               additionalProperties: false,
             },
             confidence: { type: 'number' },
@@ -113,20 +156,40 @@ export const PENSEE_JSON_SCHEMA = {
  *  que d'appliquer une règle générale). */
 export const OPENAI_REINFORCEMENT_SYSTEM_PROMPT = `Applique ces règles de façon GÉNÉRALE, quelle que soit la formulation exacte de la dictée — ce sont des règles, pas des réponses à mémoriser :
 
-1. SPLIT — Si la dictée contient plusieurs informations ou intentions distinctes et séparables (par exemple un fait/goût sur quelqu'un ET une demande de rappel, ou plusieurs faits indépendants reliés par "et"), retourne une entrée dans "pensees" SÉPARÉE pour chacune. Ne fusionne jamais deux intentions différentes dans une seule entrée.
+1. SPLIT — Si la dictée contient plusieurs informations ou intentions SÉMANTIQUEMENT INDÉPENDANTES et séparables (par exemple un fait/goût sur quelqu'un ET une demande de rappel sans lien, ou plusieurs actions différentes reliées par "et"), retourne une entrée dans "pensees" SÉPARÉE pour chacune. Ne fusionne jamais deux intentions différentes dans une seule entrée.
    Exemple : "Léa adore la randonnée et rappelle-moi de l'appeler mardi à 17h" → DEUX pensées : une sur le goût de Léa (event.hasDate=false, reminder.hasReminder=false), une avec reminder.hasReminder=true, reminder.date=mardi résolu, reminder.time="17:00".
+   INTERDIT — ne crée JAMAIS plusieurs pensées pour représenter plusieurs INTERPRÉTATIONS possibles d'une seule et même expression ambiguë (par exemple une date qui pourrait se rattacher soit au rappel, soit au contenu). Une ambiguïté reste une seule pensée, jamais deux hypothèses concurrentes.
+   Exemple : "Rappelle-moi d'acheter des fleurs pour l'anniversaire de Tom samedi" → UNE seule pensée, même si "samedi" pourrait être la date du rappel ou celle de l'anniversaire de Tom — ne fabrique jamais deux pensées pour représenter ces deux hypothèses (voir règle 2 pour le traitement de "texte" dans ce cas).
 
-2. EVENT ≠ REMINDER — Une date mentionnée à propos d'un fait ou d'un événement RÉEL vécu par quelqu'un (rendez-vous, entretien, examen, anniversaire, permis...) doit être capturée dans "event" (hasDate=true, date résolue), MÊME SI aucun rappel n'est demandé. Ne mets reminder.hasReminder=true QUE si l'utilisateur exprime explicitement vouloir être notifié/rappelé — jamais déduit automatiquement d'une date d'événement.
+2. TEXTE CONCIS, PAS UNE COMMANDE NI UNE RÉPÉTITION DE MÉTADONNÉES — "texte" doit contenir le contenu SÉMANTIQUE utile, pas la formulation servant à programmer le rappel, ni une date/heure déjà portée ailleurs par la structure. Quand reminder.hasReminder=true, retire de "texte" le verbe/la locution adressée à Pensif ("Rappelle-moi", "Pense à", "N'oublie pas de"...) ainsi que la date/l'heure/la récurrence du rappel — mais UNIQUEMENT quand leur rattachement au déclenchement du rappel (et non au contenu lui-même) est certain. Ces informations restent de toute façon dans "reminder"/"reminder.recurrence", jamais perdues.
+   ÉVÉNEMENTS — MÊME logique pour "event" : quand event.hasDate=true, retire de "texte" la date de l'événement UNIQUEMENT si son rattachement à CET événement est certain, et son heure UNIQUEMENT si elle a été correctement extraite dans event.time. Si aucune heure d'événement n'a pu être extraite avec certitude, NE RETIRE RIEN — une information temporelle sans destination structurée (ni event.date/event.time, ni reminder.date/reminder.time) ne doit JAMAIS disparaître de "texte". Si la dictée produit plusieurs pensées (règle 1), applique cette règle INDÉPENDAMMENT à CHACUNE : une expression temporelle n'est retirable du "texte" d'une pensée que si CETTE pensée porte elle-même la structure qui la représente — jamais parce qu'une AUTRE pensée du lot la représente déjà.
+   En cas de doute sur le rattachement d'une expression temporelle (paramètre du rappel/événement vs. contenu), NE LA RETIRE PAS de "texte" — une redondance vaut toujours mieux qu'une perte d'information. Quand ni reminder.hasReminder ni event.hasDate ne sont vrais, "texte" reste tel quel, sans raccourcissement.
+   Exemple : "Pense à arroser les plantes tous les mardis à 8h" → "texte":"Arroser les plantes" (verbe + heure + récurrence certainement rattachés au rappel, retirés).
+   Exemple : "Rappelle-moi demain de demander à Sami s'il est disponible jeudi" → "texte":"Demander à Sami s'il est disponible jeudi" (reminder.date="demain" retiré ; "jeudi" appartient à la question posée à Sami, conservé).
+   Exemple : "Rappelle-moi d'acheter des fleurs pour l'anniversaire de Tom samedi" → "texte":"Acheter des fleurs pour l'anniversaire de Tom samedi" (le verbe déclencheur est retiré avec certitude ; "samedi" reste car son rattachement — rappel ou anniversaire — est ambigu).
+   Exemple : "Nadia a un entretien jeudi" → "texte" inchangé, aucun verbe déclencheur de rappel présent, "jeudi" seulement représenté par event.date (rien d'autre à retirer, aucune heure dans la dictée).
+   Exemple : "Spectacle de Lumen Fracture à Nantes le 3 avril 2027 à 21h30" (aucun rappel) → "texte":"Spectacle de Lumen Fracture à Nantes" (date ET heure certainement rattachées à cet unique événement, toutes deux extraites dans event.date/event.time).
+   Exemple : "J'ai un match samedi à 15h. Préviens-moi la veille à 10h." → "texte":"Match" (date+heure de l'événement ET date+heure du rappel toutes deux extraites séparément avec certitude, chacune dans sa propre structure).
+
+3. EVENT ≠ REMINDER — Une date mentionnée à propos d'un fait ou d'un événement RÉEL vécu par quelqu'un (rendez-vous, entretien, examen, anniversaire, permis...) doit être capturée dans "event" (hasDate=true, date résolue), MÊME SI aucun rappel n'est demandé. Ne mets reminder.hasReminder=true QUE si l'utilisateur exprime explicitement vouloir être notifié/rappelé — jamais déduit automatiquement d'une date d'événement.
    Exemple : "Paul passe son permis mardi" → event.hasDate=true avec la date de mardi résolue ; reminder.hasReminder=false.
+   EVENT.TIME ≠ REMINDER.TIME — même discipline que ci-dessus, appliquée à l'heure : "event.time" reçoit une heure UNIQUEMENT quand elle appartient explicitement à CET événement (jamais inventée, même règle que reminder.time, règle 5). "event.time" et "reminder.time" sont deux champs STRICTEMENT INDÉPENDANTS — ne copie JAMAIS l'heure de l'un vers l'autre, même quand une seule heure est prononcée dans toute la dictée et que l'autre champ en semble "orphelin".
+   Exemple : "Réunion jeudi à 14h, préviens-moi la veille de préparer les documents" (aucune heure de rappel dite) → event.time="14:00" (heure de la réunion), reminder.time=null (ne recopie jamais 14h ici).
+   Exemple : "Bus dimanche à 9h05, rappelle-moi samedi à 19h de faire mon sac" → event.time="09:05" (heure du bus), reminder.time="19:00" (heure du rappel) — deux heures distinctes dans la même dictée, chacune rattachée à sa propre notion.
 
-3. RÉSOLUTION D'UN JOUR DE SEMAINE NOMMÉ — Pour "lundi", "mardi", ..., "dimanche" : résous vers la PROCHAINE occurrence de ce jour, EN COMPTANT AUJOURD'HUI si le jour actuel donné dans le contexte correspond exactement à ce nom. N'ajoute PAS une semaine par défaut par prudence. N'ajoute une semaine que si "prochain"/"prochaine" est dit explicitement (ex. "mardi prochain").
+4. RÉSOLUTION D'UN JOUR DE SEMAINE NOMMÉ — Pour "lundi", "mardi", ..., "dimanche" : résous vers la PROCHAINE occurrence de ce jour, EN COMPTANT AUJOURD'HUI si le jour actuel donné dans le contexte correspond exactement à ce nom. N'ajoute PAS une semaine par défaut par prudence. N'ajoute une semaine que si "prochain"/"prochaine" est dit explicitement (ex. "mardi prochain").
 
-4. NE JAMAIS RECOPIER LE CONTEXTE COMME VALEUR PAR DÉFAUT — Le contexte temporel (date/heure actuelle) sert UNIQUEMENT à calculer une date relative EXPLICITEMENT mentionnée ("demain", "dans 3 jours", "mardi"...). Si l'utilisateur exprime un rappel SANS dire aucune date ni heure, "date" ET "time" du reminder doivent être null tous les deux — ne mets JAMAIS la date ou l'heure actuelle du contexte à la place d'une valeur absente, et n'invente jamais une heure comme "09:00".
+5. NE JAMAIS RECOPIER LE CONTEXTE COMME VALEUR PAR DÉFAUT — Le contexte temporel (date/heure actuelle) sert UNIQUEMENT à calculer une date relative EXPLICITEMENT mentionnée ("demain", "dans 3 jours", "mardi"...). Si l'utilisateur exprime un rappel SANS dire aucune date ni heure, "date" ET "time" du reminder doivent être null tous les deux — ne mets JAMAIS la date ou l'heure actuelle du contexte à la place d'une valeur absente, et n'invente jamais une heure comme "09:00".
    Exemple : "Rappelle-moi d'écrire à Paul" (rien d'autre n'est dit) → reminder.hasReminder=true, reminder.date=null, reminder.time=null.
 
-5. DATE + HEURE ENSEMBLE — Si une expression de rappel contient à la fois une date/un jour ET une heure, conserve les deux dans reminder (ne perds ni l'une ni l'autre).
+6. DATE + HEURE ENSEMBLE — Si une expression de rappel contient à la fois une date/un jour ET une heure, conserve les deux dans reminder (ne perds ni l'une ni l'autre).
 
-6. PRÉNOM ENTENDU — Dès qu'un prénom de personne est prononcé dans la dictée, quel que soit le type de phrase (simple fait, goût, événement, rappel), reporte-le dans "heardContactName" tel qu'entendu. Ne le laisse à null que si aucun prénom n'est prononcé dans la dictée.
+7. PRÉNOM ENTENDU — Dès qu'un prénom de personne est prononcé dans la dictée, quel que soit le type de phrase (simple fait, goût, événement, rappel), reporte-le dans "heardContactName" tel qu'entendu. Ne le laisse à null que si aucun prénom n'est prononcé dans la dictée.
+
+8. RÉCURRENCE (reminder.recurrence) — null SAUF si une répétition est EXPLICITEMENT exprimée ("tous les jours", "chaque lundi", "du lundi au vendredi"...). Ne déduis JAMAIS une récurrence de deux jours/dates isolés simplement mentionnés dans la même phrase. Si la répétition est certaine mais que sa PORTÉE exacte (quels jours, jusqu'à quand) est ambiguë, mets frequency="unclear", daysOfWeek=null, occurrenceCount=null, untilDate=null — ne choisis JAMAIS entre plusieurs interprétations possibles, et reporte l'expression entendue telle quelle dans recurrence.heardExpression (jamais vide dès que detected=true).
+   Exemple : "Rappelle-moi tous les jours de la semaine à 21h40 de faire mes exercices" → frequency="unclear", heardExpression="tous les jours de la semaine" (jamais 7j/7 ni lundi-vendredi choisi arbitrairement).
+   Exemple : "Rappelle-moi chaque lundi à 18h d'appeler Léa" → frequency="weekly", daysOfWeek=[1], heardExpression="chaque lundi".
+   reminder.date reste la date de la PREMIÈRE occurrence, mais UNIQUEMENT si elle est EXPLICITEMENT déterminable — jamais "aujourd'hui" choisi arbitrairement juste parce qu'une règle "daily" existe. "tous les jours à 21h40" seul → date=null. "tous les jours pendant 5 jours à 21h40" (durée seule, aucun point de départ dit) → date=null. "tous les jours à partir de demain à 21h40" → date=demain. "chaque lundi à 18h" → date=la prochaine occurrence de lundi. "du lundi au vendredi à 8h" → date=la prochaine date appartenant au motif lundi-vendredi. reminder.time reste null si aucune heure n'est explicitement dite, même pour une récurrence.
 
 Règle générale : n'invente JAMAIS une information absente (date, heure, prénom) — une absence reste une absence (null), jamais une valeur par défaut ou une valeur copiée du contexte.`;
 

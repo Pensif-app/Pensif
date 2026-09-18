@@ -10,6 +10,7 @@ import { ContactMatchResult } from '../src/data/contactMatching';
 import { Contact } from '../src/data/types';
 import {
   CaptureCard,
+  DEFAULT_RECURRENCE_DRAFT,
   buildInitialCards,
   buildPenseeFromCard,
   canSaveAll,
@@ -114,6 +115,7 @@ console.log('\n[carte invalide] reminder activé mais date manquante → invalid
     reminderEnabled: true,
     reminderDate: null,
     reminderTime: { hour: 9, minute: 0 },
+    recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
     confidence: 0.9,
     status: 'pending',
     saveError: null,
@@ -158,6 +160,7 @@ console.log('\n["Tout enregistrer"] activé seulement si toutes les cartes pendi
     reminderEnabled: false,
     reminderDate: null,
     reminderTime: null,
+    recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
     confidence: 0.9,
     status: 'pending',
     saveError: null,
@@ -187,6 +190,7 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       reminderEnabled: false,
       reminderDate: null,
       reminderTime: null,
+      recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
       confidence: 0.9,
       status: 'pending',
       saveError: null,
@@ -203,6 +207,7 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
       reminderEnabled: false,
       reminderDate: null,
       reminderTime: null,
+      recurrenceDraft: DEFAULT_RECURRENCE_DRAFT,
       confidence: 0.9,
       status: 'pending',
       saveError: null,
@@ -222,8 +227,8 @@ console.log('\n[échec isolé] un échec de sauvegarde ne masque pas l’erreur 
 console.log('\n[discardCard] supprime uniquement la carte visée');
 {
   const cards: CaptureCard[] = [
-    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
-    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, confidence: 1, status: 'pending', saveError: null },
+    { cardId: 'x', texte: 'X', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null },
+    { cardId: 'y', texte: 'Y', contactId: null, contactMatch: { kind: 'none' }, heardContactName: null, currentContactNameInText: null, originalContactMatchKind: 'none', eventHint: null, reminderEnabled: false, reminderDate: null, reminderTime: null, recurrenceDraft: DEFAULT_RECURRENCE_DRAFT, confidence: 1, status: 'pending', saveError: null },
   ];
   const next = discardCard(cards, 'x');
   check('carte x retirée', !next.some((c) => c.cardId === 'x'));

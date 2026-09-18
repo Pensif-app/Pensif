@@ -13,7 +13,7 @@ export const mockLlmProvider: LlmProvider = {
         {
           texte: transcript,
           heardContactName: null,
-          event: { hasDate: false, date: null, heardExpression: null, confidence: 1 },
+          event: { hasDate: false, date: null, time: null, heardExpression: null, confidence: 1 },
           reminder: { hasReminder: false, date: null, time: null, heardExpression: null, confidence: 1 },
           confidence: 1,
         },

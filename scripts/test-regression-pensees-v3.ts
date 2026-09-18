@@ -224,7 +224,10 @@ console.log('\n[§F] Vérification du câblage réel des écrans (lecture de cod
   console.log('  [PenseeDetailScreen.tsx]');
   check('icône épingler/désépingler dans le header (comme le favori de FicheScreen)', /Ionicons name={pinned \? 'pin' : 'pin-outline'}/.test(penseeDetailSrc));
   check('appui long/sélection multiple non touchés par ce chantier (aucune mention dans ce fichier)', !/selectionMode|onLongPress/.test(penseeDetailSrc));
-  check('pinned inclus dans la mise à jour d’une pensée existante', /endDate: eventDate \? existing\.endDate \?\? null : null,\s*pinned,/.test(penseeDetailSrc));
+  check(
+    'pinned inclus dans la mise à jour d’une pensée existante',
+    /endDate: eventDate \? existing\.endDate \?\? null : null,[\s\S]{0,800}pinned,/.test(penseeDetailSrc),
+  );
   check('pinned inclus dans la création d’une nouvelle pensée', /addPensee\(\{\s*texte: texte\.trim\(\),\s*contactId,\s*pinned,/.test(penseeDetailSrc));
 
   console.log('  [MemorizedPenseesScreen.tsx]');

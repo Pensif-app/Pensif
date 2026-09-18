@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { Contact, Pensee } from '../data/types';
 import { seedContacts, seedPensees } from '../data/seed';
-import { normalizePensee, occurrenceYear } from '../data/calendar';
+import { normalizePensee, occurrenceYear, postgresTimeToEventTime } from '../data/calendar';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
 
@@ -72,6 +72,20 @@ function rowToPensee(row: any): Pensee {
     // CHANTIER PENSÉES V3 — colonne absente (migration pas encore appliquée) → false via Boolean(),
     // même discipline que `favorite`/`gift_sent` sur les contacts (rowToContact ci-dessus).
     pinned: Boolean(row.pinned),
+    // CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18). `event_time` (colonne Postgres `time`)
+    // revient de PostgREST au format "HH:mm:ss" — postgresTimeToEventTime l'adapte au format
+    // canonique client "HH:mm" AVANT normalizePensee (qui, elle, valide strictement ce format et ne
+    // fait aucune adaptation). Colonne absente (migration pas encore appliquée) ou NULL → `undefined`/
+    // `null`, les deux traités identiquement par postgresTimeToEventTime (→ null), aucune dérivation
+    // legacy nécessaire ici (contrairement à reminder_at) : ce champ n'a jamais existé sous une autre
+    // forme.
+    eventTime: postgresTimeToEventTime(row.event_time),
+    // CHANTIER "persistance reminderRecurrence" (2026-09-18) — CORRECTIF. `reminder_recurrence` est
+    // une colonne `jsonb` : PostgREST la désérialise déjà en objet JS, transmise TELLE QUELLE (jamais
+    // de JSON.parse manuel) — normalizePensee applique ensuite normalizeReminderRecurrence dessus
+    // (même validation stricte "tout ou rien" que pour toute autre source, colonne absente/NULL/JSON
+    // structurellement invalide retombent tous uniformément sur `null`).
+    reminderRecurrence: row.reminder_recurrence ?? null,
   });
 }
 
@@ -243,6 +257,14 @@ export async function insertPenseeRemote(userId: string, pensee: Pensee): Promis
       contact_id: pensee.contactId,
       created_at: pensee.createdAt,
       pinned: pensee.pinned ?? false,
+      // CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) — format client "HH:mm" envoyé tel
+      // quel : Postgres (colonne `time`) l'accepte directement, aucune adaptation nécessaire en
+      // écriture (voir rowToPensee pour l'adaptation symétrique en lecture).
+      event_time: pensee.eventTime ?? null,
+      // CHANTIER "persistance reminderRecurrence" (2026-09-18) — CORRECTIF. Objet JS envoyé TEL QUEL
+      // à une colonne `jsonb` (aucune sérialisation JSON manuelle — supabase-js s'en charge) ; `null`
+      // pour une pensée sans récurrence, même convention que tous les autres champs nullable ci-dessus.
+      reminder_recurrence: pensee.reminderRecurrence ?? null,
     })
     .select()
     .single();
@@ -267,6 +289,8 @@ export async function updatePenseeRemote(pensee: Pensee): Promise<void> {
       reminder_at: pensee.reminderAt ?? null,
       contact_id: pensee.contactId,
       pinned: pensee.pinned ?? false,
+      event_time: pensee.eventTime ?? null,
+      reminder_recurrence: pensee.reminderRecurrence ?? null,
     })
     .eq('id', pensee.id);
   if (error) throw error;

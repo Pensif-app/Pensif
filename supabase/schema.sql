@@ -53,6 +53,32 @@
 -- produit explicite : mesurer coût/usage réel avant d'en fixer un. Si ta base existe déjà, exécute
 -- simplement le bloc `message_suggestion_events` / `register_message_suggestion_usage` plus bas
 -- (idempotent, comme le bloc `capture_events`).
+--
+-- CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) — PRÉPARÉ, PAS ENCORE EXÉCUTÉ : ajoute
+-- l'heure structurée d'un événement (`Pensee.eventTime`, 'HH:mm'), STRICTEMENT INDÉPENDANTE de
+-- `reminder_at`. Type `time` (pas `text`) choisi délibérément : la colonne ne porte jamais de
+-- fuseau/date, une validation de format serait de toute façon nécessaire côté client pour le format
+-- d'ENTRÉE `text` libre, alors que `time` la fait faire par Postgres lui-même et reste triable/
+-- comparable nativement si un futur usage en a besoin (aucun avantage à `text` ici, contrairement à
+-- `quiz`/`remind_offset` qui portaient une structure ou un vocabulaire propre à l'app). PostgREST
+-- renvoie une colonne `time` au format "HH:mm:ss" — voir `postgresTimeToEventTime`,
+-- src/data/calendar.ts, pour l'adaptation vers le format canonique client "HH:mm" (aucune conversion
+-- nécessaire en écriture, Postgres accepte "HH:mm" en entrée). Nullable, additive, colonne absente ou
+-- NULL sur une ligne existante → `eventTime: null` (comportement identique à avant son ajout) :
+--   alter table pensees add column if not exists event_time time;
+--
+-- CORRECTIF "persistance reminderRecurrence" (2026-09-18) — PRÉPARÉ, PAS ENCORE EXÉCUTÉ : gap
+-- découvert par audit — `Pensee.reminderRecurrence` (CHANTIER RAPPELS RÉCURRENTS, incrément 1) n'a
+-- jamais eu de colonne Supabase, et `normalizePensee` (calendar.ts) le perdait silencieusement à
+-- chaque lecture du cache local (une pensée récurrente créée offline puis synchronisée puis relancée
+-- perdait sa règle sans erreur visible). Type `jsonb` (pas `time`/`text`) : la règle est déjà un
+-- objet structuré (`{frequency, daysOfWeek, occurrenceCount, untilDate}`) amené à évoluer, exactement
+-- le même besoin que `contacts.quiz jsonb` déjà en place — `supabase-js` sérialise/désérialise un
+-- `jsonb` automatiquement, aucune adaptation de format nécessaire (contrairement à `event_time`).
+-- Nullable, additive, colonne absente ou NULL sur une ligne existante → `reminderRecurrence: null`
+-- (comportement identique à avant son ajout, voir normalizeReminderRecurrence, reminderRecurrence.ts) :
+--   alter table pensees
+--   add column if not exists reminder_recurrence jsonb;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -95,7 +121,14 @@ create table if not exists pensees (
   created_at timestamptz default now(),
   -- CHANTIER PENSÉES V3 — épingle une pensée en haut de l'écran Pensées, purement organisationnel :
   -- ne modifie jamais date_evenement/end_date/reminder_at.
-  pinned boolean default false
+  pinned boolean default false,
+  -- CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18) — heure de l'ÉVÉNEMENT porté par
+  -- date_evenement, STRICTEMENT INDÉPENDANTE de reminder_at (voir commentaire de migration plus haut
+  -- pour le choix du type `time`).
+  event_time time,
+  -- CORRECTIF "persistance reminderRecurrence" (2026-09-18) — règle de répétition structurée (voir
+  -- commentaire de migration plus haut pour le choix du type `jsonb`).
+  reminder_recurrence jsonb
 );
 
 alter table contacts enable row level security;

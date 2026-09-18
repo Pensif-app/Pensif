@@ -2,10 +2,17 @@
 // Reconstruction champ par champ : tout ce qui n'est pas explicitement listé ici est ignoré ; toute
 // valeur invalide est normalisée (jamais rejetée en bloc si le reste de la pensée est exploitable),
 // sauf `texte` manquant qui fait écarter CETTE pensée précise (pas toute la réponse).
-import { CaptureContract, CaptureEventInfo, CaptureReminderInfo, ExtractedPensee } from '../_shared/captureContract.ts';
+import {
+  CaptureContract,
+  CaptureEventInfo,
+  CaptureRecurrenceInfo,
+  CaptureReminderInfo,
+  ExtractedPensee,
+} from '../_shared/captureContract.ts';
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const RECURRENCE_FREQUENCIES = ['daily', 'weekly', 'unclear'] as const;
 
 function isValidCalendarDate(value: string): boolean {
   const match = DATE_PATTERN.exec(value);
@@ -48,9 +55,86 @@ function normalizeEvent(raw: unknown): CaptureEventInfo {
   return {
     hasDate: Boolean(obj.hasDate) && date !== null,
     date,
+    // CHANTIER CAPTURE — EVENT TIME, incrément 1 (2026-09-18) : même discipline que reminder.time —
+    // invalide/absent → null, jamais une heure par défaut inventée. Indépendant de `hasDate`/`date`
+    // (une heure ne "valide" jamais une date, et inversement) — même principe que event/reminder.
+    time: normalizeTimeString(obj.time),
     heardExpression: typeof obj.heardExpression === 'string' ? obj.heardExpression : null,
     confidence: normalizeConfidence(obj.confidence),
   };
+}
+
+/**
+ * CHANTIER RAPPELS RÉCURRENTS — incrément 2 (2026-09-18). Validation STRICTE, délibérément différente
+ * du style permissif de normalizeEvent/normalizeReminder (qui ramènent un champ scalaire invalide à
+ * `null`/`false` sans jamais faire échouer le reste) : une récurrence est une structure composite où
+ * une incohérence partielle (ex. `frequency:'daily'` avec `daysOfWeek:[2,4]`) ne peut PAS être
+ * "réparée" champ par champ sans deviner l'intention réelle de l'utilisateur. Toute incohérence fait
+ * donc rejeter la récurrence EN BLOC — jamais une reconstruction partielle — en retombant sur le
+ * représentant canonique de "aucune récurrence" (`null`, voir captureContract.ts). Le reste de la
+ * pensée (texte, event, reminder.hasReminder/date/time) n'est JAMAIS affecté par ce rejet : la
+ * récurrence complète le reminder, elle ne le conditionne pas.
+ */
+function normalizeCaptureRecurrence(raw: unknown): CaptureRecurrenceInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+
+  // `detected=false` (ou absent/non-booléen) → aucune récurrence, quoi que portent les autres
+  // champs : jamais une "fausse règle remplie" qui survivrait à ce garde — voir consigne explicite.
+  if (obj.detected !== true) return null;
+
+  if (!RECURRENCE_FREQUENCIES.includes(obj.frequency as (typeof RECURRENCE_FREQUENCIES)[number])) return null;
+  const frequency = obj.frequency as (typeof RECURRENCE_FREQUENCIES)[number];
+
+  // heardExpression : OBLIGATOIRE et non vide dès que detected=true — sans trace de ce qui a été
+  // entendu, une récurrence "true" n'est pas exploitable/vérifiable plus tard (voir type, captureContract.ts).
+  if (typeof obj.heardExpression !== 'string' || !obj.heardExpression.trim()) return null;
+  const heardExpression = obj.heardExpression;
+
+  let daysOfWeek: number[] | null;
+  if (frequency === 'daily') {
+    // 'daily' implique les 7 jours — un tableau non vide ici serait une incohérence avec la
+    // fréquence annoncée (ex. le LLM a confondu daily et weekly), jamais silencieusement ignoré.
+    if (obj.daysOfWeek !== undefined && obj.daysOfWeek !== null && !(Array.isArray(obj.daysOfWeek) && obj.daysOfWeek.length === 0)) {
+      return null;
+    }
+    daysOfWeek = [];
+  } else if (frequency === 'weekly') {
+    if (!Array.isArray(obj.daysOfWeek) || obj.daysOfWeek.length === 0) return null;
+    if (!obj.daysOfWeek.every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6)) return null;
+    // "jours UNIQUES" (consigne explicite) — un doublon est une incohérence rejetée, jamais
+    // silencieusement dédupliquée (contrairement au module client pur, incrément 1, plus permissif
+    // par nature sur une donnée déjà construite par l'app elle-même, pas par un LLM non fiable).
+    const asNumbers = obj.daysOfWeek as number[];
+    if (new Set(asNumbers).size !== asNumbers.length) return null;
+    // CANONICALISATION (incrément 2B, 2026-09-18) — tri croissant APRÈS validation (rejet des
+    // doublons/valeurs invalides déjà fait ci-dessus) : uniquement une représentation de sortie,
+    // jamais un ajout/suppression/interprétation d'un jour. Le LLM peut renvoyer l'ordre dans lequel
+    // les jours ont été prononcés (ex. "samedi et dimanche" → [6,0]) ; la sortie validée reste
+    // toujours dans l'ordre canonique [0..6] pour que tout consommateur futur (client, tests) puisse
+    // s'y fier sans re-trier lui-même.
+    daysOfWeek = [...asNumbers].sort((a, b) => a - b);
+  } else {
+    // 'unclear' — la portée n'est PAS déterminable : daysOfWeek DOIT être null, jamais une valeur
+    // partielle qui laisserait croire à une portée résolue.
+    if (obj.daysOfWeek !== null && obj.daysOfWeek !== undefined) return null;
+    daysOfWeek = null;
+  }
+
+  let occurrenceCount: number | null = null;
+  if (obj.occurrenceCount !== undefined && obj.occurrenceCount !== null) {
+    const oc = obj.occurrenceCount;
+    if (!Number.isInteger(oc) || (oc as number) < 1) return null;
+    occurrenceCount = oc as number;
+  }
+
+  let untilDate: string | null = null;
+  if (obj.untilDate !== undefined && obj.untilDate !== null) {
+    if (typeof obj.untilDate !== 'string' || !isValidCalendarDate(obj.untilDate)) return null;
+    untilDate = obj.untilDate;
+  }
+
+  return { detected: true, frequency, daysOfWeek, occurrenceCount, untilDate, heardExpression };
 }
 
 function normalizeReminder(raw: unknown): CaptureReminderInfo {
@@ -64,6 +148,9 @@ function normalizeReminder(raw: unknown): CaptureReminderInfo {
     time: normalizeTimeString(obj.time), // invalide → null, jamais une heure par défaut inventée
     heardExpression: typeof obj.heardExpression === 'string' ? obj.heardExpression : null,
     confidence: normalizeConfidence(obj.confidence),
+    // Récurrence : complète le reminder, ne le conditionne jamais — une récurrence rejetée
+    // (normalizeCaptureRecurrence → null) laisse hasReminder/date/time totalement intacts ci-dessus.
+    recurrence: normalizeCaptureRecurrence(obj.recurrence),
   };
 }
 

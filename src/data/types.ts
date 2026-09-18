@@ -109,6 +109,27 @@ export type Contact = {
  *  date/heure absolue, dès l'enregistrement. */
 export type ReminderOffset = '0' | '1' | '3' | '7' | '14' | 'custom';
 
+// CHANTIER RAPPELS RÉCURRENTS — incrément 1 (2026-09-18), modèle pur uniquement (voir
+// src/data/reminderRecurrence.ts pour les calculs). `reminderAt` reste INCHANGÉ et continue de
+// représenter la date/heure de la PREMIÈRE occurrence — cette règle ne fait qu'ajouter une
+// répétition à partir de ce même instant, jamais une seconde source de vérité pour l'heure.
+export type ReminderRecurrenceFrequency = 'daily' | 'weekly';
+
+export type ReminderRecurrence = {
+  frequency: ReminderRecurrenceFrequency;
+  /** 0=dimanche..6=samedi (convention `Date.getDay()`, jamais un découpage UTC). Ignoré pour
+   *  'daily' (implicitement les 7 jours, normalisé à `[]` par `normalizeReminderRecurrence` — voir
+   *  ce module) ; obligatoire et non vide pour 'weekly'. */
+  daysOfWeek: number[];
+  /** Nombre total d'occurrences autorisées (la première incluse), ou `null` = pas de limite par
+   *  compte (voir `untilDate` pour une limite par date — les deux peuvent coexister : la règle
+   *  s'arrête à la première des deux bornes atteintes). */
+  occurrenceCount: number | null;
+  /** 'YYYY-MM-DD', INCLUSIVE — dernier jour local où une occurrence peut avoir lieu, ou `null` =
+   *  pas de limite par date. */
+  untilDate: string | null;
+};
+
 export type Pensee = {
   id: string;
   texte: string;
@@ -137,6 +158,18 @@ export type Pensee = {
    *  métier. `false`/absent = comportement inchangé. Aucun champ équivalent n'existait déjà sur
    *  `Pensee` (vérifié avant d'ajouter celui-ci — voir audit du chantier). */
   pinned?: boolean;
+  /** CHANTIER RAPPELS RÉCURRENTS — incrément 1 (2026-09-18) : `null`/absent = comportement actuel
+   *  inchangé à 100% (un unique `reminderAt`, jamais répété). Quand présent, `reminderAt` reste la
+   *  date/heure de la PREMIÈRE occurrence — voir reminderRecurrence.ts pour le calcul des suivantes.
+   *  Non exploité par aucun écran/notification à cet incrément (modèle pur uniquement). */
+  reminderRecurrence?: ReminderRecurrence | null;
+  /** CHANTIER CAPTURE — EVENT TIME, incrément 3 (2026-09-18). Format 'HH:mm' (24h, local) — l'heure
+   *  de l'ÉVÉNEMENT porté par `date`, STRICTEMENT INDÉPENDANTE de `reminderAt` (jamais copiée depuis
+   *  ni vers elle — voir CaptureCard.eventHint, captureReview.ts). `null`/absent = aucune heure
+   *  connue pour cet événement (comportement historique inchangé pour toute pensée qui n'en a pas).
+   *  N'a de sens que si `date` est renseignée ; jamais utilisée pour construire un datetime combiné
+   *  (voir consigne — `date` reste une date locale pure, jamais convertie). */
+  eventTime?: string | null;
 };
 
 export type CalEventType = 'anniv' | 'pensee' | 'fete' | 'civil';
