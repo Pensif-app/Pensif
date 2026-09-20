@@ -176,28 +176,46 @@ export async function loadRemoteData(userId: string, isNewAccount: boolean) {
   return { contacts: (contactRows ?? []).map((r) => rowToContact(r, today)), pensees: (penseeRows ?? []).map(rowToPensee) };
 }
 
+/**
+ * CHANTIER "Data Safety P0-2 — idempotence outbox" (2026-09-20). `upsert` (conflict target = `id`,
+ * la clé primaire) plutôt qu'`insert` — BUG CORRIGÉ : un `insert` réussi côté serveur dont la
+ * réponse réseau est perdue faisait échouer TOUT retry suivant (conflit de clé primaire), laissant
+ * l'op bloquée en tête de FIFO indéfiniment (voir audit Data Safety pré-bêta, `store.tsx`
+ * `executeOutboxOp`, dette désormais corrigée). `upsert` convertit ce cas en UPDATE idempotent de la
+ * MÊME ligne : si l'utilisateur a modifié localement entre-temps (payload coalescé dans le même op
+ * `isNew:true`, voir `enqueueUpsert`/outbox.ts), le retry envoie directement le DERNIER payload —
+ * Supabase converge vers cette valeur, jamais l'ancienne. Isolation utilisateur INCHANGÉE : la policy
+ * RLS existante (`FOR ALL USING auth.uid()=user_id WITH CHECK auth.uid()=user_id`) reste seule
+ * responsable — sur un conflit d'id appartenant à un AUTRE utilisateur, `USING` échoue pour la ligne
+ * existante et Postgres rejette l'upsert (erreur), jamais un succès silencieux ni un service_role.
+ * `user_id` reste exclusivement `userId` (paramètre, dérivé de `session.user.id` par l'appelant,
+ * jamais une valeur contrôlable par l'utilisateur) — identique à l'ancien `insert`.
+ */
 export async function insertContactRemote(userId: string, contact: Omit<Contact, 'initials' | 'color'>): Promise<Contact> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { data, error } = await supabase
     .from('contacts')
-    .insert({
-      // Id généré côté client (voir lib/id.ts) et réutilisé tel quel ici : l'id local et l'id
-      // distant sont donc identiques dès la création, pas besoin d'attendre la réponse réseau
-      // pour connaître l'id définitif du contact.
-      id: contact.id,
-      user_id: userId,
-      prenom: contact.prenom,
-      nom: contact.nom,
-      tel: contact.tel,
-      date_naissance: contact.date,
-      relation: contact.relation,
-      family_role: contact.familyRole,
-      genre: contact.genre,
-      quiz: contact.quiz,
-      gift_sent: contact.giftPreparedYear != null,
-      favorite: contact.favorite,
-      birthday_reminder_days: contact.birthdayReminderDays,
-    })
+    .upsert(
+      {
+        // Id généré côté client (voir lib/id.ts) et réutilisé tel quel ici : l'id local et l'id
+        // distant sont donc identiques dès la création, pas besoin d'attendre la réponse réseau
+        // pour connaître l'id définitif du contact.
+        id: contact.id,
+        user_id: userId,
+        prenom: contact.prenom,
+        nom: contact.nom,
+        tel: contact.tel,
+        date_naissance: contact.date,
+        relation: contact.relation,
+        family_role: contact.familyRole,
+        genre: contact.genre,
+        quiz: contact.quiz,
+        gift_sent: contact.giftPreparedYear != null,
+        favorite: contact.favorite,
+        birthday_reminder_days: contact.birthdayReminderDays,
+      },
+      { onConflict: 'id' },
+    )
     .select()
     .single();
   if (error || !data) throw error;
@@ -243,11 +261,15 @@ export async function deletePenseeRemote(penseeId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** CHANTIER "Data Safety P0-2 — idempotence outbox" (2026-09-20) — même correctif que
+ *  `insertContactRemote` ci-dessus (`upsert`/conflict target `id`, voir sa docstring pour le
+ *  raisonnement complet : converge vers le dernier payload coalescé, RLS inchangée, jamais de
+ *  succès silencieux sur une ligne d'un autre utilisateur, jamais de `service_role`). */
 export async function insertPenseeRemote(userId: string, pensee: Pensee): Promise<Pensee> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { data, error } = await supabase
     .from('pensees')
-    .insert({
+    .upsert({
       id: pensee.id,
       user_id: userId,
       date_evenement: pensee.date ?? null,
@@ -265,7 +287,7 @@ export async function insertPenseeRemote(userId: string, pensee: Pensee): Promis
       // à une colonne `jsonb` (aucune sérialisation JSON manuelle — supabase-js s'en charge) ; `null`
       // pour une pensée sans récurrence, même convention que tous les autres champs nullable ci-dessus.
       reminder_recurrence: pensee.reminderRecurrence ?? null,
-    })
+    }, { onConflict: 'id' })
     .select()
     .single();
   if (error || !data) throw error;
