@@ -44,3 +44,7 @@ expo-tunnel.log
 
 # Supabase CLI local state
 supabase/.temp/
+
+# CHANTIER "Data Safety P1 — Backup/Restore" (2026-09-20) — contient des données utilisateur réelles
+# (contacts/pensées/emails/comptes Auth) : ne DOIT jamais être commité. Voir docs/backup-restore.md.
+backups/
