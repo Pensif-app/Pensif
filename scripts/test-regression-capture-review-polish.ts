@@ -82,7 +82,12 @@ check(
 
 console.log('\n[§C — source] espacement légèrement accru entre les lignes, sans excès');
 {
-  check('marge entre lignes du bloc récurrent = 10 (était 6)', (reminderBlock.match(/styles\.recurrenceFieldRow, \{ marginTop: 10 \}/g) ?? []).length >= 3);
+  // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) — la
+  // ligne RÉPÉTITION porte désormais un 3e élément conditionnel (cardAnchorMismatch) dans son
+  // tableau de style, reformaté sur plusieurs lignes : `\s+` (au lieu d'un simple espace) tolère
+  // cette mise en forme sans affaiblir ce qui est vérifié (marginTop:10 toujours associé à
+  // styles.recurrenceFieldRow, sur au moins 3 lignes du bloc récurrent).
+  check('marge entre lignes du bloc récurrent = 10 (était 6)', (reminderBlock.match(/styles\.recurrenceFieldRow,\s*\{ marginTop: 10 \}/g) ?? []).length >= 3);
   check('marge sous le toggle "ME LE RAPPELER" légèrement augmentée (8 → 12)', reminderBlock.includes('<View style={{ marginTop: 12 }}>'));
   check(
     'pas d’augmentation démesurée : aucune marge à 3 chiffres (>=100) introduite dans ce bloc',

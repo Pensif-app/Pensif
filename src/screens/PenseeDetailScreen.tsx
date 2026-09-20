@@ -8,12 +8,28 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ContactAssociationField } from '../components/ContactAssociationField';
 import { ContactPicker } from '../components/ContactPicker';
+import { RecurrenceEditorSheet, RecurrenceEditorMode } from '../components/RecurrenceEditorSheet';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { RootStackParamList } from '../navigation/types';
 import { Pensee } from '../data/types';
+import { LocalDate } from '../data/captureReview';
 import { isFutureReminder, withLocalDate, withLocalTime } from '../data/reminderDate';
-import { resolveReminderRecurrenceForSave } from '../data/penseeReminderRecurrence';
+import {
+  NEVER_PENSEE_RECURRENCE_DRAFT,
+  PenseeRecurrenceDraft,
+  buildPenseeRecurrenceDraft,
+  describePenseeRecurrenceValidationError,
+  penseeRecurrenceEndLabel,
+  penseeRecurrenceFrequencyLabel,
+  setPenseeRecurrenceFrequency,
+  setPenseeRecurrenceNever,
+  setPenseeRecurrenceOccurrenceCount,
+  setPenseeRecurrenceUntilDate,
+  toPenseeReminderRecurrence,
+  togglePenseeRecurrenceDay,
+  validatePenseeRecurrenceEdit,
+} from '../data/penseeReminderRecurrence';
 import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm';
 
 // CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — locale explicite pour les pickers iOS inline de cet
@@ -22,6 +38,25 @@ import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm
 // détail (identifiant BCP-47 "fr-FR" accepté nativement par NSLocale). Ne change aucune logique de
 // date/heure, seulement la langue d'affichage native du picker.
 const IOS_PICKER_LOCALE = 'fr-FR';
+
+// CHANTIER "Édition complète des récurrences dans Modifier la pensée" (2026-09-20) — conversions
+// PURES entre les `Date` JS utilisées par cet écran et les formats attendus par `RecurrenceEditorSheet`
+// (réutilisé tel quel depuis Capture, jamais modifié) : `LocalDate` (`{year, month, day}`, month
+// 0-indexé) pour `startDate`/`untilDate`, et 'YYYY-MM-DD' pour `PenseeRecurrenceDraft.untilDate`
+// (voir penseeReminderRecurrence.ts). Aucune conversion UTC — toujours des composants locaux.
+function dateToLocalDate(date: Date): LocalDate {
+  return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate() };
+}
+
+function isoToLocalDate(iso: string): LocalDate {
+  const [y, m, d] = iso.split('-').map(Number);
+  return { year: y, month: m - 1, day: d };
+}
+
+function localDateToIso(date: LocalDate): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.year}-${pad(date.month + 1)}-${pad(date.day)}`;
+}
 
 /**
  * Détail/édition d'une pensée (CHANTIER PENSÉES V2) : un seul écran pour créer ET modifier, même
@@ -56,8 +91,9 @@ export function PenseeDetailScreen() {
   const [eventDate, setEventDate] = useState<string | null>(existing?.date ?? null);
   // CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) : heure d'événement, INDÉPENDANTE du
   // rappel (jamais dérivée de reminderDate/reminderTime, jamais l'inverse) — n'a de sens qu'en
-  // relation avec `eventDate` (voir le bloc "ÉVÉNEMENT (FACULTATIF)" plus bas, rendu seulement si
-  // `eventDate` est renseignée, et le clear de `eventDate` ci-dessous qui l'efface avec elle).
+  // relation avec `eventDate` (voir l'icône calendrier + résumé compact sous le champ texte, rendus
+  // seulement si `eventDate` est renseignée, et le clear de `eventDate` ci-dessous qui l'efface avec
+  // elle — repositionnement purement visuel, chantier "Polish Nouvelle/Modifier pensée", 2026-09-20).
   const [eventTime, setEventTime] = useState<string | null>(existing?.eventTime ?? null);
   // CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — UN SEUL état pour TOUS les pickers de cet
   // écran (événement + rappel, iOS + Android) : garantit qu'au plus UN picker natif est visible à la
@@ -103,6 +139,24 @@ export function PenseeDetailScreen() {
   // disponible comme PROPOSITION UI pure via `reminderDateSeed()` ci-dessous, qui ne modifie jamais
   // cet état.
   const [reminderDate, setReminderDate] = useState<Date | null>(() => (existing?.reminderAt ? new Date(existing.reminderAt) : null));
+  // CHANTIER "Édition complète des récurrences dans Modifier la pensée" (2026-09-20) — brouillon
+  // local, INDÉPENDANT de Capture (voir penseeReminderRecurrence.ts). Initialisé fidèlement depuis
+  // `existing.reminderRecurrence` : une pensée récurrente existante affiche donc sa vraie règle dès
+  // l'ouverture de l'écran, jamais "Jamais" par défaut.
+  const [recurrenceDraft, setRecurrenceDraft] = useState<PenseeRecurrenceDraft>(() =>
+    buildPenseeRecurrenceDraft(existing?.reminderRecurrence ?? null),
+  );
+  const [recurrenceEditorMode, setRecurrenceEditorMode] = useState<RecurrenceEditorMode | null>(null);
+  // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) — état
+  // UX local, jamais persisté, jamais lu par save() pour décider quoi que ce soit (uniquement de
+  // l'affichage). Mis à `true` UNIQUEMENT après une tentative de sauvegarde réellement bloquée par
+  // `anchor_not_matching_weekly` (jamais avant, voir save()) ; effacé dès que l'utilisateur touche à
+  // la date/heure du rappel OU à la récurrence (voir l'effet ci-dessous) — jamais par une action
+  // automatique qui "corrigerait" quoi que ce soit à sa place.
+  const [anchorMismatchHighlight, setAnchorMismatchHighlight] = useState(false);
+  useEffect(() => {
+    setAnchorMismatchHighlight(false);
+  }, [reminderDate, recurrenceDraft]);
   /** PROPOSÉ — valeur purement visuelle pour positionner le picker (et calculer les libellés) quand
    *  aucun rappel n'est encore confirmé : "demain 9h" (comportement historique conservé comme
    *  PROPOSITION seulement — voir docstring de `reminderDate` ci-dessus). Ne modifie jamais l'état ;
@@ -284,7 +338,30 @@ export function PenseeDetailScreen() {
       Alert.alert('Rappel dans le passé', 'Choisis une date et une heure dans le futur, ou désactive le rappel.');
       return;
     }
+    // CHANTIER "Édition complète des récurrences dans Modifier la pensée" (2026-09-20) — validation
+    // AVANT toute écriture (jamais une récurrence incohérente persistée, jamais un `reminderAt`
+    // déplacé silencieusement pour "réparer" une règle invalide — voir validatePenseeRecurrenceEdit).
+    // Uniquement pertinente si le rappel est actif ET qu'une récurrence est active (une récurrence
+    // désactivée n'a rien à valider ici, le garde "Rappel dans le passé" ci-dessus suffit déjà).
+    if (reminderEnabled && reminderDate && recurrenceDraft.enabled) {
+      const validation = validatePenseeRecurrenceEdit(recurrenceDraft, reminderDate, new Date());
+      if (!validation.ok) {
+        // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) —
+        // l'Alert existant reste (feedback immédiat), le surlignage corail s'ajoute UNIQUEMENT pour
+        // anchor_not_matching_weekly (consigne explicite §5 : ne pas généraliser aux autres raisons
+        // dans cette passe).
+        setAnchorMismatchHighlight(validation.reason === 'anchor_not_matching_weekly');
+        Alert.alert('Répétition incomplète', describePenseeRecurrenceValidationError(validation.reason));
+        return;
+      }
+    }
     const reminderAt = reminderEnabled && reminderDate ? reminderDate.toISOString() : null;
+    // `reminderRecurrence` dérive désormais du brouillon d'édition (jamais une préservation aveugle
+    // de `existing.reminderRecurrence` — voir toPenseeReminderRecurrence, penseeReminderRecurrence.ts) :
+    // rappel désactivé → null ; rappel actif + "Jamais" → null ; rappel actif + récurrence valide →
+    // la nouvelle règle. Round-trip identité avec l'ancien comportement tant que l'utilisateur ne
+    // touche pas la nouvelle UI (recurrenceDraft est initialisé depuis existing.reminderRecurrence).
+    const reminderRecurrence = reminderEnabled ? toPenseeReminderRecurrence(recurrenceDraft) : null;
 
     // Verrou posé ICI seulement — après TOUTE validation (un retour anticipé au-dessus n'a jamais
     // engagé la garde, donc rien à libérer pour ces cas-là, voir FicheScreen.tsx pour le même
@@ -304,12 +381,12 @@ export function PenseeDetailScreen() {
           date: eventDate,
           endDate: eventDate ? existing.endDate ?? null : null,
           // CHANTIER CAPTURE — EVENT TIME, incrément 4 (2026-09-18) : `eventTime` reflète désormais
-          // l'état d'édition RÉEL de cet écran (bloc "ÉVÉNEMENT (FACULTATIF)" plus bas) — jamais un
-          // repli silencieux sur `existing.eventTime`. Remis à `null` avec `date`/`endDate` si
+          // l'état d'édition RÉEL de cet écran (icône calendrier + résumé compact événement, voir plus
+          // bas) — jamais un repli silencieux sur `existing.eventTime`. Remis à `null` avec `date`/`endDate` si
           // l'événement est retiré (même règle que `endDate` : une heure sans date n'a pas de sens).
           eventTime: eventDate ? eventTime : null,
           pinned,
-          reminderRecurrence: resolveReminderRecurrenceForSave(existing, reminderEnabled),
+          reminderRecurrence,
         };
         updatePensee(updated);
       } else {
@@ -322,6 +399,7 @@ export function PenseeDetailScreen() {
           date: eventDate,
           endDate: null,
           eventTime: eventDate ? eventTime : null,
+          reminderRecurrence,
         });
       }
       navigation.goBack();
@@ -348,54 +426,44 @@ export function PenseeDetailScreen() {
 
   return (
     <Screen>
-      <Text style={[styles.label, { color: theme.inkSoft }]}>C'EST À PROPOS DE QUOI ?</Text>
+      {/* CHANTIER "Polish Nouvelle/Modifier pensée — hiérarchie événement/proche/rappel" (2026-09-20)
+          — l'action calendrier de l'événement (FACULTATIF, voir docstring en tête pour son
+          indépendance vis-à-vis du rappel) est désormais une icône discrète dans le coin supérieur
+          droit de CETTE zone, plutôt qu'une grosse ligne "ÉVÉNEMENT (FACULTATIF)" séparée — objectif
+          purement visuel : rendre clair que la date d'événement appartient à la pensée elle-même
+          (juste à côté de son texte), jamais confondue avec le rappel plus bas. Ouvre EXACTEMENT le
+          même picker qu'avant (togglePicker('event')), aucune logique/donnée changée. Couleur accent
+          quand un événement existe déjà (signal discret, jamais un warning). */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={[styles.label, { color: theme.inkSoft, marginBottom: 0 }]}>C'EST À PROPOS DE QUOI ?</Text>
+        <Pressable onPress={() => togglePicker('event')} hitSlop={8} accessibilityLabel="Ajouter un événement">
+          <Ionicons name="calendar-outline" size={18} color={eventDate ? theme.accent : theme.inkSoft} />
+        </Pressable>
+      </View>
       <TextInput
         value={texte}
         onChangeText={setTexte}
         multiline
         placeholder="Ex. Micka aimerait un casque audio"
         placeholderTextColor={theme.inkSoft}
-        style={[styles.textarea, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
+        style={[styles.textarea, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card, marginTop: 6 }]}
       />
 
-      <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>LIER À UN PROCHE (FACULTATIF)</Text>
-      <ContactAssociationField
-        theme={theme}
-        contacts={contacts}
-        selectedContactId={contactId}
-        onClear={() => setContactId(null)}
-        onOpenPicker={() => setContactPickerOpen(true)}
-      />
-      <ContactPicker
-        visible={contactPickerOpen}
-        contacts={contacts}
-        theme={theme}
-        title="Choisir un proche"
-        onSelect={(id) => {
-          setContactId(id);
-          setContactPickerOpen(false);
-        }}
-        onClose={() => setContactPickerOpen(false)}
-      />
-
-      {/* CHANTIER UNIFICATION UX PICKERS iOS (2026-09-18) — remplace les deux blocs séparés DATE +
-          HEURE par UN SEUL bloc principal "ÉVÉNEMENT (FACULTATIF)" (voir docstring en tête pour
-          l'indépendance vis-à-vis du rappel). "date + eventTime=null" reste un état pleinement
-          valide : le contrôle principal ci-dessous n'invente JAMAIS une heure (mode "date" tant
-          qu'aucune heure n'existe, jamais "datetime" silencieusement) — seule l'action secondaire
-          heure (plus bas) peut en créer une, explicitement. */}
-      <Text style={[styles.label, { color: theme.inkSoft, marginTop: 16 }]}>ÉVÉNEMENT (FACULTATIF)</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Pressable
-          onPress={() => togglePicker('event')}
-          style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
-        >
-          <Text style={{ color: eventDate ? theme.ink : theme.inkSoft }}>
-            {eventDate ? `${eventDate.split('-').reverse().join('/')}${eventTime ? ` à ${eventTime}` : ''}` : 'Ajouter un événement'}
-          </Text>
-          <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
-        </Pressable>
-        {eventDate && (
+      {/* Résumé compact de l'événement — affiché SOUS le champ texte UNIQUEMENT si une date
+          d'événement existe déjà (sinon rien : l'icône ci-dessus suffit à découvrir la fonctionnalité,
+          voir consigne "petite action discrète"). Tappable pour rouvrir le même picker ; le "×"
+          retire l'événement ENTIER (date ET heure, même règle que `endDate` — voir docstring en tête
+          et save() plus bas), séparé du texte pour ne jamais imbriquer deux Pressable l'un dans
+          l'autre. */}
+      {eventDate && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <Pressable onPress={() => togglePicker('event')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Ionicons name="calendar-outline" size={14} color={theme.inkSoft} />
+            <Text style={{ color: theme.ink, fontSize: 13, fontWeight: '600' }}>
+              {eventDate.split('-').reverse().join('/')}
+              {eventTime ? ` · ${eventTime}` : ''}
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => {
               // Suppression de l'événement ENTIER — date ET heure (même règle que `endDate`, voir
@@ -407,10 +475,10 @@ export function PenseeDetailScreen() {
             hitSlop={8}
             accessibilityLabel="Retirer l’événement"
           >
-            <Ionicons name="close-circle-outline" size={22} color={theme.inkSoft} />
+            <Ionicons name="close-circle-outline" size={18} color={theme.inkSoft} />
           </Pressable>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Contrôle principal — iOS : UNE roulette unique, mode "datetime" si une heure existe déjà,
           "date" sinon (jamais inventée par ce contrôle). Android : dialog de DATE seule (pas de mode
@@ -520,6 +588,37 @@ export function PenseeDetailScreen() {
         />
       ) : null}
 
+      {/* CHANTIER "Polish Nouvelle/Modifier pensée — hiérarchie événement/proche/rappel" (2026-09-20)
+          — compacté sous le champ texte/événement, SANS heading séparé : `ContactAssociationField`
+          (composant partagé, jamais modifié) affiche déjà explicitement "Aucun proche" + "+ Associer
+          un contact"/"Changer" en texte — jamais une icône seule, cette action reste pleinement
+          identifiable telle quelle. Uniquement la grosse ligne de label uppercase qui disparaît ici.
+          CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) —
+          `variant="compact"` (audité au préalable : PROPRE à cet écran, Capture Review continue de
+          recevoir le rendu par défaut inchangé, voir ContactAssociationField.tsx). */}
+      <View style={{ marginTop: 14 }}>
+        <ContactAssociationField
+          theme={theme}
+          contacts={contacts}
+          selectedContactId={contactId}
+          onClear={() => setContactId(null)}
+          onOpenPicker={() => setContactPickerOpen(true)}
+          clearLabel="Aucun proche"
+          variant="compact"
+        />
+      </View>
+      <ContactPicker
+        visible={contactPickerOpen}
+        contacts={contacts}
+        theme={theme}
+        title="Choisir un proche"
+        onSelect={(id) => {
+          setContactId(id);
+          setContactPickerOpen(false);
+        }}
+        onClose={() => setContactPickerOpen(false)}
+      />
+
       <View style={[styles.reminderToggleRow, { marginTop: 16 }]}>
         <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>ME LE RAPPELER</Text>
         <Switch
@@ -543,57 +642,59 @@ export function PenseeDetailScreen() {
           `openReminderDateTimePicker()` pour la confirmation À LA FERMETURE (plus à l'ouverture). */}
       {reminderEnabled && (
         <View style={{ marginTop: 10 }}>
-          {Platform.OS === 'ios' ? (
+          {/* CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20)
+              — remplace le chip combiné iOS par DEUX lignes labellisées DATE DE DÉBUT / HEURE,
+              visuellement cohérentes avec Capture Review (mêmes labels, même structure). PRÉSENTATION
+              UNIQUEMENT : les deux lignes ouvrent exactement le MÊME picker combiné qu'avant sur iOS
+              (openReminderDateTimePicker), et les mêmes dialogs Android séparés qu'avant
+              (togglePicker('reminderDate')/('reminderTime')) — reminderDate/reminderRecurrence et la
+              logique de scheduling restent strictement inchangés. */}
+          <Pressable
+            onPress={Platform.OS === 'ios' ? openReminderDateTimePicker : () => togglePicker('reminderDate')}
+            style={[
+              styles.recurrenceRow,
+              anchorMismatchHighlight ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 } : null,
+            ]}
+          >
+            <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>DATE DE DÉBUT</Text>
+            <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft, fontSize: 13, fontWeight: '700' }}>
+              {reminderDate ? reminderLabel.split(' à ')[0] : 'Choisir une date'}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={Platform.OS === 'ios' ? openReminderDateTimePicker : () => togglePicker('reminderTime')}
+            // CHANTIER "Polish Nouvelle/Modifier pensée..." (2026-09-20) — espacement entre lignes du
+            // bloc rappel élargi (10 → 18) pour que DATE DE DÉBUT/HEURE/RÉPÉTITION/FIN respirent
+            // davantage, tout en restant visuellement un seul bloc cohérent. Purement visuel — aucune
+            // valeur/logique de sauvegarde touchée.
+            style={[styles.recurrenceRow, { marginTop: 18 }]}
+          >
+            <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>HEURE</Text>
+            <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft, fontSize: 13, fontWeight: '700' }}>
+              {reminderDate ? reminderLabel.split(' à ')[1] : 'Choisir une heure'}
+            </Text>
+          </Pressable>
+          {Platform.OS === 'ios' && openPicker === 'reminderDateTime' ? (
             <>
+              <DateTimePicker
+                value={reminderDateSeed()}
+                mode="datetime"
+                display="spinner"
+                locale={IOS_PICKER_LOCALE}
+                onChange={onDateTimeChangeIOS}
+              />
               <Pressable
-                onPress={openReminderDateTimePicker}
-                style={[styles.input, styles.dateBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
+                onPress={() => {
+                  confirmReminderSeed();
+                  setOpenPicker(null);
+                }}
+                style={styles.pickerDoneBtn}
+                hitSlop={8}
               >
-                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>
-                  {reminderDate ? reminderLabel : 'Choisir une date et une heure'}
-                </Text>
-                <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
+                <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
               </Pressable>
-              {openPicker === 'reminderDateTime' ? (
-                <>
-                  <DateTimePicker
-                    value={reminderDateSeed()}
-                    mode="datetime"
-                    display="spinner"
-                    locale={IOS_PICKER_LOCALE}
-                    onChange={onDateTimeChangeIOS}
-                  />
-                  <Pressable
-                    onPress={() => {
-                      confirmReminderSeed();
-                      setOpenPicker(null);
-                    }}
-                    style={styles.pickerDoneBtn}
-                    hitSlop={8}
-                  >
-                    <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Terminé</Text>
-                  </Pressable>
-                </>
-              ) : null}
             </>
-          ) : (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable
-                onPress={() => togglePicker('reminderDate')}
-                style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
-              >
-                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>{reminderDate ? reminderLabel.split(' à ')[0] : 'Date'}</Text>
-                <Ionicons name="calendar-outline" size={16} color={theme.inkSoft} />
-              </Pressable>
-              <Pressable
-                onPress={() => togglePicker('reminderTime')}
-                style={[styles.input, styles.dateBtn, { flex: 1, borderColor: theme.line, backgroundColor: theme.card }]}
-              >
-                <Text style={{ color: reminderDate ? theme.ink : theme.inkSoft }}>{reminderDate ? reminderLabel.split(' à ')[1] : 'Heure'}</Text>
-                <Ionicons name="time-outline" size={16} color={theme.inkSoft} />
-              </Pressable>
-            </View>
-          )}
+          ) : null}
           {Platform.OS === 'android' && openPicker === 'reminderDate' ? (
             <DateTimePicker value={reminderDateSeed()} mode="date" display="calendar" onChange={onDateChange} />
           ) : null}
@@ -604,8 +705,77 @@ export function PenseeDetailScreen() {
           {Platform.OS === 'android' && openPicker === 'reminderTime' ? (
             <DateTimePicker value={reminderDateSeed()} mode="time" display="clock" is24Hour onChange={onTimeChange} />
           ) : null}
+
+          {/* CHANTIER "Édition complète des récurrences dans Modifier la pensée" (2026-09-20) —
+              RÉPÉTITION toujours visible dès que le rappel est ON (affiche "Jamais" comme une des 3
+              valeurs possibles) ; tap ouvre RecurrenceEditorSheet (réutilisé tel quel depuis Capture,
+              JAMAIS modifié) en mode 'frequency', qui ne propose QUE daily/weekly — repasser à
+              "Jamais" passe par l'action dédiée "Ne plus répéter" ci-dessous, jamais par la feuille
+              elle-même. FIN n'apparaît que si un motif a réellement été choisi. */}
+          <Pressable
+            onPress={() => setRecurrenceEditorMode('frequency')}
+            style={[
+              styles.recurrenceRow,
+              { marginTop: 18 },
+              anchorMismatchHighlight ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 } : null,
+            ]}
+          >
+            <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>RÉPÉTITION</Text>
+            <Text style={{ color: theme.ink, fontSize: 13, fontWeight: '700' }}>{penseeRecurrenceFrequencyLabel(recurrenceDraft)}</Text>
+          </Pressable>
+          {/* CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20)
+              — même texte que Capture Review, mêmes conditions d'apparition/disparition (voir l'effet
+              qui efface anchorMismatchHighlight dès que reminderDate ou recurrenceDraft change). Ne
+              déplace jamais la date, n'ajoute jamais un jour automatiquement — uniquement un message. */}
+          {anchorMismatchHighlight ? (
+            <Text style={{ color: theme.plum, fontSize: 12, fontWeight: '600', marginTop: 6 }}>
+              La date de début ne correspond pas aux jours sélectionnés.{'\n'}Choisis une date correspondant à l’un des jours de répétition.
+            </Text>
+          ) : null}
+          {recurrenceDraft.enabled ? (
+            <>
+              {/* CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) —
+                  BUG CORRIGÉ : `penseeRecurrenceEndLabel` ne renvoie plus jamais `null` tant que la
+                  récurrence est active (voir penseeReminderRecurrence.ts) — "Jamais" est désormais une
+                  valeur affichée explicitement, exactement comme Capture Review le fait pour
+                  RÉPÉTITION elle-même. La ligne FIN est donc TOUJOURS présente ici. */}
+              <Pressable onPress={() => setRecurrenceEditorMode('end')} style={[styles.recurrenceRow, { marginTop: 18 }]}>
+                <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>FIN</Text>
+                <Text style={{ color: theme.ink, fontSize: 13, fontWeight: '700' }}>{penseeRecurrenceEndLabel(recurrenceDraft)}</Text>
+              </Pressable>
+              {/* "Modifier la fin"/"Ne plus répéter" — même row que Capture Review (justifyContent:
+                  'space-between'), volontairement plus PROCHE de FIN (marginTop 10) que FIN ne l'est de
+                  RÉPÉTITION (marginTop 18) : lisible comme une action secondaire RATTACHÉE à FIN, pas
+                  une 5e ligne indépendante du bloc. */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+                <Pressable onPress={() => setRecurrenceEditorMode('end')} hitSlop={8}>
+                  <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Modifier la fin</Text>
+                </Pressable>
+                <Pressable onPress={() => setRecurrenceDraft(NEVER_PENSEE_RECURRENCE_DRAFT)} hitSlop={8}>
+                  <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Ne plus répéter</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
         </View>
       )}
+
+      <RecurrenceEditorSheet
+        visible={recurrenceEditorMode !== null}
+        mode={recurrenceEditorMode ?? 'frequency'}
+        theme={theme}
+        frequency={recurrenceDraft.frequency}
+        daysOfWeek={recurrenceDraft.daysOfWeek}
+        occurrenceCount={recurrenceDraft.occurrenceCount}
+        untilDate={recurrenceDraft.untilDate ? isoToLocalDate(recurrenceDraft.untilDate) : null}
+        startDate={reminderDate ? dateToLocalDate(reminderDate) : null}
+        onClose={() => setRecurrenceEditorMode(null)}
+        onChooseFrequency={(frequency) => setRecurrenceDraft((d) => setPenseeRecurrenceFrequency(d, frequency))}
+        onToggleDay={(day) => setRecurrenceDraft((d) => togglePenseeRecurrenceDay(d, day))}
+        onChooseNever={() => setRecurrenceDraft((d) => setPenseeRecurrenceNever(d))}
+        onChooseOccurrenceCount={(count) => setRecurrenceDraft((d) => setPenseeRecurrenceOccurrenceCount(d, count))}
+        onChooseUntilDate={(date) => setRecurrenceDraft((d) => setPenseeRecurrenceUntilDate(d, localDateToIso(date)))}
+      />
 
       {/* CHANTIER UX — exposer `event` (2026-09-17) : réutilise EXACTEMENT la même condition que le
           backend (buildMessageSuggestionContext/validateOccasion côté suggest-message) — contactId
@@ -649,8 +819,8 @@ const styles = StyleSheet.create({
   textarea: { borderWidth: 1, borderRadius: 10, padding: 12, minHeight: 90, textAlignVertical: 'top', fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, marginRight: 6 },
   reminderToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  recurrenceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   messageLink: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingTop: 14, marginTop: 18 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 20 },
   deleteText: { fontWeight: '700', fontSize: 13 },

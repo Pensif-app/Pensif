@@ -202,8 +202,15 @@ console.log('\n[§I — source] contour corail : dérivé de saveAttempted + car
   check('cardPendingHighlight calculé PAR CARTE (jamais un contour global sur toute la carte)', /const cardPendingHighlight = pendingReminderSeedCardIds\.has\(card\.cardId\);/.test(screenSrc));
   check('chip ponctuel iOS : borderColor conditionnel (theme.plum si en attente, theme.line sinon — jamais de fond rouge, aucune autre prop touchée)', /borderColor: cardPendingHighlight \? theme\.plum : theme\.line/.test(screenSrc));
   check(
-    'ligne "DATE DE DÉBUT" récurrente : contour ajouté UNIQUEMENT si cardPendingHighlight (pas de style permanent modifié)',
-    /cardPendingHighlight \? \{ borderWidth: 1, borderColor: theme\.plum, borderRadius: 8, paddingHorizontal: 8 \} : null/.test(screenSrc),
+    // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) —
+    // la condition s'est étendue à `cardAnchorMismatch` (signal DISTINCT, voir
+    // test-regression-capture-anchor-mismatch-highlight.ts), toujours gardée par saveAttempted,
+    // toujours PAR CARTE, jamais un style permanent — seule l'assertion est mise à jour, le principe
+    // testé (contour conditionnel, jamais permanent) reste intégralement vérifié.
+    'ligne "DATE DE DÉBUT" récurrente : contour ajouté UNIQUEMENT si cardPendingHighlight OU cardAnchorMismatch (pas de style permanent modifié)',
+    /cardPendingHighlight \|\| cardAnchorMismatch\s*\n\s*\? \{ borderWidth: 1, borderColor: theme\.plum, borderRadius: 8, paddingHorizontal: 8 \}\s*\n\s*: null/.test(
+      screenSrc,
+    ),
   );
 }
 

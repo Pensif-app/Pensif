@@ -73,6 +73,21 @@ Le schéma est prêt dans `supabase/schema.sql` et le client dans `src/lib/supab
 - deleting a pensee triggers rebuild and removes its scheduled notifications
 - full recurrence editing in PenseeDetail is NOT part of this V1 and remains a separate chantier
 
+## Recurrence editing baseline (2026-09-20)
+
+- PenseeDetail can edit daily/weekly recurrence and recurrence end.
+- reminderAt remains the semantic first occurrence.
+- weekly recurrence must match the reminder start date.
+- weekly with no selected day is invalid.
+- recurrence end modes are exclusive: never / count / untilDate.
+- recurrence → Never keeps reminderAt and becomes punctual.
+- reminder OFF clears reminderAt and reminderRecurrence.
+- Capture and manual creation both show explicit feedback when start date does not match weekly days.
+- Manual reminder UI exposes Date / Time / Recurrence / End separately.
+- Event date belongs to the thought, not to the reminder.
+
+(supersedes the "full recurrence editing... NOT part of this V1" line in the Notifications recurrence V1 baseline above.)
+
 ## Autres pistes
 
 - Remplacer le petit moteur de mots-clés (`src/data/giftEngine.ts`) par un vrai catalogue produit avec liens d'affiliation, ou par un appel à un LLM pour des suggestions plus fines.

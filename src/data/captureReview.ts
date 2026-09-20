@@ -700,6 +700,35 @@ export function cardHasPendingReminderSeedConfirmation(card: CaptureCard, now: D
   return card.recurrenceDraft.enabled ? cardHasPendingRecurrenceStartSeed(card, now) : cardHasPendingPonctualReminderSeed(card);
 }
 
+// --- CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) —
+// PROBLÈME DISTINCT de cardHasPendingReminderSeedConfirmation ci-dessus (jamais mélangés, voir sa
+// docstring : celui-ci couvre les SEEDS affichées comme acquises ; celui-ci-dessous couvre une DATE
+// RÉELLEMENT CONFIRMÉE mais incohérente avec des JOURS RÉELLEMENT CONFIRMÉS — deux causes racines
+// différentes, déjà documentées comme hors périmètre l'une de l'autre dans le tableau d'audit
+// ci-dessus, ligne "date de départ hors motif"). -----------------------------------------------
+
+/**
+ * `card.reminderDate` (CONFIRMÉE) est-elle incompatible avec les jours choisis d'une récurrence
+ * 'weekly' (CONFIRMÉE) ? C'est exactement la cause de blocage `isCardValid` via
+ * `reminderRecurrenceMatchesDate` (voir ce bloc) — mais jusqu'ici sans AUCUN signal visuel dédié
+ * (voir `cardHasPendingReminderSeedConfirmation`, hors périmètre pour ce cas). `false` si la
+ * récurrence n'est pas encore une règle valide (ex. 'weekly' sans aucun jour coché — un problème
+ * DIFFÉRENT, déjà signalé par `needsRecurrenceFrequency`/CaptureScreen.tsx, jamais confondu ici avec
+ * une incohérence anchor/jours) : `toReminderRecurrenceRule` retourne alors `null`, ce cas est donc
+ * naturellement écarté sans branche dédiée. 'daily' n'a par construction aucune notion de jour
+ * incompatible — toujours `false`. PURE — ne modifie jamais `card`, réutilise
+ * `toReminderRecurrenceRule`/`reminderRecurrenceMatchesDate` déjà existants, aucun algorithme
+ * dupliqué.
+ */
+export function cardHasAnchorMismatch(card: CaptureCard): boolean {
+  if (!card.reminderEnabled) return false;
+  if (!card.recurrenceDraft.enabled) return false;
+  if (!card.reminderDate) return false;
+  const rule = toReminderRecurrenceRule(card.recurrenceDraft);
+  if (!rule || rule.frequency !== 'weekly') return false;
+  return !reminderRecurrenceMatchesDate(rule, card.reminderDate);
+}
+
 /**
  * Texte d'aide affiché SOUS le bouton "Faire confiance à Pensif" APRÈS une tentative de sauvegarde
  * bloquée par au moins une seed non confirmée (voir `cardHasPendingReminderSeedConfirmation`) —

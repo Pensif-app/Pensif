@@ -57,6 +57,7 @@ import {
   buildInitialCards,
   buildPenseeFromCard,
   canSaveAll,
+  cardHasAnchorMismatch,
   cardHasPendingReminderSeedConfirmation,
   clearEventTime,
   confirmContactForCard,
@@ -1260,6 +1261,14 @@ export function CaptureScreen() {
     ? new Set(cards.filter((c) => cardHasPendingReminderSeedConfirmation(c, new Date())).map((c) => c.cardId))
     : new Set<string>();
   const pendingHelp = pendingConfirmationHelpText(pendingReminderSeedCardIds.size);
+  // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) —
+  // signal DISTINCT de pendingReminderSeedCardIds (cause racine différente, voir cardHasAnchorMismatch,
+  // captureReview.ts) : jamais fusionné dans le même Set, jamais dans pendingHelp/pendingConfirmationHelpText
+  // (ce texte reste réservé aux seeds non confirmées — comportement existant intégralement préservé).
+  // Même garde `saveAttempted` : aucun corail avant une tentative de sauvegarde réelle.
+  const anchorMismatchCardIds = saveAttempted
+    ? new Set(cards.filter((c) => cardHasAnchorMismatch(c)).map((c) => c.cardId))
+    : new Set<string>();
   return (
     <Screen>
       <Animated.View
@@ -1285,6 +1294,11 @@ export function CaptureScreen() {
         // de rappel non confirmée qui bloque réellement isCardValid (voir pendingReminderSeedCardIds
         // plus haut) — jamais avant tentative, jamais pour une carte déjà valide.
         const cardPendingHighlight = pendingReminderSeedCardIds.has(card.cardId);
+        // Signal DISTINCT — voir cardHasAnchorMismatch (captureReview.ts) : jamais confondu avec
+        // cardPendingHighlight ci-dessus, jamais présent en même temps sur la même carte en pratique
+        // (une seed non confirmée signifie reminderDate=null, une incohérence anchor exige
+        // reminderDate non-null — mutuellement exclusifs par construction, voir les deux fonctions).
+        const cardAnchorMismatch = anchorMismatchCardIds.has(card.cardId);
 
         return (
           <View key={card.cardId} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.line }]}>
@@ -1505,10 +1519,14 @@ export function CaptureScreen() {
                       // discret (theme.plum) UNIQUEMENT si cardPendingHighlight — recurrenceFieldRow
                       // n'a normalement aucun contour, ajouté seulement dans ce cas précis (léger
                       // reflow acceptable uniquement au moment où l'avertissement apparaît, jamais en
-                      // usage normal).
+                      // usage normal). CHANTIER "Cohérence Capture / création manuelle..." (2026-09-20) :
+                      // cardAnchorMismatch déclenche le MÊME style visuel sur cette ligne (deux causes
+                      // racines distinctes, même traitement visuel — voir cardHasAnchorMismatch).
                       style={[
                         styles.recurrenceFieldRow,
-                        cardPendingHighlight ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 } : null,
+                        cardPendingHighlight || cardAnchorMismatch
+                          ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 }
+                          : null,
                       ]}
                     >
                       <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>DATE DE DÉBUT</Text>
@@ -1566,13 +1584,30 @@ export function CaptureScreen() {
                     <Pressable
                       disabled={disabled}
                       onPress={() => setRecurrenceEditor({ cardId: card.cardId, mode: 'frequency' })}
-                      style={[styles.recurrenceFieldRow, { marginTop: 10 }]}
+                      style={[
+                        styles.recurrenceFieldRow,
+                        { marginTop: 10 },
+                        cardAnchorMismatch ? { borderWidth: 1, borderColor: theme.plum, borderRadius: 8, paddingHorizontal: 8 } : null,
+                      ]}
                     >
                       <Text style={[styles.fieldLabel, { color: theme.inkSoft, marginTop: 0 }]}>RÉPÉTITION</Text>
                       <Text style={{ color: needsRecurrenceFrequency(card) ? theme.accent : theme.ink, fontSize: 13, fontWeight: '700' }}>
                         {recurrenceFrequencyLabel(card.recurrenceDraft)}
                       </Text>
                     </Pressable>
+                    {/* CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible"
+                        (2026-09-20) — message INLINE, directement sous RÉPÉTITION, jamais mélangé au
+                        texte pendingHelp (réservé aux seeds non confirmées, voir plus haut) : cause
+                        racine différente (une date ET des jours tous deux déjà confirmés, mais
+                        incompatibles entre eux). Jamais de déplacement automatique de la date, jamais
+                        d'ajout automatique d'un jour — seule une correction manuelle par l'utilisateur
+                        fait disparaître ce message (il disparaît dès que cardHasAnchorMismatch redevient
+                        faux au prochain rendu, sans action supplémentaire nécessaire). */}
+                    {cardAnchorMismatch ? (
+                      <Text style={{ color: theme.plum, fontSize: 12, fontWeight: '600', marginTop: 6 }}>
+                        La date de début ne correspond pas aux jours sélectionnés.{'\n'}Choisis une date correspondant à l’un des jours de répétition.
+                      </Text>
+                    ) : null}
                     {recurrenceEndLabel(card.recurrenceDraft) ? (
                       <Pressable
                         disabled={disabled}

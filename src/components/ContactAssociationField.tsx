@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Contact } from '../data/types';
 import { Palette } from '../theme/colors';
 import { resolveContactAssociationState } from '../data/contactAssociation';
+import { Avatar } from './Avatar';
 
 /**
  * CHANTIER UX — ligne compacte "contact associé", partagée par PenseeDetailScreen et le Review de
@@ -25,6 +26,7 @@ export function ContactAssociationField({
   clearLabel = 'Aucun',
   associateLabel = 'Associer un contact',
   changeLabel = 'Changer',
+  variant = 'default',
 }: {
   theme: Palette;
   contacts: Contact[];
@@ -40,10 +42,47 @@ export function ContactAssociationField({
   clearLabel?: string;
   associateLabel?: string;
   changeLabel?: string;
+  /** CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) — `'default'`
+   *  (implicite, jamais passé par CaptureScreen.tsx — voir audit dédié avant cet ajout) = rendu
+   *  EXACTEMENT inchangé (pastille contour accent + "Aucun"/"Changer"), utilisé par Capture Review.
+   *  `'compact'` = rendu dédié à PenseeDetailScreen UNIQUEMENT (avatar/initiale + nom + coche verte,
+   *  sans contour ni "Aucun" à côté d'un contact déjà sélectionné) — une variante de présentation,
+   *  jamais une réécriture du composant partagé, pour ne risquer AUCUNE régression sur Capture Review
+   *  (déjà validé physiquement). Seul l'état `'selected'` diffère entre les deux variantes ; les
+   *  états `'orphaned'`/`'suggested'`/absence de contact restent le même rendu quel que soit `variant`
+   *  (aucun besoin identifié pour ces cas dans cette passe). */
+  variant?: 'default' | 'compact';
 }) {
   const state = resolveContactAssociationState(contacts, selectedContactId, suggestedContactId);
 
   if (state.kind === 'selected') {
+    if (variant === 'compact') {
+      return (
+        <View style={styles.compactRow}>
+          <View style={styles.compactIdentity}>
+            <Avatar initials={state.contact.initials} colorKey={state.contact.color} theme={theme} size={28} />
+            <Text style={[styles.compactName, { color: theme.ink }]} numberOfLines={1}>
+              {state.contact.prenom}
+            </Text>
+            {/* Vert (theme.sage) — même couleur que "Enregistrée"/validations positives ailleurs dans
+                l'app (HomeScreen/CaptureScreen) — jamais l'accent violet ici : un contact sélectionné
+                est une confirmation, pas une action interactive en attente. */}
+            <Ionicons name="checkmark-circle" size={16} color={theme.sage} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            {/* "Retirer" (jamais le mot "Aucun") — le mot "Aucun" ne doit jamais apparaître à côté
+                d'un nom déjà sélectionné (consigne explicite). Même handler `onClear` qu'avant,
+                aucun changement de comportement/donnée — uniquement le libellé et le style. */}
+            <Pressable disabled={disabled} onPress={onClear} style={styles.actionBtn} hitSlop={8}>
+              <Text style={[styles.actionText, { color: theme.inkSoft }]}>Retirer</Text>
+            </Pressable>
+            <Pressable disabled={disabled} onPress={onOpenPicker} style={styles.actionBtn} hitSlop={8}>
+              <Text style={[styles.actionText, { color: theme.accent }]}>{changeLabel}</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={styles.row}>
         <View style={[styles.pill, { borderColor: theme.accent, backgroundColor: theme.accentTint }]}>
@@ -120,4 +159,9 @@ const styles = StyleSheet.create({
   mutedText: { fontSize: 13 },
   actionBtn: { paddingVertical: 6 },
   actionText: { fontWeight: '700', fontSize: 13 },
+  // CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) — variante
+  // 'compact', PenseeDetailScreen uniquement (voir prop `variant`).
+  compactRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 36 },
+  compactIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 },
+  compactName: { fontWeight: '700', fontSize: 14, flexShrink: 1 },
 });
