@@ -4,6 +4,10 @@ CHANTIER "Data Safety P1 — Backup/Restore Supabase" (2026-09-20). Audit + pré
 uniquement — **aucun restore n'a été exécuté sur le projet production dans cette passe**, aucun
 changement Supabase Dashboard, aucun EAS, aucun SQL destructif.
 
+**Statut au 2026-09-21 : le restore drill (§7) a été exécuté réellement, sur un projet Supabase
+temporaire dédié, et validé de bout en bout (restore DB + login OTP réel + contacts/pensées visibles
+dans l'app) — jamais sur la prod, prod jamais modifiée, vérifié.**
+
 Toutes les affirmations ci-dessous sur le comportement de `supabase db dump` ont été **vérifiées
 empiriquement** dans ce dépôt via `npx supabase db dump --dry-run ...` (CLI v2.117.0, lié au
 projet Pensif) — jamais supposées. Le détail de chaque commande de vérification est dans l'historique
@@ -143,46 +147,137 @@ passe, jamais de connection string.**
 N'affiche **jamais** de contenu de ligne (email, token, id) — uniquement des compteurs et des
 booléens OK/WARN/FAIL.
 
-## 7 — Restore drill (commandes seulement — RIEN exécuté dans cette passe)
+## 7 — Restore drill
 
-**Ne jamais restaurer sur le projet production.** Procédure la plus sûre pour tester un restore :
+**Statut : DRILL RÉEL EXÉCUTÉ ET VALIDÉ DE BOUT EN BOUT** (2026-09-21), sur un projet Supabase
+temporaire dédié (`pensif-restore-drill-20260921`), jamais sur la prod. Ce qui suit est la procédure
+**réellement utilisée et confirmée fonctionner**, pas une hypothèse — elle diffère de la première
+version documentée ici (qui supposait `psql` disponible localement, jamais vérifié) sur plusieurs
+points concrets, corrigés ci-dessous après coup.
 
-1. **Créer un projet Supabase temporaire dédié au test** (Dashboard ou `supabase projects create`) —
-   région/plan indifférents pour un test, jamais le projet Pensif réel.
-2. **Lier le CLI au projet temporaire** :
-   ```powershell
+### Correctifs par rapport à la procédure initialement documentée
+
+- **Pas de `psql` nécessaire, et aucun n'était disponible localement** (vérifié : absent du PATH sur
+  la machine de dev). La restauration réelle utilise `supabase db query --linked --project-ref <ref>
+  --file <fichier>` (API de gestion Supabase), qui exécute le SQL sans jamais avoir besoin du mot de
+  passe DB Postgres du projet cible — seule l'authentification CLI (`supabase login`) suffit. Le
+  mot de passe DB généré à la création du projet temporaire n'a donc servi qu'à la création
+  elle-même (`projects create --db-password ...`), jamais à la restauration.
+- **`supabase link --project-ref <ref>` est un préalable obligatoire** à `db query --linked` — passer
+  seulement `--project-ref` sans `--linked` échoue explicitement
+  (`LegacyDbQueryMutuallyExclusiveFlagsError`). Ce `link` réécrit
+  `supabase/.temp/linked-project.json` **localement** (jamais un changement distant) : il faut donc
+  explicitement **relier à nouveau la prod après le drill** (`supabase link --project-ref
+  whznwmzypipalixtifpk`), vérifié par une relecture de ce fichier + `supabase projects list`
+  (`"linked": true` sur la prod).
+- **`supabase projects create` exige `--region` en mode non interactif** — omis dans la première
+  tentative, échec propre et rapide (`LegacyProjectsCreateMissingArgError`), **aucun projet créé**
+  à ce stade. `--region eu-west-1` (région de la prod) a résolu le problème.
+- **PowerShell 5.1 — la même classe de bug que le correctif `Invoke-SupabaseCommand`
+  (`backup-supabase.ps1`) est réapparue, sous une forme plus large** : rediriger stderr d'un
+  exécutable natif via `2>$null` (pas seulement `2>&1`) déclenche aussi le `NativeCommandError` en
+  PowerShell 5.1 avec `$ErrorActionPreference = 'Stop'`. Le script de drill a crashé sur ce point
+  pendant `supabase projects create` — **le projet avait déjà été créé avec succès côté serveur**
+  avant le crash local (confirmé par une relecture `supabase projects list`), preuve que
+  `$LASTEXITCODE`/l'état réel de la commande était bon, seule la capture de sortie locale a échoué.
+  **Leçon renforcée : ne jamais rediriger stderr d'un exécutable natif dans ce projet, sous AUCUNE
+  forme (`2>&1`, `2>$null`, ou toute variante) sous PowerShell 5.1** — laisser stderr aller
+  directement à la console, capturer uniquement stdout par affectation simple. Pour ce type
+  d'orchestration multi-étapes avec relances de commandes `npx supabase ...`, **Bash (Git Bash) s'est
+  avéré plus robuste** dans cet environnement — aucune de ces commandes n'a nécessité PowerShell
+  pour fonctionner correctement une fois la redirection stderr supprimée.
+- **`roles.sql` génère un échec partiel attendu et non bloquant** sur un projet géré : les 3
+  lignes `ALTER ROLE "anon"/"authenticated"/"authenticator" SET "statement_timeout" ...`
+  s'appliquent et persistent (relu après coup), mais la dernière ligne
+  (`GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";`) échoue avec
+  `permission denied for parameter log_min_messages` — le rôle d'exécution utilisé par l'API de
+  gestion (`cli_login_postgres`, provisionné automatiquement) n'a pas ce privilège, contrairement à
+  une vraie connexion `postgres` superuser directe. **Conclusion : ce fichier n'a pas besoin d'être
+  modifié/filtré avant restauration — l'échec de cette seule ligne finale est sans conséquence
+  (réglage cosmétique de logging realtime, aucun lien avec la récupérabilité des comptes/données) et
+  n'empêche pas la suite du restore.**
+- **Constat inattendu (documenté, pas caché) : `db query --file` via l'API de gestion n'a PAS
+  appliqué les contraintes de clé étrangère de façon synchrone pendant `data-public.sql`** —
+  restaurer `data-public.sql` (avec ses `user_id` référençant `auth.users`) **avant**
+  `data-auth-users-identities.sql` a réussi (exit 0) alors que `auth.users` était encore vide à ce
+  moment (vérifié : 4 contacts insérés avec `auth.users` à 0 ligne). L'ordre documenté
+  (roles → schema → data-public → data-auth) reste **la procédure recommandée** (correcte et sans
+  ambiguïté), mais ce comportement du canal `db query` explique pourquoi une éventuelle inversion
+  accidentelle de l'ordre data-public/data-auth ne provoquerait pas nécessairement une erreur
+  immédiate — seule la vérification finale d'intégrité (0 orphelin) fait foi, jamais l'absence
+  d'erreur pendant le restore lui-même.
+
+### Procédure confirmée (celle réellement utilisée)
+
+1. **Créer un projet Supabase temporaire dédié** :
+   ```bash
+   npx supabase projects create pensif-restore-drill-XXXXXXXX \
+     --org-id <org-id> --db-password <généré aléatoirement, jamais affiché> \
+     --region eu-west-1 --output-format json
+   ```
+   Vérifier explicitement `project_ref` du résultat **≠** `whznwmzypipalixtifpk` (prod) avant toute
+   autre commande.
+2. **Attendre `ACTIVE_HEALTHY`** (`supabase projects list`, poll).
+3. **Lier le CLI au projet temporaire** :
+   ```bash
    npx supabase link --project-ref <ref-projet-temporaire>
    ```
-3. **Restaurer les rôles** :
-   ```powershell
-   psql "postgresql://postgres:<password-temp>@db.<ref-temp>.supabase.co:5432/postgres" -f roles.sql
+4. **Restaurer, dans l'ordre**, chaque fichier avec le **même** garde-fou `--project-ref` explicite
+   (échoue si le lien local a dérivé) :
+   ```bash
+   npx supabase db query --linked --project-ref <ref-temp> --file roles.sql
+   npx supabase db query --linked --project-ref <ref-temp> --file schema.sql
+   npx supabase db query --linked --project-ref <ref-temp> --file data-public.sql
+   npx supabase db query --linked --project-ref <ref-temp> --file data-auth-users-identities.sql
    ```
-4. **Restaurer le schéma** :
-   ```powershell
-   psql "postgresql://postgres:<password-temp>@db.<ref-temp>.supabase.co:5432/postgres" -f schema.sql
-   ```
-5. **Restaurer les données publiques** :
-   ```powershell
-   psql "postgresql://postgres:<password-temp>@db.<ref-temp>.supabase.co:5432/postgres" -f data-public.sql
-   ```
-6. **Restaurer Auth (users + identities)** — nécessite que le schéma `auth` existe déjà sur le
-   projet temporaire (il existe par défaut sur tout projet Supabase, géré par la plateforme) :
-   ```powershell
-   psql "postgresql://postgres:<password-temp>@db.<ref-temp>.supabase.co:5432/postgres" -f data-auth-users-identities.sql
-   ```
-7. **Vérifier les comptages** (lecture seule, via l'éditeur SQL du projet temporaire ou `psql -c`) :
+5. **Vérifier** (lecture seule, jamais de contenu affiché — uniquement counts/booléens) :
    ```sql
    select count(*) from public.contacts;
    select count(*) from public.pensees;
    select count(*) from auth.users;
    select count(*) from auth.identities;
+   select count(*) from public.contacts c where not exists (select 1 from auth.users u where u.id = c.user_id);
+   select count(*) from public.pensees p where not exists (select 1 from auth.users u where u.id = p.user_id);
+   select relrowsecurity from pg_class where relname in ('contacts','pensees') and relnamespace='public'::regnamespace;
    ```
-   Comparer aux comptages approximatifs de `verify-backup.ps1` sur le backup source.
-8. **Tester une connexion réelle** : dans l'app Pensif pointée (temporairement, via `.env` local
-   non commité) sur le projet temporaire, vérifier qu'"J'ai déjà un compte" + OTP retrouve bien le
-   compte restauré avec ses contacts/pensées.
-9. **Détruire le projet temporaire** une fois le test terminé (il contient une copie des données
-   utilisateur réelles).
+6. **Reconfigurer manuellement** (Dashboard du projet temporaire, jamais automatisé) : Email
+   provider, SMTP/Brevo, OTP length=6/expiry=600s, Manual Identity Linking, Anonymous Sign-ins si le
+   test le nécessite.
+7. **Pointer l'app locale** (`.env` non commité) sur le projet temporaire, redémarrer Metro, utiliser
+   au besoin l'outil DEV "Simuler une réinstallation" (SettingsScreen) pour repartir sans
+   session/cache locale liée à la prod avant de tester "J'ai déjà un compte".
+8. **Tester réellement** le login OTP + vérifier visuellement dans l'app que contacts/pensées
+   restaurés apparaissent.
+9. **Revenir sur la prod** : restaurer `.env` aux valeurs prod, `supabase link --project-ref
+   whznwmzypipalixtifpk`, vérifier `git status --short` reste clean, vérifier par lecture seule que
+   les compteurs prod n'ont pas bougé pendant le test (comparer `max(created_at)` avant/après).
+10. **Ne pas détruire le projet temporaire immédiatement** si une investigation reste possible —
+    décision explicite de l'utilisateur, pas automatique.
+
+### Résultat du drill réel (2026-09-21)
+
+- Projet temporaire : `pensif-restore-drill-20260921` (`wkxqagxuzvtjwmjrbrzo`, région eu-west-1).
+- Restore DB : **réussi** sur les 4 fichiers (roles avec la réserve documentée ci-dessus, schema,
+  data-public, data-auth).
+- Comptages temporaire = comptages prod au moment du backup : `public.contacts` = 4,
+  `public.pensees` = 6, `auth.users` = 14, `auth.identities` = 1.
+- Intégrité : **0 orphelin** (`contacts.user_id`/`pensees.user_id` ↔ `auth.users.id`), sur le
+  temporaire comme confirmé une seconde fois après le login OTP réel.
+- RLS : policy présente et activée sur `public.contacts` et `public.pensees` (1 policy chacune,
+  `relrowsecurity = true`).
+- Colonnes attendues présentes sur `public.pensees` : `event_time`, `reminder_recurrence`, `pinned`
+  (3/3).
+- SMTP (Brevo)/Auth (OTP 6/600s, Manual Identity Linking) : reconfigurés manuellement par
+  l'utilisateur dans le Dashboard du projet temporaire — jamais automatisé, jamais de secret transmis
+  à l'assistant.
+- Login OTP réel : **réussi** ("J'ai déjà un compte" → email → OTP Brevo reçu → session récupérée).
+  Vérifié après coup : exactement 1 `auth.sessions` active, dont le `user_id` rejoint à la fois
+  `auth.users` et `auth.identities` restaurés (jointure vérifiée, jamais l'UUID affiché).
+- Contacts/pensées restaurés : **visibles dans l'app** (confirmé visuellement par l'utilisateur sur
+  iPhone, Expo Go).
+- Prod : counts identiques avant/après (4/6), `max(created_at)` sur `contacts`/`pensees` antérieur à
+  tout le drill — **aucune écriture prod pendant le test**, CLI relié explicitement à la prod avant
+  et après la fenêtre de test sur le projet temporaire.
 
 ### À reconfigurer manuellement après une restauration (non couvert par le dump)
 
