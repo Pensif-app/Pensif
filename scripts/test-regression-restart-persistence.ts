@@ -347,13 +347,20 @@ async function main() {
     check('cache toujours utilisé même sans session du tout', resolved2.contacts.some((c) => c.id === 'c-cached') && resolved2.pensees.some((p) => p.id === 'p-cached'));
   }
 
-  console.log('\n[§5 — source] store.tsx — le boot garde bien ensureAnonSession() et loadRemoteData() dans des try/catch INDÉPENDANTS');
+  console.log('\n[§5 — source] store.tsx — le boot garde bien la résolution de session et loadRemoteData() dans des try/catch INDÉPENDANTS');
+  // CHANTIER "Data Safety P0-1" (2026-09-20) — ancre mise à jour : `ensureAnonSession()` a été
+  // remplacée par `getExistingSession()` (lecture locale pure, jamais de création automatique) +
+  // `initializeForSession()` (chemin de boot UNIQUE, voir consigne §4). `loadRemoteData` garde son
+  // propre try/catch, INDÉPENDANT de la résolution de session (qui se fait AVANT, côté appelant).
   const storeSrc = readSrc('data', 'store.tsx');
+  const initFnStart = storeSrc.indexOf('async function initializeForSession(session: ExistingSession) {');
+  const initFnBlock = storeSrc.slice(initFnStart, initFnStart + 3600);
+  check('initializeForSession existe (chemin de boot UNIQUE, voir consigne §4)', initFnStart !== -1);
   check(
-    'les 2 échecs (session vs données) sont bien découplés (2 catch séparés, pas un seul englobant les deux)',
-    /const session = await ensureAnonSession\(\);\s*if \(session\) \{[\s\S]*?try \{\s*remote = await loadRemoteData\(session\.userId, session\.isNewAccount\);\s*\} catch \(e\) \{[\s\S]*?\}\s*\}\s*\} catch \(e\) \{/.test(storeSrc),
+    'les 2 échecs (session vs données) sont bien découplés (getExistingSession() résolu par l’appelant AVANT, loadRemoteData() dans son propre try/catch)',
+    /try \{\s*remote = await loadRemoteData\(session\.userId, false\);\s*\} catch \(e\) \{/.test(initFnBlock),
   );
-  check('l’outbox est chargée/persistée AVANT toute tentative Supabase (disponible quel que soit le résultat réseau)', storeSrc.indexOf('outboxRef.current = loadedOutbox;') < storeSrc.indexOf('if (isSupabaseConfigured) {'));
+  check('l’outbox est chargée/persistée AVANT toute tentative Supabase (disponible quel que soit le résultat réseau)', initFnBlock.indexOf('outboxRef.current = loadedOutbox;') < initFnBlock.indexOf('remote = await loadRemoteData'));
   check('resolveBootData reste le SEUL point de résolution cache/distant/outbox (pas de logique dupliquée)', storeSrc.includes('resolveBootData({ cachedContacts, cachedPensees, outbox: loadedOutbox, remote });'));
   check('les 3 clés (contacts/pensees/outbox) sont bien persistées, chacune conditionnée à `ready`', /if \(ready\) AsyncStorage\.setItem\(KEYS\.contacts/.test(storeSrc) && /if \(ready\) AsyncStorage\.setItem\(KEYS\.pensees/.test(storeSrc) && /if \(ready\) AsyncStorage\.setItem\(KEYS\.outbox/.test(storeSrc));
   check('drain immédiat au boot si une session (même restaurée hors ligne) est disponible', storeSrc.includes('if (userIdRef.current) void drainNow();'));

@@ -8,6 +8,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
 import { NamePromptModal } from './src/components/NamePromptModal';
 import { SplashOverlay } from './src/components/SplashOverlay';
+import { AuthGateScreen } from './src/components/AuthGateScreen';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { useTheme } from './src/theme';
 import { registerNotificationTapHandler } from './src/lib/notifications';
@@ -17,7 +18,7 @@ import { registerNotificationTapHandler } from './src/lib/notifications';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function AppShell() {
-  const { ready, userName, namePromptOpen, setUserName, contacts, pensees } = useStore();
+  const { ready, userName, namePromptOpen, setUserName, contacts, pensees, authGate } = useStore();
   const theme = useTheme();
 
   // Toujours lire les contacts/pensées À JOUR au moment du tap (pas ceux du rendu où le listener a
@@ -76,10 +77,18 @@ function AppShell() {
     <>
       <RootNavigator onReady={() => setNavReady(true)} />
       {/* `ready` évite d'afficher brièvement la modale au lancement avant que le prénom déjà
-          enregistré n'ait fini de se charger (AsyncStorage/Supabase). */}
-      <NamePromptModal visible={ready && (!userName || namePromptOpen)} initialValue={userName ?? ''} onSubmit={setUserName} />
+          enregistré n'ait fini de se charger (AsyncStorage/Supabase). CHANTIER "Data Safety P0-1"
+          (2026-09-20) — `authGate === 'none'` en plus : jamais la modale prénom PAR-DESSUS l'auth
+          gate (aucune donnée/session à ce stade, rien à nommer). */}
+      <NamePromptModal visible={ready && authGate === 'none' && (!userName || namePromptOpen)} initialValue={userName ?? ''} onSubmit={setUserName} />
       <StatusBar style="auto" />
       <SplashOverlay theme={theme} ready={ready} />
+      {/* CHANTIER "Data Safety P0-1" (2026-09-20) — overlay plein écran, sibling de RootNavigator
+          (jamais inséré dans la pile de navigation, voir AuthGateScreen.tsx) : affiché UNIQUEMENT si
+          Supabase est configuré ET qu'aucune session n'existe (store.tsx ne crée jamais de compte
+          anonyme automatiquement dans ce cas). Rendu APRÈS SplashOverlay dans le JSX pour rester
+          au-dessus une fois le splash retiré. */}
+      {ready && authGate === 'choice' && <AuthGateScreen />}
     </>
   );
 }

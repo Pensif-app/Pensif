@@ -19,17 +19,17 @@ import { generateId } from '../lib/id';
 import { rescheduleAllReminders, cancelAllReminders, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { subscribeToConnectivityRestored } from '../lib/netInfo';
-import { clearMessageDraftForEvent, clearMessageDraftsForContact } from './messageDraftStorage';
+import { clearAllLocalDrafts, clearMessageDraftForEvent, clearMessageDraftsForContact } from './messageDraftStorage';
 import {
   deleteContactRemote,
   deletePenseeRemote,
-  ensureAnonSession,
   insertContactRemote,
   insertPenseeRemote,
   loadRemoteData,
   updateContactRemote,
   updatePenseeRemote,
 } from '../lib/supabaseRepo';
+import { ExistingSession, devSignOutForReinstallSimulation, getExistingSession, startAnonymousSession } from '../lib/authRepo';
 
 const KEYS = {
   contacts: 'pensif.contacts',
@@ -42,6 +42,11 @@ const KEYS = {
   // l'outbox (voir migrateLegacyPendingDeletes), plus jamais écrites ensuite.
   pendingDeleteContacts: 'pensif.pendingDeleteContacts',
   pendingDeletePensees: 'pensif.pendingDeletePensees',
+  // CHANTIER "Data Safety P0-1" (2026-09-20) — propriétaire du cache account-scoped (contacts/
+  // pensees/outbox), voir `initializeForSession`. Absent = migration (installation antérieure à ce
+  // chantier) OU jamais aucune session — jamais interprété comme "aucun propriétaire" au sens d'un
+  // effacement, voir la logique dédiée.
+  cacheOwnerUserId: 'pensif.cacheOwnerUserId',
 };
 
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -67,6 +72,37 @@ type Store = {
   notificationsEnabled: boolean;
   setNotificationsEnabled: (enabled: boolean) => void;
   resetLocalDemoData: () => void;
+  // CHANTIER "Data Safety P0-1" (2026-09-20) — 'choice' = aucune session du tout, l'auth gate doit
+  // être affiché (voir AuthGateScreen.tsx/App.tsx) ; 'none' = rien à afficher (session déjà connue,
+  // OU Supabase non configuré/mode 100% local, qui n'a aucune notion de session).
+  authGate: 'none' | 'choice';
+  /** Reflète `session.user.is_anonymous` de la session ACTIVE — `false` en mode local (pas de
+   *  session Supabase du tout). Pilote l'affichage de "SÉCURISER MES DONNÉES" (SettingsScreen). */
+  isAnonymous: boolean;
+  /** Choix "Continuer" de l'auth gate — crée un compte anonyme EXPLICITEMENT (jamais en fallback
+   *  silencieux) puis boote normalement. Relance l'exception si `startAnonymousSession` échoue —
+   *  l'appelant (AuthGateScreen) affiche l'erreur, l'auth gate reste affiché, rien n'est perdu. */
+  chooseAnonymous: () => Promise<void>;
+  /** Choix "J'ai déjà un compte" de l'auth gate, une fois `verifyExistingAccountOtp` réussi
+   *  (authRepo.ts, appelé directement par l'écran) — boote via le MÊME chemin que tout le reste
+   *  (`initializeForSession`), jamais une seconde implémentation du boot. */
+  completeAuthWithSession: (session: ExistingSession) => Promise<void>;
+  /** Appelée par SettingsScreen APRÈS que `verifyAccountSecurityOtp` a réussi ET que l'appelant a
+   *  lui-même vérifié `user.id avant === user.id après` (jamais vérifié ici — voir consigne
+   *  explicite "traiter comme erreur critique" côté appelant si ça diffère). Aucun reload/purge : le
+   *  `user.id` reste identique par construction sur ce chemin, seul `isAnonymous` change. */
+  markAccountSecured: () => void;
+  /**
+   * OUTIL DEV UNIQUEMENT (CHANTIER "Data Safety P0-1 — test récupération sans réinstallation",
+   * 2026-09-20) — simule la perte complète session/cache local d'un appareil (équivalent d'une
+   * réinstallation), SANS désinstaller Expo Go : déconnecte la session Supabase, purge le cache
+   * account-scoped (contacts/pensées/outbox/cacheOwnerUserId + brouillons locaux), préserve les
+   * préférences device-scoped (themePref/notificationsEnabled/userName), puis réaffiche l'auth gate.
+   * Ne fait RIEN si `!__DEV__` — jamais disponible en build production (voir aussi le garde-fou
+   * identique côté `devSignOutForReinstallSimulation`, authRepo.ts, et le rendu conditionnel du
+   * bouton dans SettingsScreen, `{__DEV__ && ...}`).
+   */
+  devSimulateReinstall: () => Promise<void>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -83,6 +119,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [themePref, setThemePrefState] = useState<ThemePref>('system');
   const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
+  // CHANTIER "Data Safety P0-1" (2026-09-20) — 'none' tant qu'on ne SAIT PAS encore qu'aucune session
+  // n'existe (évite un flash de l'auth gate pendant la lecture AsyncStorage) ; passe à 'choice'
+  // UNIQUEMENT si `getExistingSession()` résout `null` au boot (jamais avant, jamais par un effet
+  // réactif qui pourrait se déclencher en arrière-plan).
+  const [authGate, setAuthGate] = useState<'none' | 'choice'>('none');
+  const [isAnonymousState, setIsAnonymousState] = useState(false);
   // CHANTIER SYNC OFFLINE→SUPABASE : mutations pas encore confirmées côté serveur (create/update/
   // delete, contacts ET pensées) — remplace l'ancien duo pendingDeleteContactIds (explicite, deletes
   // seulement) / diff d'ids au boot (implicite, incapable de représenter une simple modification).
@@ -217,14 +259,134 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   /**
+   * CHANTIER "Data Safety P0-1" (2026-09-20) — chemin de boot UNIQUE, partagé par les 3 points
+   * d'entrée possibles (session déjà connue au boot, "Continuer" → compte anonyme neuf,
+   * "J'ai déjà un compte" → compte permanent retrouvé) : jamais deux implémentations différentes du
+   * boot (consigne explicite §4).
+   *
+   * Ownership du cache (§5) — AVANT tout drain :
+   * - `cacheOwnerUserId` absent (migration d'une installation antérieure à ce chantier, OU tout
+   *   premier lancement avec un cache déjà vide) → le cache existant (s'il y en a un) est attribué à
+   *   CETTE session sans rien effacer, `cacheOwnerUserId` est simplement écrit.
+   * - `cacheOwnerUserId` présent et IDENTIQUE à `session.userId` → cache chargé normalement.
+   * - `cacheOwnerUserId` présent et DIFFÉRENT → le cache appartient à un AUTRE compte (ancienne
+   *   session temporaire, voir le risque explicite de la consigne) : contacts/pensées/outbox sont
+   *   PURGÉS (état + AsyncStorage) AVANT toute lecture/tout drain — aucune ancienne opération outbox
+   *   n'est jamais exécutée sous le nouveau `user_id`. Les brouillons locaux (message/quiz) sont
+   *   purgés avec (§6, peuvent révéler le contenu de l'ancien compte).
+   */
+  async function initializeForSession(session: ExistingSession) {
+    userIdRef.current = session.userId;
+    setUserId(session.userId);
+    setIsAnonymousState(session.isAnonymous);
+
+    const storedOwner = await AsyncStorage.getItem(KEYS.cacheOwnerUserId).catch(() => null);
+
+    let cachedContacts: Contact[] = [];
+    let cachedPensees: Pensee[] = [];
+    let loadedOutbox: Outbox = [];
+
+    if (storedOwner && storedOwner !== session.userId) {
+      await Promise.all([
+        AsyncStorage.removeItem(KEYS.contacts),
+        AsyncStorage.removeItem(KEYS.pensees),
+        AsyncStorage.removeItem(KEYS.outbox),
+      ]).catch(() => {});
+      await clearAllLocalDrafts();
+      await AsyncStorage.setItem(KEYS.cacheOwnerUserId, session.userId).catch(() => {});
+      // cachedContacts/cachedPensees/loadedOutbox restent volontairement vides (fraîchement purgés).
+    } else {
+      const [cachedContactsRaw, cachedPenseesRaw, outboxRaw, legacyPendingDelContactsRaw, legacyPendingDelPenseesRaw] = await Promise.all([
+        AsyncStorage.getItem(KEYS.contacts),
+        AsyncStorage.getItem(KEYS.pensees),
+        AsyncStorage.getItem(KEYS.outbox),
+        AsyncStorage.getItem(KEYS.pendingDeleteContacts),
+        AsyncStorage.getItem(KEYS.pendingDeletePensees),
+      ]);
+      cachedContacts = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
+      cachedPensees = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw).map(normalizePensee) : [];
+      loadedOutbox = outboxRaw ? JSON.parse(outboxRaw) : [];
+      const legacyPendingDelContacts: string[] = legacyPendingDelContactsRaw ? JSON.parse(legacyPendingDelContactsRaw) : [];
+      const legacyPendingDelPensees: string[] = legacyPendingDelPenseesRaw ? JSON.parse(legacyPendingDelPenseesRaw) : [];
+      if (legacyPendingDelContacts.length || legacyPendingDelPensees.length) {
+        loadedOutbox = migrateLegacyPendingDeletes(loadedOutbox, legacyPendingDelContacts, legacyPendingDelPensees, generateId, new Date().toISOString());
+      }
+      if (!storedOwner) {
+        // Migration (§5, "installations actuelles") — jamais d'effacement, seulement l'attribution.
+        await AsyncStorage.setItem(KEYS.cacheOwnerUserId, session.userId).catch(() => {});
+      }
+    }
+
+    outboxRef.current = loadedOutbox;
+    setOutbox(loadedOutbox);
+
+    let remote: { contacts: Contact[]; pensees: Pensee[] } | null = null;
+    try {
+      remote = await loadRemoteData(session.userId, false);
+    } catch (e) {
+      console.warn('[Pensif] données distantes indisponibles — cache local utilisé', e);
+    }
+
+    const resolved = resolveBootData({ cachedContacts, cachedPensees, outbox: loadedOutbox, remote });
+    setContacts(resolved.contacts);
+    setPensees(resolved.pensees);
+
+    if (userIdRef.current) void drainNow();
+  }
+
+  /**
+   * OUTIL DEV UNIQUEMENT (CHANTIER "Data Safety P0-1 — test récupération sans réinstallation",
+   * 2026-09-20) — voir le type `devSimulateReinstall` sur `Store` plus haut pour le contexte complet.
+   * Ordre STRICT et volontaire :
+   *   1. signOut Supabase (avant toute purge — une fois déconnecté, plus aucune écriture distante
+   *      ne peut partir avec l'ancien user.id).
+   *   2. Purge AsyncStorage du cache account-scoped UNIQUEMENT (contacts/pensées/outbox/
+   *      cacheOwnerUserId) + brouillons locaux (clearAllLocalDrafts — peuvent révéler le contenu de
+   *      l'ancien compte, même règle que le changement de propriétaire de cache, §5/§6).
+   *   3. SEULEMENT ENSUITE, état en mémoire réinitialisé (outboxRef AVANT tout, comme partout
+   *      ailleurs dans ce fichier — voir le commentaire sur `outboxRef` en haut du fichier) :
+   *      `userIdRef.current`/`setUserId(null)` marquent explicitement "aucun compte", donc
+   *      `enqueueAndDrain`/`drainNow` (gardés par `if (!userIdRef.current) return`) ne peuvent plus
+   *      rien exécuter, même si un appel traîne encore en attente. AUCUN `drainNow()` n'est appelé
+   *      ici, à aucun moment.
+   *   4. `authGate = 'choice'` — ré-affiche l'écran de choix, exactement comme un premier lancement
+   *      sans session.
+   * Préférences device-scoped (`pensif.themePref`/`pensif.notificationsEnabled`/`pensif.userName`)
+   * jamais touchées — ni en mémoire, ni dans AsyncStorage.
+   */
+  async function devSimulateReinstall() {
+    if (!__DEV__) return;
+
+    await devSignOutForReinstallSimulation();
+
+    await Promise.all([
+      AsyncStorage.removeItem(KEYS.contacts),
+      AsyncStorage.removeItem(KEYS.pensees),
+      AsyncStorage.removeItem(KEYS.outbox),
+      AsyncStorage.removeItem(KEYS.cacheOwnerUserId),
+    ]).catch(() => {});
+    await clearAllLocalDrafts();
+
+    outboxRef.current = [];
+    setOutbox([]);
+    setContacts([]);
+    setPensees([]);
+    userIdRef.current = null;
+    setUserId(null);
+    setIsAnonymousState(false);
+    setAuthGate('choice');
+  }
+
+  /**
    * BUG SYNC OFFLINE — COLD START : un cold start hors ligne peut échouer à charger `loadRemoteData`
-   * (réseau requis) alors que `ensureAnonSession()` réussit (session persistée localement, voir
-   * supabase.ts `persistSession: true`) — l'ancien code jetait quand même la session obtenue car il
-   * exigeait les deux à la fois (voir le commentaire du bloc de boot plus bas). Si `userIdRef` n'est
-   * TOUJOURS pas renseigné (session jamais obtenue, y compris localement — device jamais connecté,
-   * ou token expiré nécessitant un vrai refresh réseau), on retente ICI `ensureAnonSession()` avant
-   * de drainer. Ne fait RIEN à l'outbox en cas d'échec (elle reste intacte, retentée au prochain
-   * déclencheur) ; ne bloque jamais rien d'autre (pas d'await côté appelant).
+   * (réseau requis) alors qu'une session PERSISTÉE LOCALEMENT existe déjà (voir supabase.ts
+   * `persistSession: true`). CHANTIER "Data Safety P0-1" (2026-09-20) — CORRECTIF : cette fonction ne
+   * fait plus que RESTAURER une session déjà connue (`getExistingSession()`, lecture locale pure) —
+   * elle ne crée PLUS JAMAIS de compte anonyme en fallback silencieux (l'ancien `ensureAnonSession()`
+   * le faisait, en violation directe de l'architecture retenue : "aucun anonyme temporaire créé
+   * automatiquement"). Si aucune session n'existe (utilisateur encore à l'auth gate, ou jamais
+   * connecté), cette fonction ne fait STRICTEMENT rien — jamais d'anonymat créé en arrière-plan
+   * pendant que l'utilisateur regarde l'écran de choix.
    */
   async function restoreSessionThenDrain() {
     if (!isSupabaseConfigured) return;
@@ -232,10 +394,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (sessionRestoringRef.current) return;
       sessionRestoringRef.current = true;
       try {
-        const session = await ensureAnonSession();
+        const session = await getExistingSession();
         if (session) {
           userIdRef.current = session.userId;
           setUserId(session.userId);
+          setIsAnonymousState(session.isAnonymous);
         }
       } catch (e) {
         console.warn('[Pensif] session Supabase toujours indisponible — nouvel essai au prochain retour réseau', e);
@@ -243,7 +406,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } finally {
         sessionRestoringRef.current = false;
       }
-      if (!userIdRef.current) return; // ensureAnonSession a résolu `null` (pas d'exception) — rien à drainer
+      if (!userIdRef.current) return; // toujours aucune session — rien à drainer, jamais d'anonyme créé ici
     }
     void drainNow();
   }
@@ -260,78 +423,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (t === 'light' || t === 'dark' || t === 'system') setThemePrefState(t);
         if (n === '0') setNotificationsEnabledState(false);
 
-        // Lu AVANT toute décision Supabase : sert de secours hors-ligne, mais surtout de filet de
-        // sécurité — si un ajout précédent n'a jamais fini par atteindre le serveur (requête
-        // perdue, colonne manquante, coupure réseau juste après la création…), il ne doit pas
-        // disparaître silencieusement au prochain lancement simplement parce que le serveur ne le
-        // connaît pas encore.
-        const [cachedContactsRaw, cachedPenseesRaw, outboxRaw, legacyPendingDelContactsRaw, legacyPendingDelPenseesRaw] = await Promise.all([
-          AsyncStorage.getItem(KEYS.contacts),
-          AsyncStorage.getItem(KEYS.pensees),
-          AsyncStorage.getItem(KEYS.outbox),
-          AsyncStorage.getItem(KEYS.pendingDeleteContacts),
-          AsyncStorage.getItem(KEYS.pendingDeletePensees),
-        ]);
-        const cachedContacts: Contact[] = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
-        // normalizePensee comble createdAt/reminderAt absents sur une pensée mise en cache avant
-        // CHANTIER PENSÉES V2 (voir calendar.ts) — le reste de l'app ne doit jamais voir l'ancienne
-        // forme (remind/customOffsetMinutes, date obligatoire).
-        const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw).map(normalizePensee) : [];
-
-        // CHANTIER SYNC OFFLINE→SUPABASE : migration ponctuelle des anciennes listes pending-delete
-        // vers l'outbox, pour ne perdre aucune suppression déjà en attente. Idempotente (un id déjà
-        // représenté dans l'outbox n'est jamais dupliqué) — les deux clés legacy ne sont plus jamais
-        // réécrites après ce boot, elles peuvent rester à zéro dans AsyncStorage sans conséquence.
-        let loadedOutbox: Outbox = outboxRaw ? JSON.parse(outboxRaw) : [];
-        const legacyPendingDelContacts: string[] = legacyPendingDelContactsRaw ? JSON.parse(legacyPendingDelContactsRaw) : [];
-        const legacyPendingDelPensees: string[] = legacyPendingDelPenseesRaw ? JSON.parse(legacyPendingDelPenseesRaw) : [];
-        if (legacyPendingDelContacts.length || legacyPendingDelPensees.length) {
-          loadedOutbox = migrateLegacyPendingDeletes(
-            loadedOutbox,
-            legacyPendingDelContacts,
-            legacyPendingDelPensees,
-            generateId,
-            new Date().toISOString(),
-          );
-        }
-        outboxRef.current = loadedOutbox;
-        setOutbox(loadedOutbox);
-
-        // Le cache local est déjà lu à ce stade (cachedContacts/cachedPensees ci-dessus) : il sert
-        // de repli garanti quel que soit le sort de l'appel Supabase — voir resolveBootData
-        // (storeInit.ts) et CHANTIER PRÉ-BÊTA 1 §1.
-        //
-        // BUG SYNC OFFLINE — COLD START : `ensureAnonSession()` et `loadRemoteData()` ont CHACUN
-        // leur propre try/catch, et surtout ne sont PLUS jamais conditionnés l'un à l'autre pour
-        // renseigner `userIdRef` : `ensureAnonSession()` peut réussir hors ligne (session persistée
-        // localement, voir supabase.ts) alors que `loadRemoteData()` échoue forcément (vraie requête
-        // réseau) — l'ancien code exigeait les deux (`if (remote && sessionUserId)`) et jetait donc
-        // une session pourtant valide, empêchant tout drain futur y compris après retour réseau.
-        let remote: { contacts: Contact[]; pensees: Pensee[] } | null = null;
-        if (isSupabaseConfigured) {
+        if (!isSupabaseConfigured) {
+          // Mode 100% local — AUCUNE notion de session/auth gate n'existe dans ce mode (comportement
+          // strictement identique à avant ce chantier). Lu AVANT toute décision : sert de secours
+          // hors-ligne, mais surtout de filet de sécurité — si un ajout précédent n'a jamais fini par
+          // atteindre le serveur, il ne doit pas disparaître silencieusement au prochain lancement.
+          const [cachedContactsRaw, cachedPenseesRaw, outboxRaw, legacyPendingDelContactsRaw, legacyPendingDelPenseesRaw] = await Promise.all([
+            AsyncStorage.getItem(KEYS.contacts),
+            AsyncStorage.getItem(KEYS.pensees),
+            AsyncStorage.getItem(KEYS.outbox),
+            AsyncStorage.getItem(KEYS.pendingDeleteContacts),
+            AsyncStorage.getItem(KEYS.pendingDeletePensees),
+          ]);
+          const cachedContacts: Contact[] = cachedContactsRaw ? JSON.parse(cachedContactsRaw) : [];
+          // normalizePensee comble createdAt/reminderAt absents sur une pensée mise en cache avant
+          // CHANTIER PENSÉES V2 (voir calendar.ts) — le reste de l'app ne doit jamais voir l'ancienne
+          // forme (remind/customOffsetMinutes, date obligatoire).
+          const cachedPensees: Pensee[] = cachedPenseesRaw ? JSON.parse(cachedPenseesRaw).map(normalizePensee) : [];
+          let loadedOutbox: Outbox = outboxRaw ? JSON.parse(outboxRaw) : [];
+          const legacyPendingDelContacts: string[] = legacyPendingDelContactsRaw ? JSON.parse(legacyPendingDelContactsRaw) : [];
+          const legacyPendingDelPensees: string[] = legacyPendingDelPenseesRaw ? JSON.parse(legacyPendingDelPenseesRaw) : [];
+          if (legacyPendingDelContacts.length || legacyPendingDelPensees.length) {
+            loadedOutbox = migrateLegacyPendingDeletes(loadedOutbox, legacyPendingDelContacts, legacyPendingDelPensees, generateId, new Date().toISOString());
+          }
+          outboxRef.current = loadedOutbox;
+          setOutbox(loadedOutbox);
+          const resolved = resolveBootData({ cachedContacts, cachedPensees, outbox: loadedOutbox, remote: null });
+          setContacts(resolved.contacts);
+          setPensees(resolved.pensees);
+          setAuthGate('none');
+        } else {
+          // CHANTIER "Data Safety P0-1" (2026-09-20) — JAMAIS de création de session automatique ici
+          // (voir architecture retenue). `getExistingSession()` est une lecture locale pure (aucun
+          // appel réseau, fonctionne hors ligne grâce à `persistSession:true`, supabase.ts) : si elle
+          // résout `null`, c'est qu'AUCUNE session n'existe sur cet appareil — l'auth gate doit être
+          // affiché, jamais un compte anonyme créé à sa place.
           try {
-            const session = await ensureAnonSession();
+            const session = await getExistingSession();
             if (session) {
-              setUserId(session.userId);
-              userIdRef.current = session.userId;
-              try {
-                remote = await loadRemoteData(session.userId, session.isNewAccount);
-              } catch (e) {
-                console.warn('[Pensif] données distantes indisponibles au démarrage — cache local utilisé', e);
-              }
+              await initializeForSession(session);
+              setAuthGate('none');
+            } else {
+              setAuthGate('choice');
             }
           } catch (e) {
-            console.warn('[Pensif] session Supabase indisponible au démarrage — cache local utilisé', e);
+            console.warn('[Pensif] lecture de session indisponible au démarrage — auth gate affiché', e);
+            setAuthGate('choice');
           }
         }
-
-        const resolved = resolveBootData({ cachedContacts, cachedPensees, outbox: loadedOutbox, remote });
-        setContacts(resolved.contacts);
-        setPensees(resolved.pensees);
-
-        // Boot avec une session obtenue (en ligne, ou hors ligne via une session déjà persistée) :
-        // drain immédiat — reprend toute mutation restée en attente d'un précédent lancement.
-        if (userIdRef.current) void drainNow();
       } catch {
         // stockage totalement indisponible (AsyncStorage lui-même en échec) — on reste sur l'état
         // initial vide, jamais sur des seeds (voir CHANTIER PRÉ-BÊTA 1 §2).
@@ -498,9 +637,38 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setContacts(seedContacts);
         setPensees(seedPensees);
       },
+      authGate,
+      isAnonymous: isAnonymousState,
+      // "Continuer" — crée EXPLICITEMENT un compte anonyme (jamais en fallback silencieux ailleurs)
+      // puis boote via le MÊME chemin que tout le reste (initializeForSession, consigne §4). Relance
+      // toute erreur (réseau/serveur) — l'auth gate (AuthGateScreen) reste affiché, rien n'est perdu,
+      // un nouvel essai reste possible (consigne §7 : "un abandon du flow ne doit jamais bloquer le
+      // boot normal futur").
+      chooseAnonymous: async () => {
+        const session = await startAnonymousSession();
+        if (!session) return;
+        await initializeForSession(session);
+        setAuthGate('none');
+      },
+      // "J'ai déjà un compte" — appelée par AuthGateScreen APRÈS que verifyExistingAccountOtp
+      // (authRepo.ts) a déjà réussi : ne fait ICI que le boot, jamais l'appel réseau OTP lui-même
+      // (reste dans l'écran, comme le reste de l'app — CaptureScreen/PenseeDetailScreen appellent
+      // directement leurs libs dédiées). Même chemin `initializeForSession` que "Continuer".
+      completeAuthWithSession: async (session: ExistingSession) => {
+        await initializeForSession(session);
+        setAuthGate('none');
+      },
+      // Sécurisation du compte courant (anonyme → permanent, SettingsScreen) — AUCUN reload/purge ici
+      // : le `user.id` reste identique par construction sur ce chemin (consigne §2), seul l'état
+      // local `isAnonymous` change. La vérification "user.id avant === user.id après" reste de la
+      // responsabilité de l'appelant (SettingsScreen), jamais silencieusement supposée ici.
+      markAccountSecured: () => {
+        setIsAnonymousState(false);
+      },
+      devSimulateReinstall,
       };
     },
-    [ready, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled],
+    [ready, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

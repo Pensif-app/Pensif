@@ -58,3 +58,20 @@ export async function clearMessageDraftForEvent(contactId: string, penseeId: str
     // best-effort
   }
 }
+
+/** CHANTIER "Data Safety P0-1" (2026-09-20) — purge TOTALE des brouillons locaux (message ET quiz,
+ *  voir `quiz-draft-${contact.id}`, QuizScreen.tsx — brouillon local distinct, même risque). Appelée
+ *  UNIQUEMENT lors d'un changement de `cacheOwnerUserId` (store.tsx, `initializeForSession`) : un
+ *  brouillon de message/quiz peut révéler le contenu (prénom, réponses) d'un contact appartenant au
+ *  compte PRÉCÉDENT sur cet appareil — jamais laissé visible pour le nouveau compte. Scan par préfixe
+ *  (mêmes préfixes que `clearMessageDraftsForContact`, plus `quiz-draft-`) — best-effort comme le
+ *  reste de ce fichier. */
+export async function clearAllLocalDrafts(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const toRemove = keys.filter((k) => k.startsWith('pensif.messageDraft.') || k.startsWith('quiz-draft-'));
+    if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+  } catch {
+    // best-effort
+  }
+}

@@ -11,10 +11,12 @@ export function PrimaryButton({
   label,
   onPress,
   variant = 'primary',
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   const styleFor: Record<ButtonVariant, { bg: string; fg: string; borderColor?: string }> = {
@@ -28,10 +30,12 @@ export function PrimaryButton({
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.btn,
         { backgroundColor: s.bg, borderColor: s.borderColor ?? 'transparent', borderWidth: s.borderColor ? 1.5 : 0 },
         pressed && { opacity: 0.85 },
+        disabled && { opacity: 0.4 },
       ]}
     >
       <Text style={[styles.label, { color: s.fg }]}>{label}</Text>

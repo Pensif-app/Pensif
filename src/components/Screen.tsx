@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withTiming } from 'react-native-reanimated';
 import { useTheme } from '../theme';
@@ -48,15 +48,22 @@ export function Screen({
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.paper }]} edges={['top']}>
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-      >
-        {children}
-      </ScrollView>
+      {/* CORRECTIF "Auth P0-1 — clavier iOS" (2026-09-20) : même pattern KeyboardAvoidingView que
+          CalendarScreen.tsx/AuthGateScreen.tsx (behavior="padding" iOS uniquement, offset fixe petit,
+          jamais lié à un modèle d'iPhone précis) — nécessaire pour que la section "SÉCURISER MES
+          DONNÉES" (SettingsScreen) reste accessible au-dessus du clavier. N'affecte les autres écrans
+          que si un champ y prend le focus (comportement neutre sinon). */}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+        >
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

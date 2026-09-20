@@ -89,22 +89,6 @@ function rowToPensee(row: any): Pensee {
   });
 }
 
-export type AnonSession = { userId: string; isNewAccount: boolean };
-
-/** `isNewAccount` distingue un compte anonyme tout juste créé (session absente, on vient d'appeler
- *  signInAnonymously) d'une session existante restaurée (persistSession:true dans supabase.ts) —
- *  sert à ne peupler les données de démo qu'une seule fois, à la toute première ouverture (voir
- *  loadRemoteData ci-dessous), plutôt qu'à chaque fois que la table est vide. */
-export async function ensureAnonSession(): Promise<AnonSession | null> {
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  if (data.session) return { userId: data.session.user.id, isNewAccount: false };
-  const { data: signInData, error } = await supabase.auth.signInAnonymously();
-  if (error) throw error;
-  if (!signInData.session) return null;
-  return { userId: signInData.session.user.id, isNewAccount: true };
-}
-
 /** Peuple un compte avec les données de démo — DÉLIBÉRÉMENT plus appelé automatiquement à la
  *  création d'un compte (voir CHANTIER PRÉ-BÊTA 1 §2 : un vrai nouvel utilisateur commence à zéro
  *  proche/pensée). Conservée pour un éventuel mode démo explicite futur — non câblée nulle part

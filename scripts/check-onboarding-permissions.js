@@ -32,14 +32,28 @@ check('useState<Pensee[]>([]) (plus seedPensees)', /useState<Pensee\[\]>\(\[\]\)
 check('resolveBootData importé et utilisé (fallback cache, voir storeInit.ts)', /resolveBootData/.test(store));
 check('seedContacts/seedPensees encore importés (fixtures pour resetLocalDemoData explicite)', /import \{ seedContacts, seedPensees \} from '\.\/seed'/.test(store));
 
-console.log('\n[2] L’appel Supabase au démarrage a son propre try/catch, distinct du try englobant');
-// Ancre mise à jour (CHANTIER SYNC OFFLINE→SUPABASE) : l'ancienne ancre `pendingDelContacts`
-// (listes pending-delete) a été remplacée par l'outbox — le bloc vérifié reste le même
-// (ensureAnonSession/loadRemoteData dans leur propre try/catch, résultat passé à resolveBootData).
-const initEffectStart = store.indexOf('let remote: { contacts: Contact[]; pensees: Pensee[] } | null = null;');
-const initEffectBlock = store.slice(initEffectStart, initEffectStart + 1800);
-check('un try/catch entoure ensureAnonSession/loadRemoteData spécifiquement', /try \{\s*const session = await ensureAnonSession/.test(initEffectBlock));
-check('le résultat distant est passé à resolveBootData (jamais utilisé seul comme état final)', /resolveBootData\(\{/.test(initEffectBlock));
+console.log('\n[2] loadRemoteData (initializeForSession) a son propre try/catch, distinct de la lecture de session');
+// CHANTIER "Data Safety P0-1" (2026-09-20) — ancre mise à jour : `ensureAnonSession()` a été
+// remplacée par `getExistingSession()`/`startAnonymousSession()` (authRepo.ts), plus jamais de
+// création de session automatique au boot (voir store.tsx, `initializeForSession`, chemin UNIQUE
+// partagé par session existante / "Continuer" / "J'ai déjà un compte"). `loadRemoteData` garde son
+// propre try/catch, INDÉPENDANT de la résolution de session (qui se fait AVANT, côté appelant —
+// voir le bloc de boot : `getExistingSession()` n'est plus jamais couplée au même try que
+// `loadRemoteData`, contrairement à l'ancien `ensureAnonSession()`).
+const initFnStart = store.indexOf('async function initializeForSession(session: ExistingSession) {');
+const initFnBlock = store.slice(initFnStart, initFnStart + 3600);
+check('initializeForSession existe (chemin de boot UNIQUE, voir consigne §4)', initFnStart !== -1);
+check('loadRemoteData entourée d’un try/catch dédié, propre à cette fonction', /try \{\s*remote = await loadRemoteData\(session\.userId, false\);\s*\} catch \(e\) \{/.test(initFnBlock));
+check('le résultat distant est passé à resolveBootData (jamais utilisé seul comme état final)', /resolveBootData\(\{/.test(initFnBlock));
+check(
+  'getExistingSession() ne crée jamais de session automatiquement (jamais de fallback signInAnonymously/startAnonymousSession dans le boot normal)',
+  !/getExistingSession\(\);\s*if \(!?session\)[\s\S]{0,80}startAnonymousSession/.test(store),
+);
+check(
+  'ensureAnonSession n’est plus DÉFINIE dans supabaseRepo.ts (une mention en commentaire historique peut subsister dans store.tsx, sans risque)',
+  !/export async function ensureAnonSession/.test(read('src/lib/supabaseRepo.ts')),
+);
+check('store.tsx appelle bien getExistingSession()/startAnonymousSession() (authRepo.ts)', /getExistingSession\(\)/.test(store) && /startAnonymousSession\(\)/.test(store));
 
 console.log('\n[3] Compte Supabase neuf : plus de peuplement automatique via seedRemote()');
 const supabaseRepo = read('src/lib/supabaseRepo.ts');

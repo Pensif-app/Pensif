@@ -88,6 +88,21 @@ Le schéma est prêt dans `supabase/schema.sql` et le client dans `src/lib/supab
 
 (supersedes the "full recurrence editing... NOT part of this V1" line in the Notifications recurrence V1 baseline above.)
 
+## Auth recovery baseline (2026-09-20)
+
+- Existing Supabase session boots directly.
+- No session shows Auth Gate; anonymous user is not auto-created.
+- Continue explicitly creates an anonymous session.
+- Existing account recovery uses email OTP with shouldCreateUser=false.
+- Anonymous accounts can be secured in Settings without changing their user.id.
+- Account-scoped caches are owned by cacheOwnerUserId.
+- Changing account owner clears contacts/pensees/outbox/drafts before remote load.
+- Device-scoped preferences remain local.
+- Old outbox operations must never drain under a different user.
+- Email OTP input supports 6–10 numeric digits; server currently sends 6.
+- DEV reinstall simulation must remain unavailable in production builds.
+- Physically validated on Expo Go: secure → simulate reinstall → Continue (new empty anonymous account) → simulate reinstall → "J'ai déjà un compte" → recovered original account with contacts/pensees restored from Supabase.
+
 ## Autres pistes
 
 - Remplacer le petit moteur de mots-clés (`src/data/giftEngine.ts`) par un vrai catalogue produit avec liens d'affiliation, ou par un appel à un LLM pour des suggestions plus fines.
