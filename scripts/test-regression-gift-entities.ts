@@ -820,15 +820,16 @@ console.log('\n[29] Phase 5F — lecture.sujet : structure multi-select + garde-
   );
 }
 
-console.log('\n[30] Phase 5F — invariants d’architecture (garde-fous pour quand le catalogue sera sourcé)');
+console.log('\n[30] Phase 5F/7B — invariants d’architecture theme=science (garde-fou revalidé après sourcing Phase 7B)');
 {
-  // Ces trois garde-fous sont aujourd'hui vides (0 produit science/lecture-sujet-science ajouté,
-  // voir consigne §8 — STOP données commerciales) mais redeviennent significatifs dès le premier
-  // ajout catalogue : ils DOIVENT rester vrais après le sourcing réel des 46 produits.
+  // CHANTIER "Phase 7B" (2026-09-21) : science est désormais sourcé (11 produits, voir section
+  // [37]) — le garde-fou "0 produit" de Phase 5F est donc obsolète et remplacé ici par sa version
+  // vivante : le VRAI catalogue science ne contient toujours aucun livre (règle de propriété
+  // Phase 5D/5F), maintenant vérifiable sur de vrais produits plutôt que vide par construction.
   const scienceThemeProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
-  check('aucun produit theme=science au catalogue actuel (0 produit sourcé dans cette passe)', scienceThemeProducts.length === 0);
+  check('science a bien des produits au catalogue (sourcé Phase 7B)', scienceThemeProducts.length === 11);
   check(
-    "garde-fou : aucun produit theme=science ne pourra être un livre (giftConcept ne contient ni 'book' ni 'livre')",
+    "garde-fou vivant : aucun produit theme=science n'est un livre (giftConcept ne contient ni 'book' ni 'livre')",
     scienceThemeProducts.every((g) => !/book|livre/i.test(g.giftConcept ?? ''))
   );
 
@@ -845,36 +846,36 @@ console.log('\n[30] Phase 5F — invariants d’architecture (garde-fous pour qu
   check("gaming.focus ne réintroduit pas confort/multijoueur (non-régression Phase 4C)", !getThemeQuiz('gaming').questions.find((q) => q.id === 'focus')!.options!.some((o) => o.key === 'confort' || o.key === 'multijoueur'));
 }
 
-console.log('\n[31] Phase 7A — jeux_societe désormais sourcé/activé ; beaute/science restent bloqués : garde-fous UI');
+console.log('\n[31] Phase 7A/7B — jeux_societe ET science désormais sourcés/activés ; beaute reste bloqué : garde-fous UI');
 {
-  // CHANTIER "Phase 7A" (2026-09-21) : jeux_societe est sorti de l'état "bloqué" documenté en
-  // Phase 5G — 11 cadeaux éditoriaux ajoutés (voir giftCatalog.ts), COVERED_THEMES mis à jour. Ce
-  // test ne vérifie donc plus "0 produit" pour jeux_societe (obsolète), mais confirme que
-  // beaute/science restent, eux, dans l'état bloqué d'origine — non-régression du garde-fou lui-même.
+  // CHANTIER "Phase 7A/7B" (2026-09-21) : jeux_societe (Phase 7A) puis science (Phase 7B) sortent
+  // de l'état "bloqué" documenté en Phase 5G — 11+11 cadeaux éditoriaux ajoutés (voir
+  // giftCatalog.ts), COVERED_THEMES mis à jour. `beaute` reste, lui, dans l'état bloqué d'origine
+  // — non-régression du garde-fou lui-même.
   const jeuxSocieteProducts = CURATED_GIFTS.filter((g) => g.theme === 'jeux_societe');
   const beauteProducts = CURATED_GIFTS.filter((g) => g.theme === 'beaute');
   const scienceProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
   check('jeux_societe : 11 produits au catalogue (sourcing éditorial Phase 7A)', jeuxSocieteProducts.length === 11);
   check('beaute : toujours 0 produit (hors périmètre de cette passe)', beauteProducts.length === 0);
-  check('science : toujours 0 produit (hors périmètre de cette passe)', scienceProducts.length === 0);
+  check('science : 11 produits au catalogue (sourcing éditorial Phase 7B)', scienceProducts.length === 11);
 
   check("COVERED_THEMES contient désormais jeux_societe (seuil ≥10 produits atteint, consigne Phase 5G §7)", (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
   check("COVERED_THEMES ne contient PAS beaute", !(COVERED_THEMES as readonly string[]).includes('beaute'));
-  check("COVERED_THEMES ne contient PAS science", !(COVERED_THEMES as readonly string[]).includes('science'));
-  check('COVERED_THEMES passe de 20 à 21 thèmes (jeux_societe ajouté, aucun autre)', COVERED_THEMES.length === 21);
+  check("COVERED_THEMES contient désormais science", (COVERED_THEMES as readonly string[]).includes('science'));
+  check('COVERED_THEMES passe de 20 à 22 thèmes (jeux_societe + science ajoutés, aucun autre)', COVERED_THEMES.length === 22);
 
   check("VISIBLE_INTEREST_OPTIONS inclut désormais jeux_societe (11 produits ⇒ sélectionnable, consigne §8)", VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
   check('VISIBLE_INTEREST_OPTIONS exclut toujours beaute', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
-  check('VISIBLE_INTEREST_OPTIONS exclut toujours science', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
-  check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe (21 au total)', VISIBLE_INTEREST_OPTIONS.length === 21);
+  check('VISIBLE_INTEREST_OPTIONS inclut désormais science (11 produits ⇒ sélectionnable, consigne Phase 7B §8)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
+  check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe + science (22 au total)', VISIBLE_INTEREST_OPTIONS.length === 22);
   check(
-    "INTEREST_OPTIONS (liste complète) conserve beaute/science malgré leur masquage — config préparée, pas supprimée",
-    ['beaute', 'science'].every((k) => INTEREST_OPTIONS.some((o) => o.key === k))
+    "INTEREST_OPTIONS (liste complète) conserve beaute malgré son masquage — config préparée, pas supprimée",
+    INTEREST_OPTIONS.some((o) => o.key === 'beaute')
   );
 
   const lectureQuestions = getThemeQuiz('lecture').questions;
   const sujetQ = lectureQuestions.find((q) => q.id === 'sujet')!;
-  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A)", sujetQ.hidden === true);
+  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A/7B)", sujetQ.hidden === true);
   // Reproduit exactement la logique de filtrage de ThemeAffinage.tsx (visibleQuestions) pour
   // prouver que la question disparaîtrait bien de l'écran réel, sans dépendre du rendu React Native.
   const simulatedVisible = lectureQuestions.filter((q) => !q.hidden);
@@ -1071,7 +1072,6 @@ console.log('\n[35] Phase 7A — catalogue éditorial jeux_societe (11 cadeaux, 
   check('jeux_societe entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
   check('jeux_societe devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
   check('beaute reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
-  check('science reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
 }
 
 console.log('\n[36] Phase 7A — profils réels jeux_societe (catalogue éditorial désormais actif)');
@@ -1102,6 +1102,105 @@ console.log('\n[36] Phase 7A — profils réels jeux_societe (catalogue éditori
   const topAmbiance = topRecommendations(candidatesAmbiance, 3);
   check('profil ambiance grand groupe : le Top contient uniquement jeux_societe', topAmbiance.every((c) => c.gift.theme === 'jeux_societe'));
   check('profil ambiance grand groupe : favorise party-game en #1', topAmbiance[0]?.gift.giftConcept === 'party-game');
+}
+
+console.log('\n[37] Phase 7B — catalogue éditorial science (11 cadeaux, sans commerce, aucun livre)');
+{
+  const scienceProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
+  check('11 produits science présents', scienceProducts.length === 11);
+  check('gift.id uniques parmi les 11', new Set(scienceProducts.map((g) => g.id)).size === 11);
+  check('asin absent sur les 11 (catalogue éditorial, pas de dépendance Amazon)', scienceProducts.every((g) => g.asin === undefined));
+  check('imageUrl absente sur les 11', scienceProducts.every((g) => g.imageUrl === undefined));
+  check(
+    "les 11 giftConcept correspondent exactement aux concepts validés Phase 5C (popular-science-book EXCLU)",
+    scienceProducts.map((g) => g.giftConcept).sort().join(',') ===
+      [
+        'star-map-poster', 'newtons-cradle', 'fossil-replica-display', 'planetarium-projector',
+        'stargazing-binoculars', 'mineral-and-gem-specimen-set', 'dinosaur-model-set',
+        'space-model-kit', 'microscope-kit', 'science-museum-experience-card', 'telescope',
+      ].sort().join(',')
+  );
+  check(
+    "aucun livre parmi les 11 (règle de propriété Phase 5D/5F : les livres vivent sous lecture.sujet=science)",
+    !scienceProducts.some((g) => /book|livre/i.test(g.giftConcept ?? '') || g.giftConcept === 'popular-science-book')
+  );
+
+  // Couverture taxonomy : chaque option du quiz science doit matcher ≥1 des 11 produits.
+  const scienceConfig = getThemeQuiz('science');
+  for (const q of scienceConfig.questions) {
+    if (q.type !== 'choice' || !q.options) continue;
+    for (const opt of q.options) {
+      check(
+        `science.${q.id}=${opt.key} matche ≥1 produit`,
+        scienceProducts.some((g) => g.taxonomy?.[q.id]?.includes(opt.key))
+      );
+    }
+  }
+
+  // Fragilité documentée (consigne §5) : univers=biologie et usage=experimenter reposent tous
+  // les deux UNIQUEMENT sur microscope-kit — non masqué, vérifié explicitement ici comme
+  // "single-concept coverage" plutôt que de fabriquer artificiellement un 12e cadeau.
+  const biologieProducts = scienceProducts.filter((g) => g.taxonomy?.univers?.includes('biologie'));
+  const experimenterProducts = scienceProducts.filter((g) => g.taxonomy?.usage?.includes('experimenter'));
+  check('univers=biologie : single-concept coverage (exactement 1 produit, microscope-kit)', biologieProducts.length === 1 && biologieProducts[0].giftConcept === 'microscope-kit');
+  check('usage=experimenter : single-concept coverage (exactement 1 produit, microscope-kit)', experimenterProducts.length === 1 && experimenterProducts[0].giftConcept === 'microscope-kit');
+
+  check('science entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('science'));
+  check('science devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
+  check('beaute reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check("lecture.sujet reste hidden (12 livres, dont les livres science, non sourcés)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden === true);
+}
+
+console.log('\n[38] Phase 7B — profils réels science (catalogue éditorial désormais actif)');
+{
+  const contactAstro = makeContact('Lina', makeQuiz({
+    interests: ['science'],
+    themeAnswers: { science: { univers: 'astronomie', usage: 'observer', niveau: 'amateur' } },
+  }));
+  const candidatesAstro = generateCandidates(contactAstro, { maxEuros: 150 });
+  const topAstro = topRecommendations(candidatesAstro, 3);
+  check('profil A (astronomie/observer/amateur) : le Top contient uniquement science', topAstro.every((c) => c.gift.theme === 'science'));
+  // Vérifié explicitement (resserrage Phase 7B) : stargazing-binoculars et telescope obtiennent le
+  // MÊME score (93 = interest 42 + 3 matches taxonomy × 12 = 36 + même trait 'practical' + même
+  // traitBonus) — le tie-break de generateCandidates (prix croissant) départage donc de façon
+  // déterministe en faveur de stargazing-binoculars (45€ < 129€). Comportement stable, jamais un
+  // hasard d'ordre — assertion exacte plutôt que permissive.
+  const scoreBinoculars = candidatesAstro.find((c) => c.gift.giftConcept === 'stargazing-binoculars')?.score;
+  const scoreTelescope = candidatesAstro.find((c) => c.gift.giftConcept === 'telescope')?.score;
+  check('profil A : stargazing-binoculars et telescope ont bien le même score (égalité confirmée)', scoreBinoculars !== undefined && scoreBinoculars === scoreTelescope);
+  check('profil A : stargazing-binoculars en tête, déterministe (tie-break prix croissant, 45€ < 129€)', topAstro[0]?.gift.giftConcept === 'stargazing-binoculars');
+
+  const contactDino = makeContact('Tom', makeQuiz({
+    interests: ['science'],
+    themeAnswers: { science: { univers: 'dinosaures', usage: 'collectionner', niveau: 'passionne' } },
+  }));
+  const candidatesDino = generateCandidates(contactDino, { maxEuros: 60 });
+  const topDino = topRecommendations(candidatesDino, 3);
+  check('profil B (dinosaures/collectionner/passionne) : le Top contient uniquement science', topDino.every((c) => c.gift.theme === 'science'));
+  // Vérifié explicitement (resserrage Phase 7B) : dinosaur-model-set et fossil-replica-display
+  // obtiennent le MÊME score (86 = interest 42 + 3 matches taxonomy × 12 = 36 + même trait
+  // 'curious' + même traitBonus) — tie-break prix croissant départage vers dinosaur-model-set
+  // (30€ < 32€). Assertion exacte plutôt que permissive.
+  const scoreDinoModel = candidatesDino.find((c) => c.gift.giftConcept === 'dinosaur-model-set')?.score;
+  const scoreFossil = candidatesDino.find((c) => c.gift.giftConcept === 'fossil-replica-display')?.score;
+  check('profil B : dinosaur-model-set et fossil-replica-display ont bien le même score (égalité confirmée)', scoreDinoModel !== undefined && scoreDinoModel === scoreFossil);
+  check('profil B : dinosaur-model-set en tête, déterministe (tie-break prix croissant, 30€ < 32€)', topDino[0]?.gift.giftConcept === 'dinosaur-model-set');
+
+  const contactBio = makeContact('Sarah', makeQuiz({
+    interests: ['science'],
+    themeAnswers: { science: { univers: 'biologie', usage: 'experimenter', niveau: 'amateur' } },
+  }));
+  const topBio = topRecommendations(generateCandidates(contactBio, { maxEuros: 100 }), 3);
+  check('profil C (biologie/experimenter/amateur) : le Top contient uniquement science', topBio.every((c) => c.gift.theme === 'science'));
+  check('profil C : microscope-kit sans ambiguïté en #1 (seul produit biologie+experimenter)', topBio[0]?.gift.giftConcept === 'microscope-kit');
+
+  const contactEspace = makeContact('Noah', makeQuiz({
+    interests: ['science'],
+    themeAnswers: { science: { univers: 'espace', usage: 'decorer', niveau: 'curieux' } },
+  }));
+  const topEspace = topRecommendations(generateCandidates(contactEspace, { maxEuros: 50 }), 3);
+  check('profil D (espace/decorer/curieux) : le Top contient uniquement science', topEspace.every((c) => c.gift.theme === 'science'));
+  check('profil D : planetarium-projector bien positionné en #1 (seul produit espace+decorer)', topEspace[0]?.gift.giftConcept === 'planetarium-projector');
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

@@ -350,6 +350,25 @@ export const CURATED_GIFTS: CuratedGift[] = [
   { id: 'jeux-societe-strategie-expert', theme: 'jeux_societe', tier: '100', title: 'Jeu de stratégie expert', price: 65, emoji: '🧠', trait: 'curious', taxonomy: { type: ['strategie'], joueurs: ['petit-groupe'], niveau: ['regulier'] }, giftConcept: 'strategy-board-game', pitch: 'Un jeu de stratégie pour plusieurs joueurs, avec assez de profondeur pour donner envie d\'y revenir régulièrement.' },
   { id: 'jeux-societe-echiquier', theme: 'jeux_societe', tier: '100', title: 'Échiquier', price: 75, emoji: '♟️', trait: 'sentimental', taxonomy: { type: ['echecs'], joueurs: ['deux'], niveau: ['passionne'], preference: ['reflexion'] }, giftConcept: 'chess-set', pitch: 'Un échiquier soigné, de ceux qu\'on garde longtemps — pour (re)découvrir un jeu intemporel plutôt que de le laisser prendre la poussière.' },
   { id: 'jeux-societe-collector', theme: 'jeux_societe', tier: '100', title: 'Jeu de société collector', price: 120, emoji: '📦', trait: 'social', taxonomy: { type: ['strategie'], joueurs: ['grand-groupe'], niveau: ['passionne'] }, giftConcept: 'premium-collector-board-game', pitch: 'Une grande boîte de jeu haut de gamme pensée pour un groupe et des joueurs déjà passionnés — le genre de cadeau qui devient vite LE jeu de la maison.' },
+
+  // CHANTIER "Cadeaux V2 — Phase 7B" (2026-09-21) — catalogue ÉDITORIAL science : 11 idées cadeau
+  // Pensif-originales (taxonomy exacte validée Phase 5C, corrigée), SANS dépendance Amazon (voir
+  // Phase 6B). `price` est un PRIX DE RÉFÉRENCE ÉDITORIAL, pas un prix marchand observé. Règle de
+  // propriété Phase 5D/5F : AUCUN livre ici — un livre de vulgarisation scientifique appartient à
+  // `theme:'lecture'` + `taxonomy.sujet:['science']`, jamais à ce thème (voir §6 de la consigne
+  // Phase 5D). Positionnement volontairement adulte : "amateur"/"collection"/"hobby"/"exposition",
+  // jamais "enfant"/"kit junior"/"scolaire" — voir consigne §6.
+  { id: 'science-star-map-poster', theme: 'science', tier: '20', title: 'Carte du ciel', price: 15, emoji: '🌌', trait: 'curious', taxonomy: { univers: ['astronomie'], usage: ['decorer'], niveau: ['curieux'] }, giftConcept: 'star-map-poster', pitch: 'Une carte du ciel à accrocher au mur, avec les principales constellations repérables à l\'œil nu — pour retrouver son chemin dans le ciel sans application ni lampe torche.' },
+  { id: 'science-newtons-cradle', theme: 'science', tier: '20', title: 'Berceau de Newton', price: 19, emoji: '⚙️', trait: 'curious', taxonomy: { univers: ['physique-chimie'], usage: ['decorer'], niveau: ['curieux'] }, giftConcept: 'newtons-cradle', pitch: 'Un berceau de Newton classique à poser sur un bureau — l\'objet qu\'on regarde osciller sans s\'en lasser entre deux tâches.' },
+  { id: 'science-fossil-replica', theme: 'science', tier: '50', title: 'Réplique de fossile', price: 32, emoji: '🦴', trait: 'curious', taxonomy: { univers: ['dinosaures'], usage: ['collectionner'], niveau: ['curieux', 'passionne'] }, giftConcept: 'fossil-replica-display', pitch: 'Une réplique de fossile à exposer, fidèle à la pièce originale — pour les amateurs de paléontologie qui aiment avoir un bout d\'histoire sous les yeux.' },
+  { id: 'science-planetarium', theme: 'science', tier: '50', title: 'Projecteur planétarium', price: 35, emoji: '🪐', trait: 'experience', taxonomy: { univers: ['espace'], usage: ['decorer'], niveau: ['curieux'] }, giftConcept: 'planetarium-projector', pitch: 'Un projecteur qui recrée le ciel étoilé au plafond d\'une pièce — de quoi transformer une soirée ordinaire en moment suspendu.' },
+  { id: 'science-binoculars', theme: 'science', tier: '50', title: 'Jumelles d\'observation astronomique', price: 45, emoji: '🌠', trait: 'practical', taxonomy: { univers: ['astronomie'], usage: ['observer'], niveau: ['amateur'] }, giftConcept: 'stargazing-binoculars', pitch: 'Des jumelles pensées pour l\'observation du ciel nocturne — un premier pas accessible vers l\'astronomie, sans le budget ni l\'encombrement d\'un télescope.' },
+  { id: 'science-mineral-set', theme: 'science', tier: '50', title: 'Coffret de minéraux et gemmes', price: 28, emoji: '💎', trait: 'curious', taxonomy: { univers: ['physique-chimie'], usage: ['collectionner'], niveau: ['curieux'] }, giftConcept: 'mineral-and-gem-specimen-set', pitch: 'Un coffret de minéraux et pierres classés, avec leur nom et leur origine — de quoi commencer une vraie collection plutôt qu\'un simple bibelot.' },
+  { id: 'science-dinosaur-model', theme: 'science', tier: '50', title: 'Figurine dinosaure de collection', price: 30, emoji: '🦕', trait: 'curious', taxonomy: { univers: ['dinosaures'], usage: ['collectionner'], niveau: ['passionne'] }, giftConcept: 'dinosaur-model-set', pitch: 'Une figurine de dinosaure détaillée, pensée pour les collectionneurs plutôt que pour un coffre à jouets — une pièce à exposer, pas à ranger.' },
+  { id: 'science-space-model', theme: 'science', tier: '50', title: 'Maquette spatiale', price: 38, emoji: '🚀', trait: 'curious', taxonomy: { univers: ['espace'], usage: ['collectionner'], niveau: ['amateur'] }, giftConcept: 'space-model-kit', pitch: 'Une maquette à assembler d\'un engin spatial emblématique — le genre de projet qu\'on prend plaisir à construire avant de l\'exposer fièrement.' },
+  { id: 'science-microscope', theme: 'science', tier: '100', title: 'Microscope amateur', price: 75, emoji: '🔬', trait: 'curious', taxonomy: { univers: ['biologie'], usage: ['experimenter'], niveau: ['amateur', 'passionne'] }, giftConcept: 'microscope-kit', pitch: 'Un microscope amateur avec de quoi observer ses premiers échantillons — pour renouer avec la curiosité scientifique en dehors de tout cadre scolaire.' },
+  { id: 'science-museum-card', theme: 'science', tier: '100', title: 'Expérience musée scientifique', price: 55, emoji: '🏛️', trait: 'experience', taxonomy: { univers: ['espace'], usage: ['apprendre'], niveau: ['curieux'] }, giftConcept: 'science-museum-experience-card', pitch: 'Une carte donnant accès à une exposition ou un musée scientifique — une sortie à vivre plutôt qu\'un objet de plus à déballer.' },
+  { id: 'science-telescope', theme: 'science', tier: '100', title: 'Télescope amateur', price: 129, emoji: '🔭', trait: 'practical', taxonomy: { univers: ['astronomie'], usage: ['observer'], niveau: ['amateur'] }, giftConcept: 'telescope', pitch: 'Un télescope amateur pour observer la Lune, les planètes et le ciel profond — de quoi passer de la carte du ciel à l\'observation pour de vrai.' },
 ];
 
 export const COVERED_THEMES: InterestTag[] = [
@@ -357,10 +376,14 @@ export const COVERED_THEMES: InterestTag[] = [
   'voyage', 'collection', 'maison', 'auto', 'nature', 'cinema', 'art', 'animaux',
   'photo', 'jardinage', 'bricolage', 'danse',
   // CHANTIER "Phase 7A" (2026-09-21) : 11 cadeaux éditoriaux ajoutés ci-dessus — seuil ≥10 produits
-  // atteint (voir consigne Phase 5G §7). `beaute`/`science` restent volontairement absents : 0
-  // produit sourcé pour l'instant (voir VISIBLE_INTEREST_OPTIONS, quiz.ts, qui les masque tant
-  // qu'ils ne sont pas ici).
+  // atteint (voir consigne Phase 5G §7).
   'jeux_societe',
+  // CHANTIER "Phase 7B" (2026-09-21) : idem pour science — 11 cadeaux éditoriaux ajoutés ci-dessus,
+  // AUCUN livre parmi eux (voir règle de propriété Phase 5D/5F : les livres science vivent sous
+  // `lecture.sujet=science`, non sourcé, `lecture.sujet` reste `hidden`). `beaute` reste
+  // volontairement absent : 0 produit sourcé pour l'instant (voir VISIBLE_INTEREST_OPTIONS,
+  // quiz.ts, qui le masque tant qu'il n'est pas ici).
+  'science',
 ];
 
 export function curatedGiftsForThemes(themes: InterestTag[]): CuratedGift[] {
