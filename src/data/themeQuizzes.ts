@@ -511,14 +511,11 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         // déjà en place), aucun changement UI nécessaire. `finance` vit ICI, jamais comme thème
         // autonome (voir Phase 5D/5E) ; `science` (le sujet) ne recoupe QUE des livres — le thème
         // `science` (les objets) n'en contient aucun, voir consigne Phase 5F §6.
-        // CHANTIER "Phase 5G" (2026-09-21) : `hidden: true` tant que les 12 livres ne sont pas
-        // sourcés (sourcing Phase 5G bloqué, voir rapport de chantier — Amazon.fr inaccessible en
-        // vérification directe dans cet environnement) — config conservée intacte et testée, mais
-        // non exposée à un utilisateur réel pour ne pas promettre 6 sujets pour 0 produit.
+        // CHANTIER "Phase 7D" (2026-09-21) : `hidden` retiré — les 12 livres éditoriaux sont
+        // désormais sourcés (2 par sujet, voir giftCatalog.ts), la question redevient visible.
         id: 'sujet',
         prompt: 'Quels sujets {il} aime-t-il lire ?',
         type: 'choice',
-        hidden: true,
         options: [
           { key: 'finance', label: 'Finance & investissement' },
           { key: 'histoire', label: 'Histoire' },

@@ -833,8 +833,12 @@ console.log('\n[30] Phase 5F/7B — invariants d’architecture theme=science (g
     scienceThemeProducts.every((g) => !/book|livre/i.test(g.giftConcept ?? ''))
   );
 
+  // CHANTIER "Phase 7D" (2026-09-21) : les 2 livres science sont désormais sourcés sous
+  // theme='lecture' (voir section [42]) — garde-fou vivant : exactement 2, jamais 0, jamais sous
+  // theme='science'.
   const lectureScienceBooks = CURATED_GIFTS.filter((g) => g.theme === 'lecture' && g.taxonomy?.sujet?.includes('science'));
-  check('0 livre lecture.sujet=science au catalogue actuel (à sourcer, voir annexe)', lectureScienceBooks.length === 0);
+  check('2 livres lecture.sujet=science au catalogue (sourcés Phase 7D)', lectureScienceBooks.length === 2);
+  check('les 2 livres science sont bien theme=lecture, jamais theme=science', lectureScienceBooks.every((g) => g.theme === 'lecture'));
 
   // 'finance' n'existe QUE comme valeur de lecture.sujet, jamais comme InterestTag/thème — déjà
   // garanti par le système de types (TS refuserait la compilation), revérifié ici à l'exécution.
@@ -868,15 +872,17 @@ console.log('\n[31] Phase 7A/7B/7C — jeux_societe, science ET beaute désormai
   check('VISIBLE_INTEREST_OPTIONS inclut désormais science (11 produits ⇒ sélectionnable, consigne Phase 7B §8)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
   check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe + science + beaute (23 au total)', VISIBLE_INTEREST_OPTIONS.length === 23);
 
+  // CHANTIER "Phase 7D" (2026-09-21) : les 12 livres sont désormais sourcés (2 par sujet, voir
+  // section [42]) — `hidden` retiré de lecture.sujet, la question redevient réellement visible.
   const lectureQuestions = getThemeQuiz('lecture').questions;
   const sujetQ = lectureQuestions.find((q) => q.id === 'sujet')!;
-  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A/7B/7C)", sujetQ.hidden === true);
+  check("lecture.sujet n'est plus hidden (12 livres sourcés Phase 7D)", sujetQ.hidden !== true);
   // Reproduit exactement la logique de filtrage de ThemeAffinage.tsx (visibleQuestions) pour
-  // prouver que la question disparaîtrait bien de l'écran réel, sans dépendre du rendu React Native.
+  // prouver que la question apparaîtrait bien à l'écran réel, sans dépendre du rendu React Native.
   const simulatedVisible = lectureQuestions.filter((q) => !q.hidden);
-  check("lecture.sujet absente de la simulation de visibleQuestions (ThemeAffinage.tsx)", !simulatedVisible.some((q) => q.id === 'sujet'));
+  check("lecture.sujet PRÉSENTE dans la simulation de visibleQuestions (ThemeAffinage.tsx)", simulatedVisible.some((q) => q.id === 'sujet'));
   check(
-    'les autres questions lecture (format/contexte/intensite/besoin/detail) restent visibles, aucune masquée par erreur',
+    'les autres questions lecture (format/contexte/intensite/besoin/detail) restent visibles également',
     ['format', 'contexte', 'intensite', 'besoin', 'detail'].every((id) => simulatedVisible.some((q) => q.id === id))
   );
 
@@ -1141,7 +1147,7 @@ console.log('\n[37] Phase 7B — catalogue éditorial science (11 cadeaux, sans 
 
   check('science entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('science'));
   check('science devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
-  check("lecture.sujet reste hidden (12 livres, dont les livres science, non sourcés)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden === true);
+  check("lecture.sujet n'est plus hidden (12 livres sourcés Phase 7D)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden !== true);
 }
 
 console.log('\n[38] Phase 7B — profils réels science (catalogue éditorial désormais actif)');
@@ -1247,7 +1253,7 @@ console.log('\n[39] Phase 7C — catalogue éditorial beaute (12 cadeaux, sans c
 
   check('beaute entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('beaute'));
   check('beaute devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
-  check("lecture.sujet reste hidden (12 livres non sourcés)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden === true);
+  check("lecture.sujet n'est plus hidden (12 livres sourcés Phase 7D)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden !== true);
 }
 
 console.log('\n[40] Phase 7C — profils réels beaute (catalogue éditorial désormais actif)');
@@ -1314,6 +1320,133 @@ console.log('\n[41] Phase 7C — test anti-biais genre (consigne §8/§13) : gro
     topHomme.length === topFemme.length && topHomme.every((c, i) => c.gift.id === topFemme[i].gift.id)
   );
   check('anti-biais : electric-shaver/grooming reste recommandable pour les deux genres (aucun filtrage)', topHomme.some((c) => c.gift.giftConcept === 'electric-shaver') && topFemme.some((c) => c.gift.giftConcept === 'electric-shaver'));
+}
+
+console.log('\n[42] Phase 7D — catalogue éditorial de livres (12 cadeaux, 2 par sujet, sans commerce)');
+{
+  const bookIds = [
+    'lecture-finance-intro', 'lecture-finance-classic', 'lecture-histoire-narrative', 'lecture-histoire-thematic',
+    'lecture-science-physics', 'lecture-science-nature', 'lecture-psycho-behavioral', 'lecture-psycho-relations',
+    'lecture-devperso-habits', 'lecture-devperso-mindset', 'lecture-fiction-thriller', 'lecture-fiction-litterature',
+  ];
+  const books = CURATED_GIFTS.filter((g) => bookIds.includes(g.id));
+  check('12 nouveaux cadeaux lecture présents exactement', books.length === 12);
+  check('gift.id uniques parmi les 12', new Set(books.map((g) => g.id)).size === 12);
+  check('asin absent sur les 12 (catalogue éditorial, pas de dépendance Amazon)', books.every((g) => g.asin === undefined));
+  check('imageUrl absente sur les 12', books.every((g) => g.imageUrl === undefined));
+  check('theme=lecture sur les 12 (jamais science/finance)', books.every((g) => g.theme === 'lecture'));
+  check("format=['papier'] sur les 12", books.every((g) => g.taxonomy?.format?.join(',') === 'papier'));
+
+  const sujets = ['finance', 'histoire', 'science', 'psychologie', 'developpement-personnel', 'fiction'];
+  for (const sujet of sujets) {
+    const count = books.filter((g) => g.taxonomy?.sujet?.includes(sujet)).length;
+    check(`sujet=${sujet} : exactement 2 cadeaux`, count === 2);
+  }
+
+  check("business/biographie absents en V1 (aucun livre ne porte ces sujets)", !books.some((g) => g.taxonomy?.sujet?.some((s) => s === 'business' || s === 'biographie')));
+  check("aucun titre/pitch n'affiche le mot 'bestseller' (giftConcept legacy conservé pour stabilité, jamais affiché — consigne §3)", books.every((g) => !/bestseller/i.test(g.title) && !/bestseller/i.test(g.pitch)));
+  check(
+    'aucun terme médical/clinique dans les pitches psychologie/développement personnel (consigne §9)',
+    books.every((g) => !/traiter l.anxiété|guérir|thérapie|diagnostic|dépression|trouble psychologique/i.test(g.pitch))
+  );
+  check('aucun auteur/titre réel ni marque/édition dans les pitches (recherche de guillemets/majuscules suspectes absente)', books.every((g) => !/"[A-Z]/.test(g.pitch)));
+
+  const sujetConfig = getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!;
+  check('lecture.sujet visible (hidden retiré)', sujetConfig.hidden !== true);
+  for (const opt of sujetConfig.options!) {
+    check(`lecture.sujet=${opt.key} matche ≥1 cadeau (aucune option ZERO)`, books.some((g) => g.taxonomy?.sujet?.includes(opt.key)));
+  }
+
+  check("aucun livre n'a été ajouté à theme=science (catalogue Science inchangé, toujours 11)", CURATED_GIFTS.filter((g) => g.theme === 'science').length === 11);
+  check("aucun produit ne porte theme='finance'", !CURATED_GIFTS.some((g) => (g.theme as string) === 'finance'));
+
+  // Les accessoires Lecture historiques doivent rester présents (non supprimés/remplacés).
+  const historicalIds = ['lecture-20', 'lecture-100', 'lecture-50'];
+  check(
+    'les accessoires Lecture historiques (reading-light/e-reader/notebook-set) sont toujours présents',
+    historicalIds.every((id) => CURATED_GIFTS.some((g) => g.id === id))
+  );
+}
+
+console.log('\n[43] Phase 7D — profils structurés lecture.sujet (vérifiés par exécution réelle, non forcés)');
+{
+  const topFinance = topRecommendations(generateCandidates(makeContact('A', makeQuiz({
+    interests: ['lecture'], themeAnswers: { lecture: { sujet: 'finance', format: 'papier' } },
+  })), { maxEuros: 30 }), 3);
+  check('profil A (sujet=finance) : le Top contient des livres finance', topFinance.some((c) => c.gift.taxonomy?.sujet?.includes('finance')));
+
+  const contactScience = makeContact('B', makeQuiz({ interests: ['lecture'], themeAnswers: { lecture: { sujet: 'science', format: 'papier' } } }));
+  const candidatesScience = generateCandidates(contactScience, { maxEuros: 30 });
+  const topScience = topRecommendations(candidatesScience, 3);
+  check('profil B (sujet=science) : le Top contient des livres science sous theme=lecture', topScience.some((c) => c.gift.theme === 'lecture' && c.gift.taxonomy?.sujet?.includes('science')));
+  check('profil B : aucun candidat du thème science (objets) dans ce pool (interest=lecture uniquement)', !candidatesScience.some((c) => c.gift.theme === 'science'));
+
+  // Multi-select psychologie+developpement-personnel : preuve qu'aucune surbonification n'a lieu
+  // (même mécanisme que le test générique [29], rejoué ici directement sur les livres réels).
+  const contactMulti = makeContact('C', makeQuiz({
+    interests: ['lecture'], themeAnswers: { lecture: { sujet: 'psychologie,developpement-personnel', format: 'papier' } },
+  }));
+  const candidatesMulti = generateCandidates(contactMulti, { maxEuros: 30 });
+  const contactSingle = makeContact('C2', makeQuiz({
+    interests: ['lecture'], themeAnswers: { lecture: { sujet: 'psychologie', format: 'papier' } },
+  }));
+  const candidatesSingle = generateCandidates(contactSingle, { maxEuros: 30 });
+  const psychoBookMulti = findById(candidatesMulti, 'lecture-psycho-behavioral')!;
+  const psychoBookSingle = findById(candidatesSingle, 'lecture-psycho-behavioral')!;
+  check(
+    "profil C : ajouter developpement-personnel à la sélection ne surbonifie PAS un livre qui ne porte QUE sujet=psychologie (même score qu'en sélection simple)",
+    psychoBookMulti.score === psychoBookSingle.score
+  );
+  const topMulti = topRecommendations(candidatesMulti, 3);
+  check(
+    'profil C : le Top reflète bien les DEUX sujets sélectionnés (au moins un livre de chaque sujet apparaît parmi les candidats mieux classés que les non-sujets)',
+    topMulti.some((c) => c.gift.taxonomy?.sujet?.includes('psychologie')) && topMulti.some((c) => c.gift.taxonomy?.sujet?.includes('developpement-personnel'))
+  );
+
+  const topFiction = topRecommendations(generateCandidates(makeContact('D', makeQuiz({
+    interests: ['lecture'], themeAnswers: { lecture: { sujet: 'fiction', format: 'papier' } },
+  })), { maxEuros: 30 }), 3);
+  check('profil D (sujet=fiction) : les cadeaux fiction sont représentés dans le Top', topFiction.some((c) => c.gift.taxonomy?.sujet?.includes('fiction')));
+}
+
+console.log('\n[44] Phase 7D — profils texte libre (audit §6 confirmé : extraction lexicale suffit, aucun changement moteur)');
+{
+  // Audit réel (voir rapport de chantier §6) : extractConcepts() extrait déjà chaque nom commun
+  // isolé ("bourse", "physique", "relations", "habitudes") comme concept autonome — AUCUNE
+  // extension de CONCEPT_ALIASES nécessaire pour ces cas (contrairement à un concept à deux mots,
+  // qui nécessiterait un alias — non utilisé ici, aucun des concepts choisis n'en a besoin).
+  function detailCandidate(sujet: string, detail: string, giftId: string) {
+    const c = makeContact('T', makeQuiz({ interests: ['lecture'], themeAnswers: { lecture: { sujet, detail } } }));
+    return findById(generateCandidates(c, { maxEuros: 30 }), giftId);
+  }
+
+  const financeClassic = detailCandidate('finance', 'il adore la bourse', 'lecture-finance-classic')!;
+  const financeIntro = detailCandidate('finance', 'il adore la bourse', 'lecture-finance-intro')!;
+  check(
+    'detail="il adore la bourse" : finance-book-classic (entity bourse) passe devant finance-book-intro',
+    financeClassic.score > financeIntro.score && financeClassic.reasons.textMatchKind === 'detail_entity'
+  );
+
+  const thriller = detailCandidate('fiction', 'elle adore les thrillers', 'lecture-fiction-thriller')!;
+  const litterature = detailCandidate('fiction', 'elle adore les thrillers', 'lecture-fiction-litterature')!;
+  check(
+    'detail="elle adore les thrillers" : fiction-book-bestseller-thriller (entity thrillers) passe devant le roman littérature générale',
+    thriller.score > litterature.score && thriller.reasons.textMatchKind === 'detail_entity'
+  );
+
+  const physics = detailCandidate('science', "il s'intéresse à la physique", 'lecture-science-physics')!;
+  const nature = detailCandidate('science', "il s'intéresse à la physique", 'lecture-science-nature')!;
+  check(
+    'detail="il s\'intéresse à la physique" : popular-science-book-physics (entity physique) passe devant le livre nature/biologie',
+    physics.score > nature.score && physics.reasons.textMatchKind === 'detail_entity'
+  );
+
+  const relations = detailCandidate('psychologie', 'elle lit beaucoup sur les relations humaines', 'lecture-psycho-relations')!;
+  const behavioral = detailCandidate('psychologie', 'elle lit beaucoup sur les relations humaines', 'lecture-psycho-behavioral')!;
+  check(
+    "detail=\"elle lit beaucoup sur les relations humaines\" : psychology-book-relationships (entity relations) passe devant le livre comportemental",
+    relations.score > behavioral.score && relations.reasons.textMatchKind === 'detail_entity'
+  );
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
