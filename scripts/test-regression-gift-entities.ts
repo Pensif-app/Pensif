@@ -845,34 +845,36 @@ console.log('\n[30] Phase 5F — invariants d’architecture (garde-fous pour qu
   check("gaming.focus ne réintroduit pas confort/multijoueur (non-régression Phase 4C)", !getThemeQuiz('gaming').questions.find((q) => q.id === 'focus')!.options!.some((o) => o.key === 'confort' || o.key === 'multijoueur'));
 }
 
-console.log('\n[31] Phase 5G — sourcing jeux_societe BLOQUÉ (Amazon.fr inaccessible en vérification) : garde-fous UI');
+console.log('\n[31] Phase 7A — jeux_societe désormais sourcé/activé ; beaute/science restent bloqués : garde-fous UI');
 {
-  // Sourcing réel non réalisé dans cette passe (voir rapport de chantier) — ces tests documentent
-  // et verrouillent l'état actuel honnête, pas un résultat souhaité fabriqué.
+  // CHANTIER "Phase 7A" (2026-09-21) : jeux_societe est sorti de l'état "bloqué" documenté en
+  // Phase 5G — 11 cadeaux éditoriaux ajoutés (voir giftCatalog.ts), COVERED_THEMES mis à jour. Ce
+  // test ne vérifie donc plus "0 produit" pour jeux_societe (obsolète), mais confirme que
+  // beaute/science restent, eux, dans l'état bloqué d'origine — non-régression du garde-fou lui-même.
   const jeuxSocieteProducts = CURATED_GIFTS.filter((g) => g.theme === 'jeux_societe');
   const beauteProducts = CURATED_GIFTS.filter((g) => g.theme === 'beaute');
   const scienceProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
-  check('jeux_societe : 0 produit au catalogue (sourcing Phase 5G non réalisé, voir rapport)', jeuxSocieteProducts.length === 0);
-  check('beaute : 0 produit (hors périmètre de cette passe)', beauteProducts.length === 0);
-  check('science : 0 produit (hors périmètre de cette passe)', scienceProducts.length === 0);
+  check('jeux_societe : 11 produits au catalogue (sourcing éditorial Phase 7A)', jeuxSocieteProducts.length === 11);
+  check('beaute : toujours 0 produit (hors périmètre de cette passe)', beauteProducts.length === 0);
+  check('science : toujours 0 produit (hors périmètre de cette passe)', scienceProducts.length === 0);
 
-  check("COVERED_THEMES ne contient PAS jeux_societe (seuil ≥10 produits non atteint, consigne §7)", !(COVERED_THEMES as readonly string[]).includes('jeux_societe'));
+  check("COVERED_THEMES contient désormais jeux_societe (seuil ≥10 produits atteint, consigne Phase 5G §7)", (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
   check("COVERED_THEMES ne contient PAS beaute", !(COVERED_THEMES as readonly string[]).includes('beaute'));
   check("COVERED_THEMES ne contient PAS science", !(COVERED_THEMES as readonly string[]).includes('science'));
-  check('COVERED_THEMES toujours à 20 thèmes (non-régression, aucun des 3 nouveaux ajouté prématurément)', COVERED_THEMES.length === 20);
+  check('COVERED_THEMES passe de 20 à 21 thèmes (jeux_societe ajouté, aucun autre)', COVERED_THEMES.length === 21);
 
-  check("VISIBLE_INTEREST_OPTIONS exclut jeux_societe (0 produit ⇒ non sélectionnable, consigne §8)", !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
-  check('VISIBLE_INTEREST_OPTIONS exclut beaute', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
-  check('VISIBLE_INTEREST_OPTIONS exclut science', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
-  check('VISIBLE_INTEREST_OPTIONS contient toujours les 20 thèmes historiques (non-régression du sélecteur)', VISIBLE_INTEREST_OPTIONS.length === 20);
+  check("VISIBLE_INTEREST_OPTIONS inclut désormais jeux_societe (11 produits ⇒ sélectionnable, consigne §8)", VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
+  check('VISIBLE_INTEREST_OPTIONS exclut toujours beaute', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check('VISIBLE_INTEREST_OPTIONS exclut toujours science', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
+  check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe (21 au total)', VISIBLE_INTEREST_OPTIONS.length === 21);
   check(
-    "INTEREST_OPTIONS (liste complète) conserve les 3 nouveaux thèmes malgré leur masquage — config préparée, pas supprimée",
-    ['jeux_societe', 'beaute', 'science'].every((k) => INTEREST_OPTIONS.some((o) => o.key === k))
+    "INTEREST_OPTIONS (liste complète) conserve beaute/science malgré leur masquage — config préparée, pas supprimée",
+    ['beaute', 'science'].every((k) => INTEREST_OPTIONS.some((o) => o.key === k))
   );
 
   const lectureQuestions = getThemeQuiz('lecture').questions;
   const sujetQ = lectureQuestions.find((q) => q.id === 'sujet')!;
-  check("lecture.sujet marquée hidden:true (catalogue de 12 livres non sourcé)", sujetQ.hidden === true);
+  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A)", sujetQ.hidden === true);
   // Reproduit exactement la logique de filtrage de ThemeAffinage.tsx (visibleQuestions) pour
   // prouver que la question disparaîtrait bien de l'écran réel, sans dépendre du rendu React Native.
   const simulatedVisible = lectureQuestions.filter((q) => !q.hidden);
@@ -882,26 +884,10 @@ console.log('\n[31] Phase 5G — sourcing jeux_societe BLOQUÉ (Amazon.fr inacce
     ['format', 'contexte', 'intensite', 'besoin', 'detail'].every((id) => simulatedVisible.some((q) => q.id === id))
   );
 
-  check('aucun ASIN dupliqué dans tout le catalogue (invariant général, non-régression)', new Set(CURATED_GIFTS.map((g) => g.asin)).size === CURATED_GIFTS.length);
-}
-
-console.log('\n[32] Phase 5G — profil réel jeux_societe (stratégie à deux) : résultat honnête du sourcing bloqué');
-{
-  const contactJeux = makeContact('Testeur', makeQuiz({
-    interests: ['jeux_societe'],
-    themeAnswers: { jeux_societe: { type: 'strategie', joueurs: 'deux', preference: 'reflexion' } },
-  }));
-  const candidatesJeux = generateCandidates(contactJeux, { maxEuros: 60 });
-  const topJeux = topRecommendations(candidatesJeux, 3);
-  // Avec 0 produit jeux_societe, generateCandidates() retombe sur tout le catalogue (< 6 candidats
-  // sur l'intérêt choisi, mécanisme FROZEN inchangé) — le Top contient donc forcément des produits
-  // hors thème. Ce test documente cet état RÉEL (pas encore le comportement désiré), qui ne
-  // deviendra correct qu'une fois ≥6 produits jeux_societe sourcés dans ce budget.
-  check(
-    "état actuel honnête : le Top contient des produits HORS jeux_societe (sourcing non réalisé, fallback catalogue entier attendu)",
-    topJeux.some((c) => c.gift.theme !== 'jeux_societe')
-  );
-  check('0 candidat jeux_societe dans le pool généré (confirme qu’aucun produit n’a été sourcé)', !candidatesJeux.some((c) => c.gift.theme === 'jeux_societe'));
+  // ASIN dupliqué : invariant recalculé sur les seuls produits QUI EN PORTENT UN (voir Phase 6B —
+  // asin optionnel, les 11 jeux_societe n'en ont légitimement aucun, exclus du calcul).
+  const withAsin = CURATED_GIFTS.filter((g) => g.asin);
+  check('aucun ASIN dupliqué parmi les produits qui en portent un (invariant général, non-régression)', new Set(withAsin.map((g) => g.asin)).size === withAsin.length);
 }
 
 console.log('\n[33] Phase 6B — identité canonique gift.id (migration ASIN → id)');
@@ -1051,6 +1037,71 @@ console.log('\n[34] Phase 6B — produit synthétique SANS commerce (test-only, 
   // + feedback), avec un produit catalogue réel mais un feedback qui ne référence QUE `giftId`
   // (jamais `asin`) — preuve fidèle que le pipeline est 100% id-only, cf. test [33] ci-dessus qui
   // couvre exactement ce chemin (feedback moderne giftId). Non dupliqué ici.
+}
+
+console.log('\n[35] Phase 7A — catalogue éditorial jeux_societe (11 cadeaux, sans commerce)');
+{
+  const jeuxProducts = CURATED_GIFTS.filter((g) => g.theme === 'jeux_societe');
+  check('11 produits jeux_societe présents', jeuxProducts.length === 11);
+  check('gift.id uniques parmi les 11', new Set(jeuxProducts.map((g) => g.id)).size === 11);
+  check('asin absent sur les 11 (catalogue éditorial, pas de dépendance Amazon)', jeuxProducts.every((g) => g.asin === undefined));
+  check('imageUrl absente sur les 11', jeuxProducts.every((g) => g.imageUrl === undefined));
+  check(
+    "les 11 giftConcept correspondent exactement aux concepts validés Phase 5C (aucun 'dice-game' réintroduit)",
+    jeuxProducts.map((g) => g.giftConcept).sort().join(',') ===
+      [
+        'card-game', 'chess-set', 'cooperative-board-game', 'escape-room-kit', 'party-game',
+        'premium-collector-board-game', 'puzzle-1000', 'puzzle-500', 'strategy-board-game',
+        'travel-game-set', 'two-player-strategy-game',
+      ].sort().join(',')
+  );
+
+  // Couverture taxonomy : chaque option du quiz jeux_societe doit matcher ≥1 des 11 produits.
+  const jeuxConfig = getThemeQuiz('jeux_societe');
+  for (const q of jeuxConfig.questions) {
+    if (q.type !== 'choice' || !q.options) continue;
+    for (const opt of q.options) {
+      check(
+        `jeux_societe.${q.id}=${opt.key} matche ≥1 produit`,
+        jeuxProducts.some((g) => g.taxonomy?.[q.id]?.includes(opt.key))
+      );
+    }
+  }
+
+  check('jeux_societe entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
+  check('jeux_societe devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
+  check('beaute reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check('science reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
+}
+
+console.log('\n[36] Phase 7A — profils réels jeux_societe (catalogue éditorial désormais actif)');
+{
+  const contactStrategie = makeContact('Emma', makeQuiz({
+    interests: ['jeux_societe'],
+    themeAnswers: { jeux_societe: { type: 'strategie', joueurs: 'deux', preference: 'reflexion' } },
+  }));
+  const candidatesStrategie = generateCandidates(contactStrategie, { maxEuros: 60 });
+  const topStrategie = topRecommendations(candidatesStrategie, 3);
+  check('profil stratégie à deux : le Top contient uniquement jeux_societe', topStrategie.every((c) => c.gift.theme === 'jeux_societe'));
+  check('profil stratégie à deux : favorise two-player-strategy-game en #1', topStrategie[0]?.gift.giftConcept === 'two-player-strategy-game');
+
+  const contactPuzzle = makeContact('Marc', makeQuiz({
+    interests: ['jeux_societe'],
+    themeAnswers: { jeux_societe: { type: 'puzzle', joueurs: 'solo', niveau: 'occasionnel' } },
+  }));
+  const candidatesPuzzle = generateCandidates(contactPuzzle, { maxEuros: 50 });
+  const topPuzzle = topRecommendations(candidatesPuzzle, 3);
+  check('profil puzzle solo : le Top contient uniquement jeux_societe', topPuzzle.every((c) => c.gift.theme === 'jeux_societe'));
+  check('profil puzzle solo : favorise puzzle-500 (occasionnel) en #1', topPuzzle[0]?.gift.giftConcept === 'puzzle-500');
+
+  const contactAmbiance = makeContact('Julien', makeQuiz({
+    interests: ['jeux_societe'],
+    themeAnswers: { jeux_societe: { type: 'ambiance', joueurs: 'grand-groupe', preference: 'convivialite' } },
+  }));
+  const candidatesAmbiance = generateCandidates(contactAmbiance, { maxEuros: 60 });
+  const topAmbiance = topRecommendations(candidatesAmbiance, 3);
+  check('profil ambiance grand groupe : le Top contient uniquement jeux_societe', topAmbiance.every((c) => c.gift.theme === 'jeux_societe'));
+  check('profil ambiance grand groupe : favorise party-game en #1', topAmbiance[0]?.gift.giftConcept === 'party-game');
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
