@@ -1,4 +1,5 @@
 import { BudgetBand, Contact, Genre, InterestTag, QuizAnswer, QuizProfile, TraitKey } from './types';
+import { COVERED_THEMES } from './giftCatalog';
 
 /**
  * Comble les champs absents sur un profil de quiz créé avant l'ajout de l'affinage par thème / du
@@ -120,7 +121,24 @@ export const INTEREST_OPTIONS: { key: InterestTag; label: string; emoji: string 
   { key: 'jardinage', label: 'Jardinage', emoji: '🌱' },
   { key: 'bricolage', label: 'Bricolage', emoji: '🔧' },
   { key: 'danse', label: 'Danse', emoji: '💃' },
+  // CHANTIER "Phase 5F" (2026-09-21) : sélectionnables dès cette passe, aucun produit catalogue
+  // associé pour l'instant (voir types.ts, giftCatalog.ts — pas de fabrication de données
+  // commerciales, consigne §8).
+  { key: 'jeux_societe', label: 'Jeux de société', emoji: '🎲' },
+  { key: 'beaute', label: 'Beauté & soins', emoji: '🧴' },
+  { key: 'science', label: 'Science & espace', emoji: '🔭' },
 ];
+
+/**
+ * CHANTIER "Phase 5G" (2026-09-21) — sous-ensemble d'INTEREST_OPTIONS réellement sélectionnable
+ * par l'utilisateur : uniquement les thèmes qui ont de vrais produits (COVERED_THEMES,
+ * giftCatalog.ts) — source UNIQUE de vérité, pas de seconde liste manuelle à maintenir en
+ * parallèle. Un thème ajouté ici (config/quiz prêts) mais sans catalogue (ex. jeux_societe/
+ * beaute/science tant qu'ils ne sont pas sourcés) reste dans INTEREST_OPTIONS (pour les lookups
+ * de label sur des données déjà stockées) mais disparaît de VISIBLE_INTEREST_OPTIONS — donc du
+ * sélecteur affiché à l'utilisateur — jusqu'à ce que COVERED_THEMES l'inclue réellement.
+ */
+export const VISIBLE_INTEREST_OPTIONS = INTEREST_OPTIONS.filter((opt) => (COVERED_THEMES as readonly InterestTag[]).includes(opt.key));
 
 /** Paliers de budget proposés au moment de générer des recommandations (voir GiftsScreen.tsx) —
  *  ce n'est plus une question du quiz général, le budget appartient à la recherche, pas au profil. */

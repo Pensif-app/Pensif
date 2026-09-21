@@ -43,6 +43,7 @@ import {
   computeTraits,
   formatQuizText,
   INTEREST_OPTIONS,
+  VISIBLE_INTEREST_OPTIONS,
   QUIZ_QUESTIONS,
   sortedTraits,
   TRAIT_LABELS,
@@ -594,7 +595,11 @@ function TagStep({
       <Text style={[styles.prompt, { color: theme.ink }]}>{title}</Text>
       <Text style={[styles.subtitle, { color: theme.inkSoft }]}>{subtitle}</Text>
       <View style={[styles.tagGrid, { justifyContent: 'center' }]}>
-        {INTEREST_OPTIONS.map((opt) => {
+        {/* CHANTIER "Phase 5G" (2026-09-21) : sélecteur limité aux thèmes réellement couverts par
+            le catalogue (voir VISIBLE_INTEREST_OPTIONS, quiz.ts) — un thème sans produit
+            (jeux_societe/beaute/science tant qu'ils ne sont pas sourcés) reste préparé côté
+            config mais n'apparaît pas ici. */}
+        {VISIBLE_INTEREST_OPTIONS.map((opt) => {
           const active = selected.includes(opt.key);
           return (
             <Pressable

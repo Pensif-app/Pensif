@@ -44,6 +44,10 @@ export function ThemeAffinageQuiz({
   // Recalculée à chaque render à partir de `answers` donc reste cohérente si on revient en arrière
   // et change une réponse qui conditionne une question suivante.
   const visibleQuestions = quizConfig.questions.filter((q) => {
+    // CHANTIER "Phase 5G" (2026-09-21) : une question `hidden: true` reste dans la config (voir
+    // themeQuizzes.ts) mais n'est jamais montrée à un utilisateur réel — ex. lecture.sujet tant
+    // que son catalogue de livres n'est pas sourcé.
+    if (q.hidden) return false;
     if (!q.when) return true;
     const answer = answers[q.when.questionId];
     if (!answer) return false;

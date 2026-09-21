@@ -14,6 +14,8 @@ import { generateCandidates, topRecommendations, whyForContact, ScoredCandidate 
 import { CURATED_GIFTS } from '../src/data/giftCatalog';
 import { canonicalize, toCanonicalConcept, extractConcepts } from '../src/data/textSignals';
 import { getThemeQuiz } from '../src/data/themeQuizzes';
+import { INTEREST_OPTIONS, VISIBLE_INTEREST_OPTIONS } from '../src/data/quiz';
+import { COVERED_THEMES } from '../src/data/giftCatalog';
 
 function makeQuiz(overrides: Partial<QuizProfile>): QuizProfile {
   return {
@@ -738,6 +740,158 @@ console.log('\n[26] Phase 4C — collection.type=autre reste un hard filter fonc
   const contactTcg = makeContact('Collectionneur2', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { type: 'tcg' } } }));
   const candidatesTcg = generateCandidates(contactTcg, { maxEuros: 100 });
   check("collection.type='tcg' laisse passer le classeur TCG (non-régression)", candidatesTcg.some((c) => c.gift.asin === classeurProduct.asin));
+}
+
+console.log('\n[27] Phase 5F — 3 nouveaux InterestTag reconnus (jeux_societe/beaute/science)');
+{
+  check("'jeux_societe' présent dans INTEREST_OPTIONS", INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
+  check("'beaute' présent dans INTEREST_OPTIONS", INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check("'science' présent dans INTEREST_OPTIONS", INTEREST_OPTIONS.some((o) => o.key === 'science'));
+  check('INTEREST_OPTIONS contient bien 23 entrées (20 + 3 nouveaux)', INTEREST_OPTIONS.length === 23);
+}
+
+console.log('\n[28] Phase 5F — quiz des 3 nouveaux thèmes accessible (config dédiée, pas de repli générique)');
+{
+  const jeuxConfig = getThemeQuiz('jeux_societe');
+  check("getThemeQuiz('jeux_societe') retourne une config dédiée", jeuxConfig.questions.some((q) => q.id === 'type'));
+  check('jeux_societe.type conserve exactement les 7 valeurs validées Phase 5C', jeuxConfig.questions.find((q) => q.id === 'type')!.options!.map((o) => o.key).sort().join(',') === 'ambiance,cartes,echecs,escape,famille,puzzle,strategie');
+  check('jeux_societe possède ses 4 dimensions (type/joueurs/niveau/preference)', ['type', 'joueurs', 'niveau', 'preference'].every((id) => jeuxConfig.questions.some((q) => q.id === id)));
+
+  const beauteConfig = getThemeQuiz('beaute');
+  check("getThemeQuiz('beaute') retourne une config dédiée", beauteConfig.questions.some((q) => q.id === 'univers'));
+  check('beaute possède ses 3 dimensions (univers/besoin/style)', ['univers', 'besoin', 'style'].every((id) => beauteConfig.questions.some((q) => q.id === id)));
+  check("beaute ne contient AUCUNE question liée au genre (pas de hard filter implicite)", !beauteConfig.questions.some((q) => /genre/i.test(q.id) || /genre/i.test(q.prompt)));
+
+  const scienceConfig = getThemeQuiz('science');
+  check("getThemeQuiz('science') retourne une config dédiée", scienceConfig.questions.some((q) => q.id === 'univers'));
+  check("science.univers ne propose PAS 'technologie' (chevauchement tech évité, voir audit Phase 5 §3)", !scienceConfig.questions.find((q) => q.id === 'univers')!.options!.some((o) => o.key === 'technologie'));
+  check('science possède ses 3 dimensions (univers/usage/niveau)', ['univers', 'usage', 'niveau'].every((id) => scienceConfig.questions.some((q) => q.id === id)));
+}
+
+console.log('\n[29] Phase 5F — lecture.sujet : structure multi-select + garde-fou taxonomyMatchCount (consigne §1)');
+{
+  const lectureConfig = getThemeQuiz('lecture');
+  const sujetQuestion = lectureConfig.questions.find((q) => q.id === 'sujet')!;
+  check('lecture.sujet présent avec 6 valeurs V1', sujetQuestion.options!.map((o) => o.key).sort().join(',') === 'developpement-personnel,fiction,finance,histoire,psychologie,science');
+  check(
+    "lecture.sujet a > 2 options : ThemeAffinage.tsx la traite automatiquement en multi-select (voir isMulti, seuil générique déjà en place, aucun code UI à ajouter)",
+    sujetQuestion.options!.length > 2
+  );
+  check("business/biographie absents en V1 (différés, voir Phase 5E §3)", !sujetQuestion.options!.some((o) => o.key === 'business' || o.key === 'biographie'));
+
+  const detailQuestion = lectureConfig.questions.find((q) => q.id === 'detail')!;
+  check(
+    "placeholder lecture.detail neutre, aucun nom propre non couvert (ex. 'Buffett')",
+    !!detailQuestion.placeholder && !/buffett|bitcoin/i.test(detailQuestion.placeholder)
+  );
+
+  // Garde-fou §1 : le mécanisme testé ici (taxonomyMatchCount, via generateCandidates) est
+  // STRICTEMENT IDENTIQUE à celui qui s'appliquera à lecture.sujet une fois les livres sourcés
+  // (aucune branche spécifique par thème dans le moteur) — utilisé ici sur cuisine.univers, un
+  // produit RÉEL déjà au catalogue (cuisine-20, taxonomy.univers=['patisserie']), plutôt que de
+  // fabriquer un faux produit lecture (interdit consigne §8). Équivalent exact du cas demandé :
+  // sujet="finance,histoire,psychologie" sur un produit taxonomy.sujet=['finance'].
+  const cuisine20 = CURATED_GIFTS.find((g) => g.id === 'cuisine-20')!; // taxonomy.univers === ['patisserie']
+  const contactMultiSelect = makeContact('MultiSelect', makeQuiz({
+    interests: ['cuisine'],
+    themeAnswers: { cuisine: { univers: 'patisserie,cafe,gastronomie' } }, // 3 valeurs sélectionnées, 1 seule matche le produit
+  }));
+  const contactSingleSelect = makeContact('SingleSelect', makeQuiz({
+    interests: ['cuisine'],
+    themeAnswers: { cuisine: { univers: 'patisserie' } }, // 1 seule valeur sélectionnée, la même qui matche
+  }));
+  const candidatesMulti = generateCandidates(contactMultiSelect, { maxEuros: 100 });
+  const candidatesSingle = generateCandidates(contactSingleSelect, { maxEuros: 100 });
+  const cuisine20WithMulti = findByAsin(candidatesMulti, cuisine20.asin)!;
+  const cuisine20WithSingle = findByAsin(candidatesSingle, cuisine20.asin)!;
+  check(
+    "sélectionner 3 valeurs (dont 1 seule matche) donne EXACTEMENT le même score que sélectionner cette seule valeur — pas de surbonification (+1 par valeur sélectionnée)",
+    cuisine20WithMulti.score === cuisine20WithSingle.score
+  );
+}
+
+console.log('\n[30] Phase 5F — invariants d’architecture (garde-fous pour quand le catalogue sera sourcé)');
+{
+  // Ces trois garde-fous sont aujourd'hui vides (0 produit science/lecture-sujet-science ajouté,
+  // voir consigne §8 — STOP données commerciales) mais redeviennent significatifs dès le premier
+  // ajout catalogue : ils DOIVENT rester vrais après le sourcing réel des 46 produits.
+  const scienceThemeProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
+  check('aucun produit theme=science au catalogue actuel (0 produit sourcé dans cette passe)', scienceThemeProducts.length === 0);
+  check(
+    "garde-fou : aucun produit theme=science ne pourra être un livre (giftConcept ne contient ni 'book' ni 'livre')",
+    scienceThemeProducts.every((g) => !/book|livre/i.test(g.giftConcept ?? ''))
+  );
+
+  const lectureScienceBooks = CURATED_GIFTS.filter((g) => g.theme === 'lecture' && g.taxonomy?.sujet?.includes('science'));
+  check('0 livre lecture.sujet=science au catalogue actuel (à sourcer, voir annexe)', lectureScienceBooks.length === 0);
+
+  // 'finance' n'existe QUE comme valeur de lecture.sujet, jamais comme InterestTag/thème — déjà
+  // garanti par le système de types (TS refuserait la compilation), revérifié ici à l'exécution.
+  check("aucun produit ne porte theme='finance' (le thème finance autonome reste abandonné, Phase 5D)", !CURATED_GIFTS.some((g) => (g.theme as string) === 'finance'));
+  check("'finance' existe bien comme option de lecture.sujet", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.options!.some((o) => o.key === 'finance'));
+
+  // Non-réintroduction des options supprimées en Phase 4C (non-régression croisée avec ce chantier).
+  check("dice-game n'existe dans aucune config jeux_societe (jamais réintroduit, voir Phase 5C)", !getThemeQuiz('jeux_societe').questions.some((q) => q.options?.some((o) => o.key === 'dice-game' || o.key === 'dice')));
+  check("gaming.focus ne réintroduit pas confort/multijoueur (non-régression Phase 4C)", !getThemeQuiz('gaming').questions.find((q) => q.id === 'focus')!.options!.some((o) => o.key === 'confort' || o.key === 'multijoueur'));
+}
+
+console.log('\n[31] Phase 5G — sourcing jeux_societe BLOQUÉ (Amazon.fr inaccessible en vérification) : garde-fous UI');
+{
+  // Sourcing réel non réalisé dans cette passe (voir rapport de chantier) — ces tests documentent
+  // et verrouillent l'état actuel honnête, pas un résultat souhaité fabriqué.
+  const jeuxSocieteProducts = CURATED_GIFTS.filter((g) => g.theme === 'jeux_societe');
+  const beauteProducts = CURATED_GIFTS.filter((g) => g.theme === 'beaute');
+  const scienceProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
+  check('jeux_societe : 0 produit au catalogue (sourcing Phase 5G non réalisé, voir rapport)', jeuxSocieteProducts.length === 0);
+  check('beaute : 0 produit (hors périmètre de cette passe)', beauteProducts.length === 0);
+  check('science : 0 produit (hors périmètre de cette passe)', scienceProducts.length === 0);
+
+  check("COVERED_THEMES ne contient PAS jeux_societe (seuil ≥10 produits non atteint, consigne §7)", !(COVERED_THEMES as readonly string[]).includes('jeux_societe'));
+  check("COVERED_THEMES ne contient PAS beaute", !(COVERED_THEMES as readonly string[]).includes('beaute'));
+  check("COVERED_THEMES ne contient PAS science", !(COVERED_THEMES as readonly string[]).includes('science'));
+  check('COVERED_THEMES toujours à 20 thèmes (non-régression, aucun des 3 nouveaux ajouté prématurément)', COVERED_THEMES.length === 20);
+
+  check("VISIBLE_INTEREST_OPTIONS exclut jeux_societe (0 produit ⇒ non sélectionnable, consigne §8)", !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
+  check('VISIBLE_INTEREST_OPTIONS exclut beaute', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check('VISIBLE_INTEREST_OPTIONS exclut science', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
+  check('VISIBLE_INTEREST_OPTIONS contient toujours les 20 thèmes historiques (non-régression du sélecteur)', VISIBLE_INTEREST_OPTIONS.length === 20);
+  check(
+    "INTEREST_OPTIONS (liste complète) conserve les 3 nouveaux thèmes malgré leur masquage — config préparée, pas supprimée",
+    ['jeux_societe', 'beaute', 'science'].every((k) => INTEREST_OPTIONS.some((o) => o.key === k))
+  );
+
+  const lectureQuestions = getThemeQuiz('lecture').questions;
+  const sujetQ = lectureQuestions.find((q) => q.id === 'sujet')!;
+  check("lecture.sujet marquée hidden:true (catalogue de 12 livres non sourcé)", sujetQ.hidden === true);
+  // Reproduit exactement la logique de filtrage de ThemeAffinage.tsx (visibleQuestions) pour
+  // prouver que la question disparaîtrait bien de l'écran réel, sans dépendre du rendu React Native.
+  const simulatedVisible = lectureQuestions.filter((q) => !q.hidden);
+  check("lecture.sujet absente de la simulation de visibleQuestions (ThemeAffinage.tsx)", !simulatedVisible.some((q) => q.id === 'sujet'));
+  check(
+    'les autres questions lecture (format/contexte/intensite/besoin/detail) restent visibles, aucune masquée par erreur',
+    ['format', 'contexte', 'intensite', 'besoin', 'detail'].every((id) => simulatedVisible.some((q) => q.id === id))
+  );
+
+  check('aucun ASIN dupliqué dans tout le catalogue (invariant général, non-régression)', new Set(CURATED_GIFTS.map((g) => g.asin)).size === CURATED_GIFTS.length);
+}
+
+console.log('\n[32] Phase 5G — profil réel jeux_societe (stratégie à deux) : résultat honnête du sourcing bloqué');
+{
+  const contactJeux = makeContact('Testeur', makeQuiz({
+    interests: ['jeux_societe'],
+    themeAnswers: { jeux_societe: { type: 'strategie', joueurs: 'deux', preference: 'reflexion' } },
+  }));
+  const candidatesJeux = generateCandidates(contactJeux, { maxEuros: 60 });
+  const topJeux = topRecommendations(candidatesJeux, 3);
+  // Avec 0 produit jeux_societe, generateCandidates() retombe sur tout le catalogue (< 6 candidats
+  // sur l'intérêt choisi, mécanisme FROZEN inchangé) — le Top contient donc forcément des produits
+  // hors thème. Ce test documente cet état RÉEL (pas encore le comportement désiré), qui ne
+  // deviendra correct qu'une fois ≥6 produits jeux_societe sourcés dans ce budget.
+  check(
+    "état actuel honnête : le Top contient des produits HORS jeux_societe (sourcing non réalisé, fallback catalogue entier attendu)",
+    topJeux.some((c) => c.gift.theme !== 'jeux_societe')
+  );
+  check('0 candidat jeux_societe dans le pool généré (confirme qu’aucun produit n’a été sourcé)', !candidatesJeux.some((c) => c.gift.theme === 'jeux_societe'));
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

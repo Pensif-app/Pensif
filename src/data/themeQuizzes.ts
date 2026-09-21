@@ -19,6 +19,13 @@ export type ThemeQuestion = {
    *  branchement conditionnel (ex. musique : "il joue" → question instrument, "il écoute" →
    *  question contexte d'écoute). */
   when?: { questionId: string; oneOf: string[] };
+  /** CHANTIER "Phase 5G" (2026-09-21) — garde la question DÉFINIE (taxonomy/options prêtes,
+   *  testable) sans l'exposer à un utilisateur réel tant que le catalogue qui la rend utile
+   *  n'existe pas encore (voir ThemeAffinage.tsx : filtrée hors de `visibleQuestions`). Ex.
+   *  `lecture.sujet` reste `hidden: true` tant que les 12 livres associés ne sont pas sourcés —
+   *  évite de promettre 6 sujets pour 0 produit, sans devoir retirer/réécrire la config plus
+   *  tard. Absent ou `false` = comportement inchangé (affichée normalement). */
+  hidden?: boolean;
 };
 
 export type ThemeQuizConfig = {
@@ -498,7 +505,38 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'ecriture', label: 'De quoi écrire' },
         ],
       },
-      detailQuestion('Lecture'),
+      {
+        // CHANTIER "Phase 5E/5F" (2026-09-21) — 6 sujets, donc > 2 options : ThemeAffinage.tsx
+        // traite automatiquement cette question en multi-select (voir isMulti, seuil générique
+        // déjà en place), aucun changement UI nécessaire. `finance` vit ICI, jamais comme thème
+        // autonome (voir Phase 5D/5E) ; `science` (le sujet) ne recoupe QUE des livres — le thème
+        // `science` (les objets) n'en contient aucun, voir consigne Phase 5F §6.
+        // CHANTIER "Phase 5G" (2026-09-21) : `hidden: true` tant que les 12 livres ne sont pas
+        // sourcés (sourcing Phase 5G bloqué, voir rapport de chantier — Amazon.fr inaccessible en
+        // vérification directe dans cet environnement) — config conservée intacte et testée, mais
+        // non exposée à un utilisateur réel pour ne pas promettre 6 sujets pour 0 produit.
+        id: 'sujet',
+        prompt: 'Quels sujets {il} aime-t-il lire ?',
+        type: 'choice',
+        hidden: true,
+        options: [
+          { key: 'finance', label: 'Finance & investissement' },
+          { key: 'histoire', label: 'Histoire' },
+          { key: 'science', label: 'Science' },
+          { key: 'psychologie', label: 'Psychologie' },
+          { key: 'developpement-personnel', label: 'Développement personnel' },
+          { key: 'fiction', label: 'Fiction' },
+        ],
+      },
+      {
+        // Remplace detailQuestion('Lecture') générique : prompt/placeholder spécifiques au sujet
+        // de lecture (voir consigne §2/§5) — placeholder volontairement neutre, aucun nom propre
+        // (ex. "Warren Buffett") tant qu'aucune entity catalogue ne le recoupe (voir Phase 4C).
+        id: 'detail',
+        prompt: 'Un auteur, un sujet ou un univers précis ?',
+        type: 'text',
+        placeholder: 'Ex. un auteur, un sujet ou un univers précis…',
+      },
     ],
   },
 
@@ -1119,6 +1157,146 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       detailQuestion('Danse'),
+    ],
+  },
+
+  // CHANTIER "Cadeaux V2 — Phase 5F" (2026-09-21) : config/quiz des 3 nouveaux thèmes validés en
+  // Phase 5B/5C. Taxonomy exactement celle validée (pas de dimension ajoutée/retirée par rapport
+  // au design figé) — AUCUN produit catalogue associé pour l'instant (voir giftCatalog.ts).
+  jeux_societe: {
+    theme: 'jeux_societe',
+    questions: [
+      {
+        id: 'type',
+        prompt: 'Ses jeux préférés, c’est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'strategie', label: 'Stratégie' },
+          { key: 'ambiance', label: 'Ambiance' },
+          { key: 'famille', label: 'Jeux en famille' },
+          { key: 'puzzle', label: 'Puzzle' },
+          { key: 'escape', label: 'Escape game' },
+          { key: 'cartes', label: 'Jeux de cartes' },
+          { key: 'echecs', label: 'Échecs' },
+        ],
+      },
+      {
+        id: 'joueurs',
+        prompt: '{Il} joue surtout…',
+        type: 'choice',
+        options: [
+          { key: 'solo', label: 'Seul' },
+          { key: 'deux', label: 'À deux' },
+          { key: 'petit-groupe', label: 'En petit groupe' },
+          { key: 'grand-groupe', label: 'En grand groupe' },
+        ],
+      },
+      {
+        id: 'niveau',
+        prompt: 'Côté jeux de société, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'occasionnel', label: 'Occasionnel' },
+          { key: 'regulier', label: 'Régulier' },
+          { key: 'passionne', label: 'Une vraie passion' },
+        ],
+      },
+      {
+        id: 'preference',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'reflexion', label: 'De la réflexion' },
+          { key: 'competition', label: 'De la compétition' },
+          { key: 'cooperation', label: 'De la coopération' },
+          { key: 'convivialite', label: 'De la convivialité' },
+        ],
+      },
+    ],
+  },
+
+  beaute: {
+    theme: 'beaute',
+    questions: [
+      {
+        id: 'univers',
+        prompt: 'Son univers beauté, c’est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'skincare', label: 'Soin de la peau' },
+          { key: 'maquillage', label: 'Maquillage' },
+          { key: 'cheveux', label: 'Cheveux' },
+          { key: 'parfum', label: 'Parfum' },
+          { key: 'grooming', label: 'Rasage / barbe' },
+          { key: 'ongles', label: 'Ongles' },
+        ],
+      },
+      {
+        id: 'besoin',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'routine', label: 'De quoi entretenir sa routine' },
+          { key: 'decouverte', label: 'Une découverte à tester' },
+          { key: 'upgrade', label: 'Un upgrade de son équipement' },
+          { key: 'organisation', label: 'De quoi s’organiser' },
+        ],
+      },
+      {
+        // Volontairement AUCUNE dimension liée au genre : Contact.genre ne doit jamais devenir un
+        // filtre implicite (voir consigne §5) — 'style' reste une préférence esthétique neutre.
+        id: 'style',
+        prompt: 'Son style est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'naturel', label: 'Naturel' },
+          { key: 'premium', label: 'Premium' },
+          { key: 'pratique', label: 'Pratique' },
+          { key: 'tendance', label: 'Tendance' },
+        ],
+      },
+    ],
+  },
+
+  science: {
+    theme: 'science',
+    questions: [
+      {
+        // 'technologie' volontairement absent : chevauchement direct avec le thème `tech`
+        // existant, voir audit Phase 5 §3.
+        id: 'univers',
+        prompt: 'Son univers scientifique, c’est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'astronomie', label: 'Astronomie' },
+          { key: 'espace', label: 'Espace' },
+          { key: 'physique-chimie', label: 'Physique / chimie' },
+          { key: 'biologie', label: 'Biologie' },
+          { key: 'dinosaures', label: 'Dinosaures' },
+        ],
+      },
+      {
+        id: 'usage',
+        prompt: '{Il} apprécierait plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'observer', label: 'Observer' },
+          { key: 'experimenter', label: 'Expérimenter' },
+          { key: 'apprendre', label: 'Apprendre' },
+          { key: 'decorer', label: 'Décorer' },
+          { key: 'collectionner', label: 'Collectionner' },
+        ],
+      },
+      {
+        id: 'niveau',
+        prompt: 'Côté science, {il} est plutôt…',
+        type: 'choice',
+        options: [
+          { key: 'curieux', label: 'Curieux' },
+          { key: 'amateur', label: 'Amateur passionné' },
+          { key: 'passionne', label: 'Une vraie passion' },
+        ],
+      },
     ],
   },
 };

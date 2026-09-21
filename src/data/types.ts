@@ -20,7 +20,16 @@ export type InterestTag =
   | 'photo'
   | 'jardinage'
   | 'bricolage'
-  | 'danse';
+  | 'danse'
+  // CHANTIER "Cadeaux V2 — Phase 5F" (2026-09-21) : config/quiz ajoutés dans cette passe, mais
+  // AUCUN produit catalogue encore associé (voir giftCatalog.ts — pas de fabrication d'ASIN/prix/
+  // image, voir consigne §8) — ces 3 thèmes ne sont donc PAS dans COVERED_THEMES tant que de vrais
+  // produits n'ont pas été sourcés. Un contact peut déjà les sélectionner (INTEREST_OPTIONS,
+  // quiz.ts) sans erreur : generateCandidates() retombe simplement sur le catalogue élargi
+  // (< 6 candidats sur l'intérêt choisi), comme pour n'importe quel intérêt encore peu couvert.
+  | 'jeux_societe'
+  | 'beaute'
+  | 'science';
 
 /** Paliers de budget pour une recherche de recommandations (pas une caractéristique du contact —
  *  voir QuizProfile.budget). */
