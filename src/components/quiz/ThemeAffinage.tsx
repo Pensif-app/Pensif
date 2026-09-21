@@ -145,7 +145,7 @@ export function ThemeAffinageQuiz({
             <TextInput
               value={textDraft}
               onChangeText={setTextDraft}
-              placeholder="Facultatif"
+              placeholder={question.placeholder ?? 'Facultatif'}
               placeholderTextColor={theme.inkSoft}
               style={[styles.textInput, { borderColor: theme.line, color: theme.ink, backgroundColor: theme.card }]}
             />

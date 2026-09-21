@@ -343,7 +343,7 @@ export function QuizScreen() {
               )}
               {step === STEP_INTERESTS && (
                 <TagStep
-                  title={formatQuizText('Qu’est-ce qui ressemble à {prenom} ?', contact)}
+                  title={formatQuizText('Qu’est-ce qui intéresse le plus {prenom} ?', contact)}
                   subtitle="Choisis-en autant que tu veux."
                   theme={theme}
                   selected={interests}

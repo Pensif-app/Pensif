@@ -1,9 +1,16 @@
 import { Contact, RejectReason, TraitKey } from './types';
 import { computeTraits, isQuizComplete, normalizeQuizProfile } from './quiz';
-import { significantWords } from './textSignals';
+import { significantWords, extractConcepts } from './textSignals';
 import { CuratedGift, CURATED_GIFTS, GiftTaxonomy } from './giftCatalog';
 
 export type BudgetRequest = { maxEuros: number };
+
+/** CHANTIER "Quiz Cadeaux V2 — Phase 1" (2026-09-21) — type de correspondance texte libre retenue
+ *  pour UN produit précis, dans l'ordre de force voulu (voir TEXT_MATCH_BONUS) : au plus UNE seule
+ *  retenue par candidat (jamais cumulées), la plus forte disponible. `null` = aucune correspondance
+ *  texte réelle pour ce produit — jamais de faux bonus, jamais de faux "Pourquoi ?" (voir le cas
+ *  "Star Wars" sans produit `star_wars` dans le catalogue, rapport de chantier). */
+export type TextMatchKind = 'wish_entity' | 'favorite_entity' | 'detail_entity' | 'substring_fallback' | null;
 
 export type ScoredCandidate = {
   gift: CuratedGift;
@@ -14,7 +21,17 @@ export type ScoredCandidate = {
     trait: TraitKey | null;
     themeAnswer: boolean;
     genericAnswer: boolean;
+    /** true dès qu'une correspondance texte libre RÉELLE a compté dans le score de CE produit
+     *  (entity exacte ou repli substring) — conservé pour compat avec scripts/test-profiles.ts. */
     wishMatch: boolean;
+    /** Détail du type de correspondance retenue (voir TextMatchKind) — permet à whyForContact() de
+     *  choisir la bonne phrase, et de ne JAMAIS citer un texte libre qui n'a pas réellement compté
+     *  dans le score de CE produit précis. */
+    textMatchKind: TextMatchKind;
+    /** Texte source exact (wish, ou réponse favorite/detail du thème) qui a produit la
+     *  correspondance — uniquement rempli quand textMatchKind !== null, pour permettre de citer
+     *  fidèlement ce que l'utilisateur a écrit, jamais un texte reconstruit/inventé. */
+    matchedSourceText: string | null;
     favoriteText: string | null;
     likedSimilar: boolean;
   };
@@ -221,6 +238,71 @@ function collectFreeTexts(quiz: ReturnType<typeof normalizeQuizProfile>): string
   return texts;
 }
 
+/**
+ * CHANTIER "Quiz Cadeaux V2 — Phase 1" (2026-09-21) — poids des 4 niveaux de correspondance texte
+ * libre, en cohérence avec les poids déjà en place dans ce moteur (interestMatch=42,
+ * themeAnswerMatches=12/valeur, traitBonus≤20, likedBonus≤25) :
+ *   - wish_entity (45) : le signal le plus fort du moteur, légèrement au-dessus d'interestMatch
+ *     (42) — un souhait précis qui correspond RÉELLEMENT à un produit du catalogue est plus
+ *     explicite qu'un simple centre d'intérêt coché.
+ *   - favorite_entity (38) : juste sous interestMatch — une licence/marque explicitement confirmée
+ *     pour ce thème précis, un cran sous un souhait direct mais toujours un signal fort et non
+ *     inventé.
+ *   - detail_entity (30) : au-dessus de themeAnswerMatches*12 (3 valeurs recoupées = 36, souvent
+ *     déjà élevé) mais sous favorite_entity — le "détail précis" est par nature plus généraliste
+ *     que la question dédiée "favorite" des 4 thèmes qui l'ont.
+ *   - substring_fallback (15) : ancien mécanisme conservé comme FILET FAIBLE uniquement (l'ancien
+ *     bonus 26/36 est réduit — l'audit a montré que ce signal produit très peu de vrais positifs et
+ *     ne doit plus dominer le classement comme avant).
+ * Amplifié de +10 (au lieu du +10 déjà existant sur l'ancien mécanisme) si l'utilisateur a
+ * explicitement demandé "plus personnel" (voir wantsMorePersonal) — comportement inchangé dans son
+ * principe, juste appliqué au nouveau mécanisme plus précis.
+ */
+const TEXT_MATCH_BONUS: Record<Exclude<TextMatchKind, null>, number> = {
+  wish_entity: 45,
+  favorite_entity: 38,
+  detail_entity: 30,
+  substring_fallback: 15,
+};
+
+/**
+ * Détermine LA meilleure correspondance texte libre pour CE produit précis (jamais cumulée),
+ * dans l'ordre de force voulu : wish > favorite > detail > repli substring. Une correspondance
+ * "entity" exige que `gift.entities` (concepts factuellement associés à CE produit, voir
+ * giftCatalog.ts) contienne un concept canonique extrait du texte libre — jamais une correspondance
+ * sémantique/devinée. Si le produit n'a aucune `entities` (cas très majoritaire, 114/162), ou si
+ * aucun concept ne recoupe, retombe sur le repli substring historique (`textMatch`) ; si RIEN ne
+ * correspond, retourne `{ kind: null, sourceText: null }` — jamais de faux bonus, jamais de faux
+ * "Pourquoi ?" (voir le cas "Star Wars" sans produit `star_wars`, rapport de chantier §5).
+ */
+function bestTextMatch(gift: CuratedGift, quiz: ReturnType<typeof normalizeQuizProfile>): { kind: TextMatchKind; sourceText: string | null } {
+  const giftEntities = gift.entities;
+  if (giftEntities && giftEntities.length > 0) {
+    const entitySet = new Set(giftEntities);
+    if (quiz.wish) {
+      const wishConcepts = extractConcepts(quiz.wish);
+      if (wishConcepts.some((c) => entitySet.has(c))) return { kind: 'wish_entity', sourceText: quiz.wish };
+    }
+    const answersForTheme = quiz.themeAnswers[gift.theme];
+    const favoriteText = answersForTheme?.favorite;
+    if (favoriteText) {
+      const favoriteConcepts = extractConcepts(favoriteText);
+      if (favoriteConcepts.some((c) => entitySet.has(c))) return { kind: 'favorite_entity', sourceText: favoriteText };
+    }
+    const detailText = answersForTheme?.detail;
+    if (detailText) {
+      const detailConcepts = extractConcepts(detailText);
+      if (detailConcepts.some((c) => entitySet.has(c))) return { kind: 'detail_entity', sourceText: detailText };
+    }
+  }
+  if (textMatch(gift, collectFreeTexts(quiz))) {
+    // Repli faible : on ne sait pas PRÉCISÉMENT quel texte a matché (mots significatifs, pas
+    // concept unique) — jamais cité littéralement dans whyForContact pour cette raison, voir §6.
+    return { kind: 'substring_fallback', sourceText: null };
+  }
+  return { kind: null, sourceText: null };
+}
+
 /** Tous les produits "aimés" via ♡ sur ce contact, toutes recherches précédentes confondues —
  *  reconstruit à partir de l'historique plutôt que stocké à part, une seule source de vérité. */
 function likedGiftsFor(history: ReturnType<typeof normalizeQuizProfile>['recommendationHistory']): CuratedGift[] {
@@ -287,7 +369,6 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   const personalBoost = Math.min(quiz.feedback.filter((f) => f.reason === 'more_personal').length * 8, 24);
   const wantsMorePersonal = personalBoost > 0;
   const liked = likedGiftsFor(quiz.recommendationHistory);
-  const freeTexts = collectFreeTexts(quiz);
   const excludedSet = new Set(excludeAsins);
 
   const onInterests = CURATED_GIFTS.filter((g) => quiz.interests.includes(g.theme) && g.price <= budget.maxEuros);
@@ -312,12 +393,15 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
       const themeAnswerMatches = g.taxonomy ? taxonomyMatchCount(g, answerValues) : themeAnswerMatchCount(g, answerValues);
       const genericBonus = genericThemeAnswerBonus(g, answersForTheme, budget.maxEuros);
       const themeAnswer = themeAnswerMatches > 0 || genericBonus > 0;
-      const matchedText = textMatch(g, freeTexts);
-      // Le champ 'favorite' (licence/artiste préféré…) n'a pas de correspondance produit directe
-      // dans un catalogue statique, mais on le rappelle honnêtement dans "Pourquoi ?" quand un
-      // produit "fandom" est justement là pour couvrir ce goût précis (ex. carte cadeau plateforme).
-      const isFandom = g.tags?.includes('fandom') || Object.values(g.taxonomy ?? {}).some((values) => values?.includes('fandom'));
-      const favoriteText = themeAnswerMatches > 0 && isFandom ? answersForTheme?.favorite ?? null : null;
+      // CHANTIER "Quiz Cadeaux V2 — Phase 1" (2026-09-21) — remplace l'ancien matchedText/isFandom :
+      // une seule correspondance texte libre retenue par produit, la plus forte disponible parmi
+      // wish/favorite/detail (entity exacte, voir giftCatalog.ts) puis repli substring. L'ancien
+      // mécanisme "favoriteText" (afficher le texte 'favorite' brut sous N'IMPORTE QUEL produit
+      // taggé fandom dès qu'un thème matchait) est RETIRÉ : il pouvait citer "Star Wars" sous une
+      // carte cadeau PlayStation générique sans aucun rapport réel — interdit explicitement par la
+      // consigne §6. `favoriteText` n'est plus rempli que si l'entity a RÉELLEMENT matché ce produit.
+      const textMatchResult = bestTextMatch(g, quiz);
+      const favoriteText = textMatchResult.kind === 'favorite_entity' ? textMatchResult.sourceText : null;
       const likedBonus = likedSimilarityBonus(g, liked);
       let score = 0;
       // Intérêt choisi et texte écrit à la main sont les deux signaux les plus fiables (jamais
@@ -331,14 +415,26 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
       // Le texte libre écrit à la main est déjà un signal réel et fiable (pas inventé) ; "je veux
       // plus personnel" amplifie ce signal EXISTANT plutôt que d'en fabriquer un nouveau — et pousse
       // en plus les objets au trait sentimental, qui sont par nature le genre de cadeau "personnel".
-      if (matchedText) score += wantsMorePersonal ? 36 : 26;
+      // JAMAIS un filtre dur : un profil sans correspondance texte garde tous ses autres signaux
+      // (intérêt/thème/trait) intacts, voir consigne §4.
+      if (textMatchResult.kind) score += TEXT_MATCH_BONUS[textMatchResult.kind] + (wantsMorePersonal ? 10 : 0);
       if (g.trait === 'curious') score += originalityBoost;
       if (g.trait === 'sentimental') score += personalBoost;
       score += likedBonus;
       return {
         gift: g,
         score,
-        reasons: { interest: interestMatch, trait, themeAnswer, genericAnswer: genericBonus > 0, wishMatch: matchedText, favoriteText, likedSimilar: likedBonus >= 8 },
+        reasons: {
+          interest: interestMatch,
+          trait,
+          themeAnswer,
+          genericAnswer: genericBonus > 0,
+          wishMatch: textMatchResult.kind !== null,
+          textMatchKind: textMatchResult.kind,
+          matchedSourceText: textMatchResult.sourceText,
+          favoriteText,
+          likedSimilar: likedBonus >= 8,
+        },
       };
     })
     .sort((a, b) => b.score - a.score || a.gift.price - b.gift.price);
@@ -358,10 +454,21 @@ export function whyForContact(candidate: ScoredCandidate, contact: Contact): str
   const il = contact.genre === 'femme' ? 'elle' : 'il';
   const { reasons } = candidate;
   let tail = '';
-  if (reasons.favoriteText) {
+  // CHANTIER "Quiz Cadeaux V2 — Phase 1" (2026-09-21) — chaque branche ci-dessous ne s'active que
+  // si `textMatchKind` correspond RÉELLEMENT au produit affiché (voir bestTextMatch) : plus jamais
+  // de citation d'un texte libre qui n'a pas compté dans le score de CE produit précis (consigne
+  // §6 — interdiction explicite du comportement "Tu as noté qu'il aime Star Wars" sous un produit
+  // sans rapport réel).
+  if (reasons.textMatchKind === 'favorite_entity' && reasons.favoriteText) {
     tail = ` Tu as justement noté qu’${il} aime ${reasons.favoriteText}.`;
-  } else if (reasons.wishMatch) {
-    tail = ` Ça rejoint ce que tu as noté qu’${il} aimerait avoir.`;
+  } else if (reasons.textMatchKind === 'wish_entity' && reasons.matchedSourceText) {
+    tail = ` Ça correspond pile à ce que tu as noté qu’${il} aimerait avoir : « ${reasons.matchedSourceText.trim()} ».`;
+  } else if (reasons.textMatchKind === 'detail_entity' && reasons.matchedSourceText) {
+    tail = ` Ça rejoint le détail que tu as donné sur ses goûts.`;
+  } else if (reasons.textMatchKind === 'substring_fallback') {
+    // Repli faible (mot retrouvé dans le titre, pas une entity confirmée) — phrasing volontairement
+    // plus prudent, jamais une citation littérale d'un texte qu'on n'a pas identifié avec certitude.
+    tail = ` Ça rejoint peut-être ce que tu as noté sur ses goûts.`;
   } else if (reasons.likedSimilar) {
     tail = ` Dans la même veine qu’une idée déjà aimée pour ${contact.prenom}.`;
   } else if (reasons.themeAnswer) {

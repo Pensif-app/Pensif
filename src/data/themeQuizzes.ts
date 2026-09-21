@@ -9,6 +9,12 @@ export type ThemeQuestion = {
   type: 'choice' | 'text';
   /** Requis pour type 'choice'. */
   options?: { key: string; label: string }[];
+  /** CHANTIER "Quiz Cadeaux V2 — Phase 1" (2026-09-21) — sous-texte d'exemple affiché en
+   *  placeholder pour une question `type:'text'` (ex. "Ex. Pokémon, Zelda, Star Wars…") : rend la
+   *  question concrète sans promettre qu'une saisie produira nécessairement un produit
+   *  correspondant (voir consigne §7 — reformulations légères). Optionnel, retombe sur "Facultatif"
+   *  si absent (voir ThemeAffinage.tsx). */
+  placeholder?: string;
   /** N'affiche cette question que si une réponse précédente du même thème correspond — permet un
    *  branchement conditionnel (ex. musique : "il joue" → question instrument, "il écoute" →
    *  question contexte d'écoute). */
@@ -92,8 +98,9 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
       },
       {
         id: 'favorite',
-        prompt: 'Tu connais un jeu ou une licence qu’{il} adore ?',
+        prompt: 'Tu connais un jeu, une licence ou un univers qu’{il} adore ?',
         type: 'text',
+        placeholder: 'Ex. Pokémon, Zelda, Star Wars…',
       },
     ],
   },
@@ -215,6 +222,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais son artiste ou son genre préféré ?',
         type: 'text',
+        placeholder: 'Ex. Taylor Swift, jazz, rock…',
       },
     ],
   },
@@ -540,6 +548,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais une licence ou un univers qu’{il} adore ?',
         type: 'text',
+        placeholder: 'Ex. Pokémon, LEGO Star Wars, Marvel…',
       },
     ],
   },
@@ -744,6 +753,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais un film, une série ou une franchise qu’{il} adore ?',
         type: 'text',
+        placeholder: 'Ex. Star Wars, Harry Potter, Marvel…',
       },
     ],
   },
