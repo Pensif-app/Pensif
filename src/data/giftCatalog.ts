@@ -369,6 +369,27 @@ export const CURATED_GIFTS: CuratedGift[] = [
   { id: 'science-microscope', theme: 'science', tier: '100', title: 'Microscope amateur', price: 75, emoji: '🔬', trait: 'curious', taxonomy: { univers: ['biologie'], usage: ['experimenter'], niveau: ['amateur', 'passionne'] }, giftConcept: 'microscope-kit', pitch: 'Un microscope amateur avec de quoi observer ses premiers échantillons — pour renouer avec la curiosité scientifique en dehors de tout cadre scolaire.' },
   { id: 'science-museum-card', theme: 'science', tier: '100', title: 'Expérience musée scientifique', price: 55, emoji: '🏛️', trait: 'experience', taxonomy: { univers: ['espace'], usage: ['apprendre'], niveau: ['curieux'] }, giftConcept: 'science-museum-experience-card', pitch: 'Une carte donnant accès à une exposition ou un musée scientifique — une sortie à vivre plutôt qu\'un objet de plus à déballer.' },
   { id: 'science-telescope', theme: 'science', tier: '100', title: 'Télescope amateur', price: 129, emoji: '🔭', trait: 'practical', taxonomy: { univers: ['astronomie'], usage: ['observer'], niveau: ['amateur'] }, giftConcept: 'telescope', pitch: 'Un télescope amateur pour observer la Lune, les planètes et le ciel profond — de quoi passer de la carte du ciel à l\'observation pour de vrai.' },
+
+  // CHANTIER "Cadeaux V2 — Phase 7C" (2026-09-21) — catalogue ÉDITORIAL beaute : 12 idées cadeau
+  // Pensif-originales (taxonomy exacte validée Phase 5C corrigée), SANS dépendance Amazon (voir
+  // Phase 6B). `price` est un PRIX DE RÉFÉRENCE ÉDITORIAL, pas un prix marchand observé.
+  // Garde-fou explicite (consigne §3/§8) : aucun champ ni pitch de ce bloc n'encode ou ne
+  // sous-entend un type de peau, une carnation, une teinte, un diagnostic dermatologique, un âge
+  // ou un genre — `Contact.genre` n'intervient JAMAIS dans le scoring de ce thème (voir
+  // recommendationEngine.ts : aucune dimension `taxonomy` ni `hardRequirements` ici ne référence
+  // le genre, et aucun mécanisme du moteur ne lit `Contact.genre` pour filtrer un candidat).
+  { id: 'beaute-face-roller', theme: 'beaute', tier: '20', title: 'Rouleau de massage pour le visage', price: 16, emoji: '🧖', trait: 'practical', taxonomy: { univers: ['skincare'], besoin: ['routine'], style: ['naturel'] }, giftConcept: 'face-roller', pitch: 'Un rouleau de massage facial à utiliser quelques minutes chaque jour — un petit rituel simple à intégrer à une routine déjà en place.' },
+  { id: 'beaute-nail-care', theme: 'beaute', tier: '20', title: 'Kit soin des ongles', price: 18, emoji: '💅', trait: 'practical', taxonomy: { univers: ['ongles'], besoin: ['routine'], style: ['pratique'] }, giftConcept: 'nail-care-set', pitch: 'Un kit complet pour l\'entretien des ongles — lime, buffer et accessoires de base, pour une routine soignée sans détour par un salon.' },
+  { id: 'beaute-skincare-set', theme: 'beaute', tier: '50', title: 'Coffret de soin du visage', price: 29, emoji: '🧴', trait: 'curious', taxonomy: { univers: ['skincare'], besoin: ['decouverte'], style: ['naturel'] }, giftConcept: 'skincare-set', pitch: 'Un coffret de soin visage en plusieurs étapes, à découvrir et adopter à son rythme — l\'occasion de tester une routine sans devoir tout choisir soi-même.' },
+  { id: 'beaute-makeup-organizer', theme: 'beaute', tier: '50', title: 'Organiseur de maquillage', price: 25, emoji: '🗂️', trait: 'practical', taxonomy: { univers: ['maquillage'], besoin: ['organisation'], style: ['pratique'] }, giftConcept: 'makeup-organizer', pitch: 'Un organiseur compact pour ranger et retrouver facilement ses produits de maquillage — l\'ordre sur la coiffeuse plutôt que le fouillis dans un tiroir.' },
+  { id: 'beaute-makeup-brushes', theme: 'beaute', tier: '50', title: 'Ensemble de pinceaux de maquillage', price: 32, emoji: '🖌️', trait: 'practical', taxonomy: { univers: ['maquillage'], besoin: ['upgrade'], style: ['pratique'] }, giftConcept: 'makeup-brush-set', pitch: 'Un ensemble de pinceaux de maquillage bien équilibrés, pour appliquer chaque produit avec plus de précision — un vrai upgrade par rapport aux pinceaux basiques.' },
+  { id: 'beaute-perfume-discovery', theme: 'beaute', tier: '50', title: 'Coffret découverte parfums', price: 35, emoji: '🌸', trait: 'curious', taxonomy: { univers: ['parfum'], besoin: ['decouverte'], style: ['tendance'] }, giftConcept: 'perfume-discovery-set', pitch: 'Un coffret de plusieurs senteurs en format découverte — l\'occasion d\'explorer différents univers olfactifs avant de s\'attacher à un seul.' },
+  { id: 'beaute-hair-care', theme: 'beaute', tier: '50', title: 'Coffret soin des cheveux', price: 30, emoji: '🪮', trait: 'practical', taxonomy: { univers: ['cheveux'], besoin: ['routine'], style: ['naturel'] }, giftConcept: 'hair-care-set', pitch: 'Un coffret de soin capillaire en plusieurs étapes, pour une routine complète — de quoi essayer un nouveau rituel sans multiplier les achats séparés.' },
+  { id: 'beaute-grooming-kit', theme: 'beaute', tier: '50', title: 'Kit d\'entretien personnel', price: 38, emoji: '🧰', trait: 'practical', taxonomy: { univers: ['grooming'], besoin: ['routine'], style: ['pratique'] }, giftConcept: 'grooming-kit', pitch: 'Un kit d\'entretien de la barbe et du rasage, complet et bien pensé — pratique au quotidien, pour une routine soignée sans y passer un temps fou.' },
+  { id: 'beaute-travel-atomizer', theme: 'beaute', tier: '20', title: 'Vaporisateurs de voyage rechargeables', price: 22, emoji: '🧳', trait: 'practical', taxonomy: { univers: ['parfum'], besoin: ['organisation'], style: ['pratique'] }, giftConcept: 'refillable-travel-atomizer-set', pitch: 'Des vaporisateurs de voyage rechargeables, à remplir avec le parfum de son choix — l\'accessoire pratique pour ne jamais avoir à emporter un flacon entier.' },
+  { id: 'beaute-facial-device', theme: 'beaute', tier: '100', title: 'Appareil de soin du visage', price: 65, emoji: '🪞', trait: 'curious', taxonomy: { univers: ['skincare'], besoin: ['upgrade'], style: ['premium'] }, giftConcept: 'facial-care-device', pitch: 'Un appareil de soin du visage réutilisable, pensé pour accompagner une routine existante — une vraie montée en gamme par rapport aux gestes manuels seuls.' },
+  { id: 'beaute-hair-styling', theme: 'beaute', tier: '100', title: 'Appareil de coiffage', price: 75, emoji: '🎛️', trait: 'practical', taxonomy: { univers: ['cheveux'], besoin: ['upgrade'], style: ['pratique'] }, giftConcept: 'hair-styling-tool', pitch: 'Un appareil de coiffage polyvalent, pour varier les styles sans multiplier les appareils — un bon compromis entre confort d\'usage et résultat soigné.' },
+  { id: 'beaute-electric-shaver', theme: 'beaute', tier: '100', title: 'Rasoir électrique', price: 110, emoji: '🪒', trait: 'practical', taxonomy: { univers: ['grooming'], besoin: ['upgrade'], style: ['premium'] }, giftConcept: 'electric-shaver', pitch: 'Un rasoir électrique performant et confortable au quotidien — pensé pour simplifier une routine plutôt que pour la compliquer.' },
 ];
 
 export const COVERED_THEMES: InterestTag[] = [
@@ -380,10 +401,11 @@ export const COVERED_THEMES: InterestTag[] = [
   'jeux_societe',
   // CHANTIER "Phase 7B" (2026-09-21) : idem pour science — 11 cadeaux éditoriaux ajoutés ci-dessus,
   // AUCUN livre parmi eux (voir règle de propriété Phase 5D/5F : les livres science vivent sous
-  // `lecture.sujet=science`, non sourcé, `lecture.sujet` reste `hidden`). `beaute` reste
-  // volontairement absent : 0 produit sourcé pour l'instant (voir VISIBLE_INTEREST_OPTIONS,
-  // quiz.ts, qui le masque tant qu'il n'est pas ici).
+  // `lecture.sujet=science`, non sourcé, `lecture.sujet` reste `hidden`).
   'science',
+  // CHANTIER "Phase 7C" (2026-09-21) : idem pour beaute — 12 cadeaux éditoriaux ajoutés ci-dessus,
+  // aucune dépendance au genre du contact (voir garde-fou dans le bloc de produits ci-dessus).
+  'beaute',
 ];
 
 export function curatedGiftsForThemes(themes: InterestTag[]): CuratedGift[] {

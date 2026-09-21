@@ -846,36 +846,31 @@ console.log('\n[30] Phase 5F/7B — invariants d’architecture theme=science (g
   check("gaming.focus ne réintroduit pas confort/multijoueur (non-régression Phase 4C)", !getThemeQuiz('gaming').questions.find((q) => q.id === 'focus')!.options!.some((o) => o.key === 'confort' || o.key === 'multijoueur'));
 }
 
-console.log('\n[31] Phase 7A/7B — jeux_societe ET science désormais sourcés/activés ; beaute reste bloqué : garde-fous UI');
+console.log('\n[31] Phase 7A/7B/7C — jeux_societe, science ET beaute désormais sourcés/activés : garde-fous UI');
 {
-  // CHANTIER "Phase 7A/7B" (2026-09-21) : jeux_societe (Phase 7A) puis science (Phase 7B) sortent
-  // de l'état "bloqué" documenté en Phase 5G — 11+11 cadeaux éditoriaux ajoutés (voir
-  // giftCatalog.ts), COVERED_THEMES mis à jour. `beaute` reste, lui, dans l'état bloqué d'origine
-  // — non-régression du garde-fou lui-même.
+  // CHANTIER "Phase 7A/7B/7C" (2026-09-21) : jeux_societe (Phase 7A), science (Phase 7B) puis
+  // beaute (Phase 7C) sortent tous les trois de l'état "bloqué" documenté en Phase 5G — 11+11+12
+  // cadeaux éditoriaux ajoutés (voir giftCatalog.ts), COVERED_THEMES mis à jour à chaque fois.
   const jeuxSocieteProducts = CURATED_GIFTS.filter((g) => g.theme === 'jeux_societe');
   const beauteProducts = CURATED_GIFTS.filter((g) => g.theme === 'beaute');
   const scienceProducts = CURATED_GIFTS.filter((g) => g.theme === 'science');
   check('jeux_societe : 11 produits au catalogue (sourcing éditorial Phase 7A)', jeuxSocieteProducts.length === 11);
-  check('beaute : toujours 0 produit (hors périmètre de cette passe)', beauteProducts.length === 0);
+  check('beaute : 12 produits au catalogue (sourcing éditorial Phase 7C)', beauteProducts.length === 12);
   check('science : 11 produits au catalogue (sourcing éditorial Phase 7B)', scienceProducts.length === 11);
 
   check("COVERED_THEMES contient désormais jeux_societe (seuil ≥10 produits atteint, consigne Phase 5G §7)", (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
-  check("COVERED_THEMES ne contient PAS beaute", !(COVERED_THEMES as readonly string[]).includes('beaute'));
+  check("COVERED_THEMES contient désormais beaute", (COVERED_THEMES as readonly string[]).includes('beaute'));
   check("COVERED_THEMES contient désormais science", (COVERED_THEMES as readonly string[]).includes('science'));
-  check('COVERED_THEMES passe de 20 à 22 thèmes (jeux_societe + science ajoutés, aucun autre)', COVERED_THEMES.length === 22);
+  check('COVERED_THEMES passe de 20 à 23 thèmes (jeux_societe + science + beaute ajoutés, aucun autre)', COVERED_THEMES.length === 23);
 
   check("VISIBLE_INTEREST_OPTIONS inclut désormais jeux_societe (11 produits ⇒ sélectionnable, consigne §8)", VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
-  check('VISIBLE_INTEREST_OPTIONS exclut toujours beaute', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check('VISIBLE_INTEREST_OPTIONS inclut désormais beaute (12 produits ⇒ sélectionnable, consigne Phase 7C §11)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
   check('VISIBLE_INTEREST_OPTIONS inclut désormais science (11 produits ⇒ sélectionnable, consigne Phase 7B §8)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
-  check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe + science (22 au total)', VISIBLE_INTEREST_OPTIONS.length === 22);
-  check(
-    "INTEREST_OPTIONS (liste complète) conserve beaute malgré son masquage — config préparée, pas supprimée",
-    INTEREST_OPTIONS.some((o) => o.key === 'beaute')
-  );
+  check('VISIBLE_INTEREST_OPTIONS contient les 20 thèmes historiques + jeux_societe + science + beaute (23 au total)', VISIBLE_INTEREST_OPTIONS.length === 23);
 
   const lectureQuestions = getThemeQuiz('lecture').questions;
   const sujetQ = lectureQuestions.find((q) => q.id === 'sujet')!;
-  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A/7B)", sujetQ.hidden === true);
+  check("lecture.sujet toujours hidden:true (catalogue de 12 livres non sourcé, hors périmètre Phase 7A/7B/7C)", sujetQ.hidden === true);
   // Reproduit exactement la logique de filtrage de ThemeAffinage.tsx (visibleQuestions) pour
   // prouver que la question disparaîtrait bien de l'écran réel, sans dépendre du rendu React Native.
   const simulatedVisible = lectureQuestions.filter((q) => !q.hidden);
@@ -1071,7 +1066,6 @@ console.log('\n[35] Phase 7A — catalogue éditorial jeux_societe (11 cadeaux, 
 
   check('jeux_societe entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('jeux_societe'));
   check('jeux_societe devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'jeux_societe'));
-  check('beaute reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
 }
 
 console.log('\n[36] Phase 7A — profils réels jeux_societe (catalogue éditorial désormais actif)');
@@ -1147,7 +1141,6 @@ console.log('\n[37] Phase 7B — catalogue éditorial science (11 cadeaux, sans 
 
   check('science entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('science'));
   check('science devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'science'));
-  check('beaute reste invisible (0 produit)', !VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
   check("lecture.sujet reste hidden (12 livres, dont les livres science, non sourcés)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden === true);
 }
 
@@ -1201,6 +1194,126 @@ console.log('\n[38] Phase 7B — profils réels science (catalogue éditorial d�
   const topEspace = topRecommendations(generateCandidates(contactEspace, { maxEuros: 50 }), 3);
   check('profil D (espace/decorer/curieux) : le Top contient uniquement science', topEspace.every((c) => c.gift.theme === 'science'));
   check('profil D : planetarium-projector bien positionné en #1 (seul produit espace+decorer)', topEspace[0]?.gift.giftConcept === 'planetarium-projector');
+}
+
+console.log('\n[39] Phase 7C — catalogue éditorial beaute (12 cadeaux, sans commerce, sans biais genre)');
+{
+  const beauteProducts = CURATED_GIFTS.filter((g) => g.theme === 'beaute');
+  check('12 produits beaute présents', beauteProducts.length === 12);
+  check('gift.id uniques parmi les 12', new Set(beauteProducts.map((g) => g.id)).size === 12);
+  check('asin absent sur les 12 (catalogue éditorial, pas de dépendance Amazon)', beauteProducts.every((g) => g.asin === undefined));
+  check('imageUrl absente sur les 12', beauteProducts.every((g) => g.imageUrl === undefined));
+  check(
+    "les 12 giftConcept correspondent exactement aux concepts validés (makeup-palette/premium-moisturizer/perfume-premium EXCLUS)",
+    beauteProducts.map((g) => g.giftConcept).sort().join(',') ===
+      [
+        'face-roller', 'nail-care-set', 'skincare-set', 'makeup-organizer', 'makeup-brush-set',
+        'perfume-discovery-set', 'hair-care-set', 'grooming-kit', 'refillable-travel-atomizer-set',
+        'facial-care-device', 'hair-styling-tool', 'electric-shaver',
+      ].sort().join(',')
+  );
+  check('aucune entity de marque sur les 12', beauteProducts.every((g) => !g.entities || g.entities.length === 0));
+  check(
+    'aucune référence médicale/dermatologique ni teinte/carnation dans les pitches (garde-fou §3/§6)',
+    beauteProducts.every(
+      (g) =>
+        !/peau sèche|anti-acné|anti-âge|cheveux abîmés|chute|dermatologique|carnation|teinte|diagnostic/i.test(g.pitch)
+    )
+  );
+  check(
+    "aucune hardRequirement basée sur le genre (le champ 'genre' n'existe dans aucun hardRequirements)",
+    beauteProducts.every((g) => !g.hardRequirements || !Object.keys(g.hardRequirements).some((k) => /genre/i.test(k)))
+  );
+
+  // Couverture taxonomy : chaque option du quiz beaute doit matcher ≥1 des 12 produits.
+  const beauteConfig = getThemeQuiz('beaute');
+  for (const q of beauteConfig.questions) {
+    if (q.type !== 'choice' || !q.options) continue;
+    for (const opt of q.options) {
+      check(
+        `beaute.${q.id}=${opt.key} matche ≥1 produit`,
+        beauteProducts.some((g) => g.taxonomy?.[q.id]?.includes(opt.key))
+      );
+    }
+  }
+
+  // Fragilités documentées (consigne §9) : univers=ongles et style=tendance reposent chacun sur UN
+  // SEUL produit — non masqué, vérifié explicitement comme "single-concept coverage" plutôt que de
+  // fabriquer artificiellement un 13e cadeau.
+  const onglesProducts = beauteProducts.filter((g) => g.taxonomy?.univers?.includes('ongles'));
+  const tendanceProducts = beauteProducts.filter((g) => g.taxonomy?.style?.includes('tendance'));
+  check('univers=ongles : single-concept coverage (exactement 1 produit, nail-care-set)', onglesProducts.length === 1 && onglesProducts[0].giftConcept === 'nail-care-set');
+  check('style=tendance : single-concept coverage (exactement 1 produit, perfume-discovery-set)', tendanceProducts.length === 1 && tendanceProducts[0].giftConcept === 'perfume-discovery-set');
+
+  check('beaute entre dans COVERED_THEMES', (COVERED_THEMES as readonly string[]).includes('beaute'));
+  check('beaute devient visible (VISIBLE_INTEREST_OPTIONS)', VISIBLE_INTEREST_OPTIONS.some((o) => o.key === 'beaute'));
+  check("lecture.sujet reste hidden (12 livres non sourcés)", getThemeQuiz('lecture').questions.find((q) => q.id === 'sujet')!.hidden === true);
+}
+
+console.log('\n[40] Phase 7C — profils réels beaute (catalogue éditorial désormais actif)');
+{
+  const contactSkincare = makeContact('Alex', makeQuiz({
+    interests: ['beaute'],
+    themeAnswers: { beaute: { univers: 'skincare', besoin: 'upgrade', style: 'premium' } },
+  }));
+  const topSkincare = topRecommendations(generateCandidates(contactSkincare, { maxEuros: 100 }), 3);
+  check('profil A (skincare/upgrade/premium) : le Top contient uniquement beaute', topSkincare.every((c) => c.gift.theme === 'beaute'));
+  check('profil A : facial-care-device en #1', topSkincare[0]?.gift.giftConcept === 'facial-care-device');
+
+  const contactMakeup = makeContact('Sam', makeQuiz({
+    interests: ['beaute'],
+    themeAnswers: { beaute: { univers: 'maquillage', besoin: 'organisation', style: 'pratique' } },
+  }));
+  const topMakeup = topRecommendations(generateCandidates(contactMakeup, { maxEuros: 50 }), 3);
+  check('profil B (maquillage/organisation/pratique) : le Top contient uniquement beaute', topMakeup.every((c) => c.gift.theme === 'beaute'));
+  check('profil B : makeup-organizer en #1', topMakeup[0]?.gift.giftConcept === 'makeup-organizer');
+
+  const contactParfum = makeContact('Jules', makeQuiz({
+    interests: ['beaute'],
+    themeAnswers: { beaute: { univers: 'parfum', besoin: 'decouverte', style: 'tendance' } },
+  }));
+  const topParfum = topRecommendations(generateCandidates(contactParfum, { maxEuros: 50 }), 3);
+  check('profil C (parfum/decouverte/tendance) : le Top contient uniquement beaute', topParfum.every((c) => c.gift.theme === 'beaute'));
+  check('profil C : perfume-discovery-set en #1', topParfum[0]?.gift.giftConcept === 'perfume-discovery-set');
+
+  const contactGrooming = makeContact('Robin', makeQuiz({
+    interests: ['beaute'],
+    themeAnswers: { beaute: { univers: 'grooming', besoin: 'upgrade', style: 'premium' } },
+  }));
+  const topGrooming = topRecommendations(generateCandidates(contactGrooming, { maxEuros: 150 }), 3);
+  check('profil D (grooming/upgrade/premium) : le Top contient uniquement beaute', topGrooming.every((c) => c.gift.theme === 'beaute'));
+  check('profil D : electric-shaver en #1', topGrooming[0]?.gift.giftConcept === 'electric-shaver');
+
+  const contactCheveux = makeContact('Dana', makeQuiz({
+    interests: ['beaute'],
+    themeAnswers: { beaute: { univers: 'cheveux', besoin: 'upgrade', style: 'pratique' } },
+  }));
+  const topCheveux = topRecommendations(generateCandidates(contactCheveux, { maxEuros: 100 }), 3);
+  check('profil E (cheveux/upgrade/pratique) : le Top contient uniquement beaute', topCheveux.every((c) => c.gift.theme === 'beaute'));
+  check('profil E : hair-styling-tool en #1', topCheveux[0]?.gift.giftConcept === 'hair-styling-tool');
+}
+
+console.log('\n[41] Phase 7C — test anti-biais genre (consigne §8/§13) : grooming/electric-shaver strictement indépendants de Contact.genre');
+{
+  const themeAnswersGrooming = { univers: 'grooming', besoin: 'upgrade', style: 'premium' };
+  const contactHomme = { ...makeContact('Homme', makeQuiz({ interests: ['beaute'], themeAnswers: { beaute: themeAnswersGrooming } })), genre: 'homme' as const };
+  const contactFemme = { ...makeContact('Femme', makeQuiz({ interests: ['beaute'], themeAnswers: { beaute: themeAnswersGrooming } })), genre: 'femme' as const };
+
+  const candidatesHomme = generateCandidates(contactHomme, { maxEuros: 150 });
+  const candidatesFemme = generateCandidates(contactFemme, { maxEuros: 150 });
+  check('anti-biais : même nombre de candidats quel que soit le genre', candidatesHomme.length === candidatesFemme.length);
+  check(
+    'anti-biais : mêmes candidats, même ordre, mêmes scores strictement (genre=homme vs genre=femme)',
+    candidatesHomme.every((c, i) => c.gift.id === candidatesFemme[i].gift.id && c.score === candidatesFemme[i].score)
+  );
+
+  const topHomme = topRecommendations(candidatesHomme, 3);
+  const topFemme = topRecommendations(candidatesFemme, 3);
+  check(
+    'anti-biais : même Top strictement (mêmes id dans le même ordre)',
+    topHomme.length === topFemme.length && topHomme.every((c, i) => c.gift.id === topFemme[i].gift.id)
+  );
+  check('anti-biais : electric-shaver/grooming reste recommandable pour les deux genres (aucun filtrage)', topHomme.some((c) => c.gift.giftConcept === 'electric-shaver') && topFemme.some((c) => c.gift.giftConcept === 'electric-shaver'));
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
