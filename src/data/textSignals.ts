@@ -102,6 +102,16 @@ export function toCanonicalConcept(text: string): string {
 }
 
 /**
+ * CHANTIER "Quiz Cadeaux V2 — Phase 3" (2026-09-21) — cibles canoniques distinctes de
+ * `CONCEPT_ALIASES` (ex. `star_wars`), exposées pour que `recommendationEngine.ts` puisse
+ * construire l'ensemble des "concepts structurés significatifs" connus du système, MÊME quand
+ * aucun produit du catalogue ne porte encore cette entity — c'est précisément ce qui permet de
+ * distinguer un concept reconnu (`star_wars`, un alias déclaré) d'un simple fragment de mot sans
+ * signification propre (`star`, `wars`, `legostar`) lors du calcul de couverture (full/partial
+ * entity match, voir bestTextMatch). */
+export const CONCEPT_ALIAS_TARGETS: string[] = Array.from(new Set(Object.values(CONCEPT_ALIASES)));
+
+/**
  * Extrait tous les concepts canoniques CANDIDATS d'un texte libre : chaque mot pris seul, et chaque
  * paire de mots consécutifs (pour capturer un concept à deux mots comme "star_wars" même écrit en
  * toutes lettres avec un espace), chacun résolu via `toCanonicalConcept`. C'est une extraction
