@@ -14,8 +14,10 @@ import { generateCandidates, topRecommendations, whyForContact, ScoredCandidate 
 import { CURATED_GIFTS } from '../src/data/giftCatalog';
 import { canonicalize, toCanonicalConcept, extractConcepts } from '../src/data/textSignals';
 import { getThemeQuiz } from '../src/data/themeQuizzes';
-import { INTEREST_OPTIONS, VISIBLE_INTEREST_OPTIONS } from '../src/data/quiz';
-import { COVERED_THEMES } from '../src/data/giftCatalog';
+import { INTEREST_OPTIONS, VISIBLE_INTEREST_OPTIONS, normalizeQuizProfile, giftIdFromLegacyAsin } from '../src/data/quiz';
+import { COVERED_THEMES, CuratedGift } from '../src/data/giftCatalog';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function makeQuiz(overrides: Partial<QuizProfile>): QuizProfile {
   return {
@@ -65,6 +67,14 @@ function findByAsin(candidates: ScoredCandidate[], asin: string): ScoredCandidat
   return candidates.find((c) => c.gift.asin === asin);
 }
 
+// CHANTIER "Phase 6B" (2026-09-21) — `gift.id` est désormais l'identité canonique (voir
+// recommendationEngine.ts `giftById`) ; la quasi-totalité des tests existants sont migrés vers ce
+// helper. `findByAsin` reste utilisable (asin toujours présent sur les 162 produits actuels) mais
+// n'est plus la forme recommandée pour un nouveau test.
+function findById(candidates: ScoredCandidate[], id: string): ScoredCandidate | undefined {
+  return candidates.find((c) => c.gift.id === id);
+}
+
 // Produits réels du catalogue utilisés dans ces tests (vérifiés dans giftCatalog.ts) :
 const LEGO_POKEMON = CURATED_GIFTS.find((g) => g.id === 'collection-pokemon')!; // entities: ['lego','pokemon','pikachu']
 const PS_GIFTCARD = CURATED_GIFTS.find((g) => g.id === 'gaming-fandom-playstation')!; // entities: ['playstation'], hardRequirements: { platform: ['playstation'] }
@@ -105,8 +115,8 @@ console.log('\n[3] favorite = "Pokémon" → le produit réellement entity pokem
   const candidatesWith = generateCandidates(withPokemon, { maxEuros: 100 });
   const candidatesWithout = generateCandidates(withoutFavorite, { maxEuros: 100 });
 
-  const withScore = findByAsin(candidatesWith, LEGO_POKEMON.asin);
-  const withoutScore = findByAsin(candidatesWithout, LEGO_POKEMON.asin);
+  const withScore = findById(candidatesWith, LEGO_POKEMON.id);
+  const withoutScore = findById(candidatesWithout, LEGO_POKEMON.id);
 
   check('le produit LEGO Pokémon est bien candidat dans les deux cas', !!withScore && !!withoutScore);
   check(
@@ -153,7 +163,7 @@ console.log('\n[5] wish correspondant réellement à un produit → influence r�
     topWith.some((c) => c.gift.asin === kindleProduct.asin) && !wasInTopWithout,
     `présent avant=${wasInTopWithout}`
   );
-  const withScore = findByAsin(generateCandidates(withWish, { maxEuros: 250 }), kindleProduct.asin);
+  const withScore = findById(generateCandidates(withWish, { maxEuros: 250 }), kindleProduct.id);
   check('reasons.textMatchKind === wish_entity pour ce produit', withScore?.reasons.textMatchKind === 'wish_entity');
 }
 
@@ -192,7 +202,7 @@ console.log('\n[7] whyForContact() ne cite une entity que si elle a réellement 
   );
   const candidates = generateCandidates(contact, { maxEuros: 100 });
 
-  const pokemonCandidate = findByAsin(candidates, LEGO_POKEMON.asin)!;
+  const pokemonCandidate = findById(candidates, LEGO_POKEMON.id)!;
   const whyPokemon = whyForContact(pokemonCandidate, contact);
   check('le produit qui a RÉELLEMENT matché "Pokémon" cite bien ce texte dans le "Pourquoi ?"', whyPokemon.includes('Pokémon'));
 
@@ -247,7 +257,7 @@ console.log('\n[9] Full vs partial entity coverage — ratio exact');
   // "Pokémon" sur un produit ['lego','pokemon','pikachu'] : 1 seul concept significatif extrait
   // ("pokemon"), matché → couverture 1/1 = complet, poids INCHANGÉ (38, comportement Phase 1 exact).
   const contactFull = makeContact('Full', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { favorite: 'Pokémon' } } }));
-  const candFull = findByAsin(generateCandidates(contactFull, { maxEuros: 200 }), LEGO_POKEMON.asin)!;
+  const candFull = findById(generateCandidates(contactFull, { maxEuros: 200 }), LEGO_POKEMON.id)!;
   check('Pokémon sur LEGO Pokémon : coverage = 1 (match complet)', candFull.reasons.textMatchCoverage === 1);
   check('Pokémon sur LEGO Pokémon : matchedConcepts = ["pokemon"]', JSON.stringify(candFull.reasons.matchedConcepts) === JSON.stringify(['pokemon']));
 
@@ -255,8 +265,8 @@ console.log('\n[9] Full vs partial entity coverage — ratio exact');
   // (2), seul "lego" matche → couverture EXACTEMENT 1/2 = 0.5.
   const contactPartial = makeContact('Partial', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { favorite: 'LEGO Star Wars' } } }));
   const candidatesPartial = generateCandidates(contactPartial, { maxEuros: 200 });
-  const candClassic = findByAsin(candidatesPartial, LEGO_CLASSIC.asin)!;
-  const candArchitecture = findByAsin(candidatesPartial, LEGO_ARCHITECTURE.asin)!;
+  const candClassic = findById(candidatesPartial, LEGO_CLASSIC.id)!;
+  const candArchitecture = findById(candidatesPartial, LEGO_ARCHITECTURE.id)!;
   check('LEGO Star Wars sur LEGO Classic (entities=[lego]) : coverage = EXACTEMENT 0.5', candClassic.reasons.textMatchCoverage === 0.5);
   check('LEGO Star Wars sur LEGO Architecture (entities=[lego]) : coverage = EXACTEMENT 0.5', candArchitecture.reasons.textMatchCoverage === 0.5);
   check('matchedConcepts = ["lego"] uniquement (star_wars jamais matché, produit non concerné)', JSON.stringify(candClassic.reasons.matchedConcepts) === JSON.stringify(['lego']));
@@ -266,15 +276,15 @@ console.log('\n[9] Full vs partial entity coverage — ratio exact');
 console.log('\n[10] Formule exacte du bonus : Math.round(poids_max × coverage)');
 {
   const contactFull = makeContact('Full', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { favorite: 'Pokémon' } } }));
-  const candFull = findByAsin(generateCandidates(contactFull, { maxEuros: 200 }), LEGO_POKEMON.asin)!;
+  const candFull = findById(generateCandidates(contactFull, { maxEuros: 200 }), LEGO_POKEMON.id)!;
   const contactPartial = makeContact('Partial', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { favorite: 'LEGO Star Wars' } } }));
-  const candPartial = findByAsin(generateCandidates(contactPartial, { maxEuros: 200 }), LEGO_CLASSIC.asin)!;
+  const candPartial = findById(generateCandidates(contactPartial, { maxEuros: 200 }), LEGO_CLASSIC.id)!;
   const contactNone = makeContact('None', makeQuiz({ interests: ['collection'] }));
-  const candNone = findByAsin(generateCandidates(contactNone, { maxEuros: 200 }), LEGO_CLASSIC.asin)!;
+  const candNone = findById(generateCandidates(contactNone, { maxEuros: 200 }), LEGO_CLASSIC.id)!;
 
   // isolant le bonus texte : score_avec_texte - score_sans_texte = bonus exact appliqué (le reste du
   // profil est strictement identique entre les deux appels).
-  const fullBonus = candFull.score - findByAsin(generateCandidates(makeContact('FullNone', makeQuiz({ interests: ['collection'] })), { maxEuros: 200 }), LEGO_POKEMON.asin)!.score;
+  const fullBonus = candFull.score - findById(generateCandidates(makeContact('FullNone', makeQuiz({ interests: ['collection'] })), { maxEuros: 200 }), LEGO_POKEMON.id)!.score;
   const partialBonus = candPartial.score - candNone.score;
   check('match complet (1/1) → bonus EXACTEMENT 38 (poids max, comportement Phase 1 préservé)', fullBonus === 38, `obtenu=${fullBonus}`);
   check('match partiel (1/2) → bonus EXACTEMENT round(38×0.5)=19, PAS 38', partialBonus === 19, `obtenu=${partialBonus}`);
@@ -284,8 +294,8 @@ console.log('\n[11] Cas Fujifilm/Instax — un produit ["fujifilm","instax"] doi
 {
   const contact = makeContact('Ines', makeQuiz({ interests: ['photo'], wish: 'Elle rêve d’un appareil Fujifilm Instax' }));
   const candidates = generateCandidates(contact, { maxEuros: 250 });
-  const camera = findByAsin(candidates, FUJIFILM_CAMERA.asin)!; // ['fujifilm','instax']
-  const films = findByAsin(candidates, INSTAX_ONLY_FILMS.asin)!; // ['instax'] seul
+  const camera = findById(candidates, FUJIFILM_CAMERA.id)!; // ['fujifilm','instax']
+  const films = findById(candidates, INSTAX_ONLY_FILMS.id)!; // ['instax'] seul
 
   check('produit ["fujifilm","instax"] : coverage = 1 (match complet)', camera.reasons.textMatchCoverage === 1);
   check('produit ["instax"] seul : coverage = 0.5 (match partiel)', films.reasons.textMatchCoverage === 0.5);
@@ -296,7 +306,7 @@ console.log('\n[12] whyForContact() — match partiel jamais cité comme si le t
 {
   const contact = makeContact('Noah', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { favorite: 'LEGO Star Wars' } } }));
   const candidates = generateCandidates(contact, { maxEuros: 200 });
-  const architecture = findByAsin(candidates, LEGO_ARCHITECTURE.asin)!;
+  const architecture = findById(candidates, LEGO_ARCHITECTURE.id)!;
   const why = whyForContact(architecture, contact);
   check('ne contient JAMAIS "Star Wars" (seul lego a matché, jamais star_wars)', !why.includes('Star Wars') && !why.includes('star_wars'));
   check('ne contient JAMAIS le texte source complet "LEGO Star Wars" tel quel', !why.includes('LEGO Star Wars'));
@@ -312,8 +322,8 @@ console.log('\n[13] Pénalité générique de conflit taxonomique — cuisine (p
     makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { preference: 'upgrade' } } })
   );
   const contactNoAnswer = makeContact('CamilleSansReponse', makeQuiz({ interests: ['cuisine'] }));
-  const scoreConflict = findByAsin(generateCandidates(contactConflict, { maxEuros: 200 }), CUISINE_BALANCE.asin)!.score;
-  const scoreNoAnswer = findByAsin(generateCandidates(contactNoAnswer, { maxEuros: 200 }), CUISINE_BALANCE.asin)!.score;
+  const scoreConflict = findById(generateCandidates(contactConflict, { maxEuros: 200 }), CUISINE_BALANCE.id)!.score;
+  const scoreNoAnswer = findById(generateCandidates(contactNoAnswer, { maxEuros: 200 }), CUISINE_BALANCE.id)!.score;
   check(
     'preference=upgrade (contact) vs preference=[outil] (produit balance) : conflit détecté, score réduit de 12',
     scoreNoAnswer - scoreConflict === 12,
@@ -325,8 +335,8 @@ console.log('\n[14] Pénalité générique de conflit taxonomique — musique (m
 {
   const contactConflict = makeContact('Sofia', makeQuiz({ interests: ['musique'], themeAnswers: { musique: { mode: 'ecoute' } } }));
   const contactNoAnswer = makeContact('SofiaSansReponse', makeQuiz({ interests: ['musique'] }));
-  const scoreConflict = findByAsin(generateCandidates(contactConflict, { maxEuros: 200 }), MUSIQUE_ACCORDEUR.asin)!.score;
-  const scoreNoAnswer = findByAsin(generateCandidates(contactNoAnswer, { maxEuros: 200 }), MUSIQUE_ACCORDEUR.asin)!.score;
+  const scoreConflict = findById(generateCandidates(contactConflict, { maxEuros: 200 }), MUSIQUE_ACCORDEUR.id)!.score;
+  const scoreNoAnswer = findById(generateCandidates(contactNoAnswer, { maxEuros: 200 }), MUSIQUE_ACCORDEUR.id)!.score;
   check(
     'mode=ecoute (contact) vs mode=[jouer] (produit accordeur guitare) : conflit détecté, score réduit de 12',
     scoreNoAnswer - scoreConflict === 12,
@@ -341,8 +351,8 @@ console.log('\n[15] Absence de double pénalité gaming (ancien tagConflictPenal
   // les deux cumulées (ce qui donnerait -37).
   const contactConflict = makeContact('Leo', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'fandom' } } }));
   const contactNoAnswer = makeContact('LeoSansReponse', makeQuiz({ interests: ['gaming'] }));
-  const scoreConflict = findByAsin(generateCandidates(contactConflict, { maxEuros: 200 }), GAMING_SOURIS.asin)!.score;
-  const scoreNoAnswer = findByAsin(generateCandidates(contactNoAnswer, { maxEuros: 200 }), GAMING_SOURIS.asin)!.score;
+  const scoreConflict = findById(generateCandidates(contactConflict, { maxEuros: 200 }), GAMING_SOURIS.id)!.score;
+  const scoreNoAnswer = findById(generateCandidates(contactNoAnswer, { maxEuros: 200 }), GAMING_SOURIS.id)!.score;
   const delta = scoreNoAnswer - scoreConflict;
   check('focus=fandom (contact) vs focus=[setup] (souris gaming, avec ET sans tags legacy) : UNE SEULE pénalité de 12, jamais 25 ni 37 (double comptage)', delta === 12, `delta observé=${delta}`);
 }
@@ -457,53 +467,53 @@ console.log('\n[20] Neutralité par défaut — seules les paires déclarées da
   // cuisine.univers gastronomie vs cafe/patisserie => PAS conflit (dimension hors allowlist).
   const contactTasseur = makeContact('Tasseur', makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { univers: 'gastronomie' } } }));
   const contactTasseurNone = makeContact('TasseurNone', makeQuiz({ interests: ['cuisine'] }));
-  const scoreTasseur = findByAsin(generateCandidates(contactTasseur, { maxEuros: 200 }), CUISINE_TASSEUR.asin)!;
-  const scoreTasseurNone = findByAsin(generateCandidates(contactTasseurNone, { maxEuros: 200 }), CUISINE_TASSEUR.asin)!.score;
+  const scoreTasseur = findById(generateCandidates(contactTasseur, { maxEuros: 200 }), CUISINE_TASSEUR.id)!;
+  const scoreTasseurNone = findById(generateCandidates(contactTasseurNone, { maxEuros: 200 }), CUISINE_TASSEUR.id)!.score;
   check('cuisine.univers différent (gastronomie vs cafe) : 0 conflit (hors allowlist)', scoreTasseur.reasons.realConflictCount === 0, `realConflictCount=${scoreTasseur.reasons.realConflictCount}`);
   check('cuisine.univers différent : score inchangé (pas de pénalité fantôme)', scoreTasseur.score === scoreTasseurNone);
-  const scoreBalanceCheck = findByAsin(generateCandidates(makeContact('BalanceUnivers', makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { univers: 'gastronomie' } } })), { maxEuros: 200 }), CUISINE_BALANCE.asin)!;
+  const scoreBalanceCheck = findById(generateCandidates(makeContact('BalanceUnivers', makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { univers: 'gastronomie' } } })), { maxEuros: 200 }), CUISINE_BALANCE.id)!;
   check('cuisine.univers différent (balance, gastronomie vs patisserie) : 0 conflit', scoreBalanceCheck.reasons.realConflictCount === 0);
 
   // cuisine.preference upgrade vs outil => TOUJOURS 1 vrai conflit (dimension dans l'allowlist).
   const contactBalanceConflict = makeContact('BalancePref', makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { preference: 'upgrade' } } }));
-  const balanceConflict = findByAsin(generateCandidates(contactBalanceConflict, { maxEuros: 200 }), CUISINE_BALANCE.asin)!;
+  const balanceConflict = findById(generateCandidates(contactBalanceConflict, { maxEuros: 200 }), CUISINE_BALANCE.id)!;
   check('cuisine.preference upgrade vs outil : EXACTEMENT 1 conflit', balanceConflict.reasons.realConflictCount === 1, `realConflictCount=${balanceConflict.reasons.realConflictCount}`);
   check('conflictingDimensions = ["preference"] uniquement', JSON.stringify(balanceConflict.reasons.conflictingDimensions) === JSON.stringify(['preference']));
 
   // musique.preference fandom vs pratique => PAS conflit (hors allowlist), mode reste le seul cas réel.
   const contactKaraoke = makeContact('Karaoke', makeQuiz({ interests: ['musique'], themeAnswers: { musique: { preference: 'fandom' } } }));
-  const karaokePrefOnly = findByAsin(generateCandidates(contactKaraoke, { maxEuros: 200 }), MUSIQUE_KARAOKE.asin)!;
+  const karaokePrefOnly = findById(generateCandidates(contactKaraoke, { maxEuros: 200 }), MUSIQUE_KARAOKE.id)!;
   check('musique.preference fandom vs pratique : 0 conflit (hors allowlist)', karaokePrefOnly.reasons.realConflictCount === 0, `realConflictCount=${karaokePrefOnly.reasons.realConflictCount}`);
 
   // musique.mode jouer(produit) vs ecoute(user) => 1 vrai conflit, même sur karaoké.
   const contactKaraokeMode = makeContact('KaraokeMode', makeQuiz({ interests: ['musique'], themeAnswers: { musique: { mode: 'ecoute' } } }));
-  const karaokeMode = findByAsin(generateCandidates(contactKaraokeMode, { maxEuros: 200 }), MUSIQUE_KARAOKE.asin)!;
+  const karaokeMode = findById(generateCandidates(contactKaraokeMode, { maxEuros: 200 }), MUSIQUE_KARAOKE.id)!;
   check('musique.mode ecoute vs jouer (karaoké) : EXACTEMENT 1 conflit', karaokeMode.reasons.realConflictCount === 1);
 
   // nature.priorite equipement vs confort => PAS conflit (exemple donné explicitement).
   const contactGobelet = makeContact('Gobelet', makeQuiz({ interests: ['nature'], themeAnswers: { nature: { priorite: 'equipement' } } }));
-  const gobelet = findByAsin(generateCandidates(contactGobelet, { maxEuros: 200 }), NATURE_GOBELET.asin)!;
+  const gobelet = findById(generateCandidates(contactGobelet, { maxEuros: 200 }), NATURE_GOBELET.id)!;
   check('nature.priorite différente (equipement vs confort) : 0 conflit', gobelet.reasons.realConflictCount === 0, `realConflictCount=${gobelet.reasons.realConflictCount}`);
 
   // photo.usage souvenirs vs impression => PAS conflit (les deux se recoupent).
   const contactFilms = makeContact('Films', makeQuiz({ interests: ['photo'], themeAnswers: { photo: { usage: 'souvenirs' } } }));
-  const films = findByAsin(generateCandidates(contactFilms, { maxEuros: 200 }), INSTAX_ONLY_FILMS.asin)!;
+  const films = findById(generateCandidates(contactFilms, { maxEuros: 200 }), INSTAX_ONLY_FILMS.id)!;
   check('photo.usage différent (souvenirs vs impression) : 0 conflit', films.reasons.realConflictCount === 0, `realConflictCount=${films.reasons.realConflictCount}`);
 
   // bricolage.besoin puissance vs polyvalence => PAS conflit (hors allowlist).
   const contactLampe = makeContact('Lampe', makeQuiz({ interests: ['bricolage'], themeAnswers: { bricolage: { besoin: 'puissance' } } }));
-  const lampe = findByAsin(generateCandidates(contactLampe, { maxEuros: 200 }), BRICOLAGE_LAMPE.asin)!;
+  const lampe = findById(generateCandidates(contactLampe, { maxEuros: 200 }), BRICOLAGE_LAMPE.id)!;
   check('bricolage.besoin différent (puissance vs polyvalence) : 0 conflit', lampe.reasons.realConflictCount === 0, `realConflictCount=${lampe.reasons.realConflictCount}`);
 
   // bricolage.outil electrique vs manuel => 1 vrai conflit (dans l'allowlist).
   const contactTournevis = makeContact('Tournevis', makeQuiz({ interests: ['bricolage'], themeAnswers: { bricolage: { outil: 'electrique' } } }));
-  const tournevis = findByAsin(generateCandidates(contactTournevis, { maxEuros: 200 }), BRICOLAGE_TOURNEVIS.asin)!;
+  const tournevis = findById(generateCandidates(contactTournevis, { maxEuros: 200 }), BRICOLAGE_TOURNEVIS.id)!;
   check('bricolage.outil electrique vs manuel : EXACTEMENT 1 conflit', tournevis.reasons.realConflictCount === 1, `realConflictCount=${tournevis.reasons.realConflictCount}`);
   check('conflictingDimensions = ["outil"] uniquement (jamais "besoin", hors allowlist)', JSON.stringify(tournevis.reasons.conflictingDimensions) === JSON.stringify(['outil']));
 
   // unknown/indifferent => jamais un conflit, même sur une dimension de l'allowlist.
   const contactNeutral = makeContact('Neutral', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'inconnu' } } }));
-  const gamingSetupNeutral = findByAsin(generateCandidates(contactNeutral, { maxEuros: 200 }), GAMING_SOURIS.asin)!;
+  const gamingSetupNeutral = findById(generateCandidates(contactNeutral, { maxEuros: 200 }), GAMING_SOURIS.id)!;
   check('valeur "inconnu" sur une dimension de l’allowlist : jamais un conflit', gamingSetupNeutral.reasons.realConflictCount === 0, `realConflictCount=${gamingSetupNeutral.reasons.realConflictCount}`);
 }
 
@@ -526,7 +536,7 @@ console.log('\n[21] specificEvidenceCount et exclusion du Top (vrai conflit SANS
   // reste ÉLIGIBLE (accepté explicitement pour cette passe, consigne §7).
   const contactCamille = makeContact('Camille', makeQuiz({ interests: ['cuisine'], themeAnswers: { cuisine: { rapport: 'cuisiner', preference: 'upgrade' } } }));
   const candidatesCamille = generateCandidates(contactCamille, { maxEuros: 200 });
-  const balanceCandidate = findByAsin(candidatesCamille, CUISINE_BALANCE.asin)!;
+  const balanceCandidate = findById(candidatesCamille, CUISINE_BALANCE.id)!;
   check('balance : realConflictCount=1', balanceCandidate.reasons.realConflictCount === 1);
   check('balance : specificEvidenceCount >= 1 (match légitime sur rapport)', balanceCandidate.reasons.specificEvidenceCount >= 1, `specificEvidenceCount=${balanceCandidate.reasons.specificEvidenceCount}`);
   check('balance reste ÉLIGIBLE au Top malgré le vrai conflit (evidence compensatrice, accepté §7)', !(balanceCandidate.reasons.realConflictCount > 0 && balanceCandidate.reasons.specificEvidenceCount === 0));
@@ -537,7 +547,7 @@ console.log('\n[21] specificEvidenceCount et exclusion du Top (vrai conflit SANS
   const readingLight = CURATED_GIFTS.find((g) => g.id === 'lecture-20')!;
   const contactJulie = makeContact('Julie', makeQuiz({ interests: ['tech', 'maison', 'lecture'], wish: 'Elle aimerait beaucoup une liseuse Kindle pour lire pendant ses trajets' }));
   const candidatesJulie = generateCandidates(contactJulie, { maxEuros: 250 });
-  const lampeLectureCandidate = findByAsin(candidatesJulie, readingLight.asin)!;
+  const lampeLectureCandidate = findById(candidatesJulie, readingLight.id)!;
   check('lampe de lecture (sans aucune réponse lecture) : realConflictCount=0 systématiquement', lampeLectureCandidate.reasons.realConflictCount === 0);
   check('absence de réponse ≠ conflit : jamais exclue par la règle §6, même avec specificEvidenceCount=0', !(lampeLectureCandidate.reasons.realConflictCount > 0 && lampeLectureCandidate.reasons.specificEvidenceCount === 0));
   const topJulie = topRecommendations(candidatesJulie, 3);
@@ -679,7 +689,7 @@ console.log('\n[24] Phase 4C — TAXONOMY_CONFLICTS gaming.focus : anciennes ré
   const mouseProduct = CURATED_GIFTS.find((g) => g.id === 'gaming-20')!; // focus:['setup']
   const contactOldConfort = makeContact('Ancien1', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'confort' } } }));
   const candidatesOldConfort = generateCandidates(contactOldConfort, { maxEuros: 100 });
-  const mouseWithOldConfort = findByAsin(candidatesOldConfort, mouseProduct.asin)!;
+  const mouseWithOldConfort = findById(candidatesOldConfort, mouseProduct.id)!;
   check(
     "ancienne réponse gaming.focus='confort' : la souris (focus=setup) n'est plus en conflit (realConflictCount=0)",
     mouseWithOldConfort.reasons.realConflictCount === 0
@@ -687,7 +697,7 @@ console.log('\n[24] Phase 4C — TAXONOMY_CONFLICTS gaming.focus : anciennes ré
 
   const contactOldMultijoueur = makeContact('Ancien2', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'multijoueur' } } }));
   const candidatesOldMultijoueur = generateCandidates(contactOldMultijoueur, { maxEuros: 100 });
-  const mouseWithOldMultijoueur = findByAsin(candidatesOldMultijoueur, mouseProduct.asin)!;
+  const mouseWithOldMultijoueur = findById(candidatesOldMultijoueur, mouseProduct.id)!;
   check(
     "ancienne réponse gaming.focus='multijoueur' : la souris (focus=setup) n'est plus en conflit (realConflictCount=0)",
     mouseWithOldMultijoueur.reasons.realConflictCount === 0
@@ -802,8 +812,8 @@ console.log('\n[29] Phase 5F — lecture.sujet : structure multi-select + garde-
   }));
   const candidatesMulti = generateCandidates(contactMultiSelect, { maxEuros: 100 });
   const candidatesSingle = generateCandidates(contactSingleSelect, { maxEuros: 100 });
-  const cuisine20WithMulti = findByAsin(candidatesMulti, cuisine20.asin)!;
-  const cuisine20WithSingle = findByAsin(candidatesSingle, cuisine20.asin)!;
+  const cuisine20WithMulti = findById(candidatesMulti, cuisine20.id)!;
+  const cuisine20WithSingle = findById(candidatesSingle, cuisine20.id)!;
   check(
     "sélectionner 3 valeurs (dont 1 seule matche) donne EXACTEMENT le même score que sélectionner cette seule valeur — pas de surbonification (+1 par valeur sélectionnée)",
     cuisine20WithMulti.score === cuisine20WithSingle.score
@@ -892,6 +902,155 @@ console.log('\n[32] Phase 5G — profil réel jeux_societe (stratégie à deux) 
     topJeux.some((c) => c.gift.theme !== 'jeux_societe')
   );
   check('0 candidat jeux_societe dans le pool généré (confirme qu’aucun produit n’a été sourcé)', !candidatesJeux.some((c) => c.gift.theme === 'jeux_societe'));
+}
+
+console.log('\n[33] Phase 6B — identité canonique gift.id (migration ASIN → id)');
+{
+  check('gift.id unique sur les 162 produits', new Set(CURATED_GIFTS.map((g) => g.id)).size === CURATED_GIFTS.length);
+  const withAsin = CURATED_GIFTS.filter((g) => g.asin);
+  check('ASIN toujours unique lorsqu’il existe', new Set(withAsin.map((g) => g.asin)).size === withAsin.length);
+
+  const kindleProduct = CURATED_GIFTS.find((g) => g.id === 'lecture-100')!; // asin réel présent, non modifié
+
+  // --- feedback moderne (giftId) ---
+  const contactModernFeedback = makeContact('Moderne', makeQuiz({
+    interests: ['lecture'],
+    feedback: [{ giftId: kindleProduct.id, reason: 'has_it', at: new Date().toISOString() }],
+  }));
+  check(
+    'feedback moderne giftId fonctionne : le produit précis rejeté "has_it" est bien exclu',
+    !generateCandidates(contactModernFeedback, { maxEuros: 250 }).some((c) => c.gift.id === kindleProduct.id)
+  );
+
+  // --- feedback legacy (asin seul, sans giftId) ---
+  const contactLegacyFeedback = makeContact('Legacy', makeQuiz({
+    interests: ['lecture'],
+    feedback: [{ asin: kindleProduct.asin, reason: 'has_it', at: new Date().toISOString() } as any],
+  }));
+  check(
+    'feedback legacy (asin seul) est converti vers le bon giftId par normalizeQuizProfile et exclut bien le produit',
+    !generateCandidates(contactLegacyFeedback, { maxEuros: 250 }).some((c) => c.gift.id === kindleProduct.id)
+  );
+  const normalizedLegacyFeedback = normalizeQuizProfile(contactLegacyFeedback.quiz!);
+  check(
+    'normalizeQuizProfile résout bien feedback[0].giftId === kindleProduct.id à partir de l’asin legacy (jamais giftId = asin)',
+    normalizedLegacyFeedback.feedback[0].giftId === kindleProduct.id && normalizedLegacyFeedback.feedback[0].giftId !== kindleProduct.asin
+  );
+
+  // --- recommendationHistory legacy (shownAsins/likedAsins) ---
+  const legacyHistoryProfile = makeQuiz({
+    interests: ['lecture'],
+    recommendationHistory: [{ at: new Date().toISOString(), shownAsins: [kindleProduct.asin!], likedAsins: [kindleProduct.asin!] } as any],
+  });
+  const normalizedHistory = normalizeQuizProfile(legacyHistoryProfile);
+  check('shownAsins legacy → shownGiftIds correct', normalizedHistory.recommendationHistory[0].shownGiftIds?.join(',') === kindleProduct.id);
+  check('likedAsins legacy → likedGiftIds correct', normalizedHistory.recommendationHistory[0].likedGiftIds?.join(',') === kindleProduct.id);
+
+  // --- ASIN legacy inconnu (fiche retirée du catalogue depuis) ---
+  const UNKNOWN_ASIN = 'B0000000XX'; // n'existe dans aucun produit du catalogue actuel
+  check('giftIdFromLegacyAsin sur un ASIN inconnu retourne undefined (jamais un faux id fabriqué)', giftIdFromLegacyAsin(UNKNOWN_ASIN) === undefined);
+
+  const contactUnknownAsinFeedback = makeContact('Inconnu', makeQuiz({
+    interests: ['lecture'],
+    feedback: [{ asin: UNKNOWN_ASIN, reason: 'has_it', at: new Date().toISOString() } as any],
+  }));
+  let crashedOnUnknownAsin = false;
+  let candidatesUnknown: ScoredCandidate[] = [];
+  try {
+    candidatesUnknown = generateCandidates(contactUnknownAsinFeedback, { maxEuros: 250 });
+  } catch {
+    crashedOnUnknownAsin = true;
+  }
+  check('un ASIN legacy inconnu ne fait jamais crasher generateCandidates', !crashedOnUnknownAsin && candidatesUnknown.length > 0);
+
+  const normalizedUnknown = normalizeQuizProfile(contactUnknownAsinFeedback.quiz!);
+  check(
+    'ASIN legacy inconnu ne devient jamais un faux giftId (reste undefined, entrée brute tolérée/conservée)',
+    normalizedUnknown.feedback[0].giftId === undefined && normalizedUnknown.feedback[0].asin === UNKNOWN_ASIN
+  );
+
+  const unknownHistoryProfile = makeQuiz({
+    interests: ['lecture'],
+    recommendationHistory: [{ at: new Date().toISOString(), shownAsins: [UNKNOWN_ASIN], likedAsins: [UNKNOWN_ASIN] } as any],
+  });
+  const normalizedUnknownHistory = normalizeQuizProfile(unknownHistoryProfile);
+  check(
+    'ASIN historique inconnu : shownGiftIds/likedGiftIds ignorent l’entrée (liste vide) plutôt que de fabriquer un id',
+    (normalizedUnknownHistory.recommendationHistory[0].shownGiftIds ?? []).length === 0 && (normalizedUnknownHistory.recommendationHistory[0].likedGiftIds ?? []).length === 0
+  );
+
+  // --- garde-fou statique : GiftsScreen.tsx n'écrit plus jamais asin/shownAsins/likedAsins comme identité ---
+  const giftsScreenSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'GiftsScreen.tsx'), 'utf-8');
+  check(
+    "GiftsScreen.tsx n'écrit plus feedback avec `asin` comme clé (nouveaux writes = giftId uniquement)",
+    !/feedback:\s*\[\.\.\.quiz\.feedback,\s*\{\s*asin/.test(giftsScreenSource)
+  );
+  check(
+    "GiftsScreen.tsx n'écrit plus recommendationHistory avec shownAsins/likedAsins (nouveaux writes = shownGiftIds/likedGiftIds uniquement)",
+    !/shownAsins:|likedAsins:/.test(giftsScreenSource.replace(/\/\/.*shownAsins\/likedAsins.*/g, ''))
+  );
+}
+
+console.log('\n[34] Phase 6B — produit synthétique SANS commerce (test-only, jamais ajouté au vrai catalogue)');
+{
+  // Construit UNIQUEMENT pour ce test — jamais poussé dans CURATED_GIFTS (consigne §11). Prouve
+  // que le classement (topRecommendations) et l'affichage (whyForContact) fonctionnent sans
+  // aucune donnée Amazon, exclusivement via `id`. Le "scoring" en tant que tel (generateCandidates)
+  // ne peut être exercé que sur des produits du catalogue réel par construction (il itère
+  // CURATED_GIFTS) — vérifié à la place par relecture de code (Phase 6/6B) : aucune branche de
+  // scoring ne lit jamais `gift.asin`/`gift.imageUrl`, seulement theme/trait/taxonomy/tags/
+  // hardRequirements/hardExclusions/title/price/giftConcept/entities, tous présents ici.
+  const noCommerceGift: CuratedGift = {
+    id: 'test-gift-no-commerce',
+    theme: 'lecture',
+    tier: '20',
+    title: 'Produit de test sans donnée commerce',
+    price: 25,
+    emoji: '📦',
+    pitch: 'Un pitch de test, sans ASIN ni image, pour prouver que Pensif peut recommander sans Amazon.',
+    giftConcept: 'test-concept-no-commerce',
+    taxonomy: { format: ['papier'] },
+    // asin et imageUrl DÉLIBÉRÉMENT absents.
+  };
+  check('le gift synthétique n’a bien ni asin ni imageUrl (absence volontaire, pas un oubli)', noCommerceGift.asin === undefined && noCommerceGift.imageUrl === undefined);
+
+  const syntheticCandidate: ScoredCandidate = {
+    gift: noCommerceGift,
+    score: 90,
+    reasons: {
+      interest: true,
+      trait: null,
+      themeAnswer: true,
+      genericAnswer: false,
+      wishMatch: false,
+      textMatchKind: null,
+      matchedSourceText: null,
+      textMatchCoverage: null,
+      matchedConcepts: [],
+      favoriteText: null,
+      likedSimilar: false,
+      realConflictCount: 0,
+      conflictingDimensions: [],
+      specificEvidenceCount: 1,
+    },
+  };
+  const otherRealCandidate: ScoredCandidate = {
+    gift: CURATED_GIFTS.find((g) => g.id === 'lecture-20')!,
+    score: 60,
+    reasons: { ...syntheticCandidate.reasons },
+  };
+
+  const topWithSynthetic = topRecommendations([syntheticCandidate, otherRealCandidate], 3);
+  check('être classé : topRecommendations() traite le gift synthétique normalement (meilleur score = #1)', topWithSynthetic[0]?.gift.id === 'test-gift-no-commerce');
+
+  const testContact = makeContact('SyntheticTest', makeQuiz({ interests: ['lecture'] }));
+  const why = whyForContact(syntheticCandidate, testContact);
+  check('être affichable conceptuellement : whyForContact() produit un texte basé sur le pitch, sans jamais toucher asin/imageUrl', why.startsWith(noCommerceGift.pitch));
+
+  // Like / reject / history / exclusion : exercés via id, sur le VRAI pipeline (generateCandidates
+  // + feedback), avec un produit catalogue réel mais un feedback qui ne référence QUE `giftId`
+  // (jamais `asin`) — preuve fidèle que le pipeline est 100% id-only, cf. test [33] ci-dessus qui
+  // couvre exactement ce chemin (feedback moderne giftId). Non dupliqué ici.
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

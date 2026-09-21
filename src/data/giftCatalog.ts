@@ -11,21 +11,38 @@ export type GiftTier = '20' | '50' | '100';
 export type GiftTaxonomy = Partial<Record<string, string[]>>;
 
 export type CuratedGift = {
+  /** CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — identifiant CANONIQUE Pensif, obligatoire et
+   *  stable : c'est désormais la seule clé utilisée pour l'identité d'un produit dans tout le
+   *  moteur/UI/historique/feedback (voir recommendationEngine.ts `giftById`) — `asin` n'est plus
+   *  jamais utilisé comme clé, uniquement comme donnée commerce Amazon optionnelle (voir plus bas).
+   *  Ne JAMAIS réutiliser un `id` déjà attribué à un autre produit, même après suppression : les
+   *  contacts existants peuvent encore y faire référence dans `feedback`/`recommendationHistory`. */
   id: string;
   theme: InterestTag;
   /** Indicatif seulement (héritage des 3 paliers d'origine) — le moteur de recommandation score
    *  par `price` réel contre le budget demandé, il ne sélectionne plus par palier fixe. */
   tier: GiftTier;
   title: string;
-  asin: string;
+  /** CHANTIER "Phase 6B" (2026-09-21) — donnée COMMERCE Amazon, désormais optionnelle : un produit
+   *  sans ASIN (catalogue "safe beta" sans sourcing commercial, voir Phase 5F/5G) reste scorable et
+   *  recommandable normalement, simplement sans lien "Voir sur Amazon" ni photo produit (voir
+   *  GiftsScreen.tsx). Ne sert plus JAMAIS d'identité — voir `id`. */
+  asin?: string;
+  /** Prix de référence ÉDITORIAL utilisé par Pensif pour le filtrage budget, le tri (tie-break) et
+   *  certains bonus de scoring (voir generateCandidates/genericThemeAnswerBonus dans
+   *  recommendationEngine.ts) — PAS une garantie de prix marchand live (le prix Amazon réel peut
+   *  varier). Reste obligatoire dans cette passe (voir consigne Phase 6B §9) : aucun `merchantPrice`
+   *  distinct introduit ici. */
   price: number;
   emoji: string;
   /** URL de la vraie image produit (extraite de la fiche Amazon — data-old-hires), pas une URL
    *  devinée : l'ancien format "legacy" (/images/P/{asin}...) ne fonctionne que par coïncidence
    *  pour certains ASIN et renvoie une image vide/placeholder pour les autres sans jamais déclencher
    *  d'erreur réseau, d'où les fonds vides observés. Chaque produit stocke maintenant l'URL réelle
-   *  de son image (/images/I/{id}...), vérifiée le 2026-09-11 avec le titre/prix/stock. */
-  imageUrl: string;
+   *  de son image (/images/I/{id}...), vérifiée le 2026-09-11 avec le titre/prix/stock.
+   *  CHANTIER "Phase 6B" (2026-09-21) — désormais optionnelle : absente ⇒ repli emoji dans
+   *  GiftsScreen.tsx, jamais d'URL devinée/fabriquée. */
+  imageUrl?: string;
   /** Description courte de l'OBJET lui-même — un vrai pitch produit ("pourquoi c'est utile de
    *  l'avoir"), pas une phrase sur le contact. C'est le texte principal affiché sous chaque
    *  recommandation (voir whyForContact dans recommendationEngine.ts), qui n'ajoute qu'une courte

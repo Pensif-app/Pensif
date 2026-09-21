@@ -78,10 +78,22 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
   other: 'Autre',
 };
 
-/** Retrouve le produit d'origine à partir de l'ASIN mémorisé dans un feedback — permet de connaître
- *  son `giftConcept`/`taxonomy` au moment du scoring sans avoir à dupliquer ces champs dans
- *  `quiz.feedback` (une seule source de vérité, le catalogue). */
-function giftByAsin(asin: string | undefined): CuratedGift | undefined {
+/** CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — résolution CANONIQUE d'un produit à partir de
+ *  `gift.id` : c'est la seule fonction d'identité utilisée par le scoring/l'historique/le feedback
+ *  modernes (voir isExcluded, likedGiftsFor, notStyleTaxonomyPenalty ci-dessous). Permet de connaître
+ *  le `giftConcept`/`taxonomy` d'un produit référencé dans `quiz.feedback`/`recommendationHistory`
+ *  sans dupliquer ces champs (une seule source de vérité, le catalogue). */
+function giftById(id: string | undefined): CuratedGift | undefined {
+  if (!id) return undefined;
+  return CURATED_GIFTS.find((g) => g.id === id);
+}
+
+/** Conservée UNIQUEMENT pour un éventuel lookup commercial Amazon (voir aussi
+ *  giftIdFromLegacyAsin dans quiz.ts, qui fait sa propre recherche directe pour la conversion
+ *  legacy) — ne doit plus jamais être appelée par le scoring ou l'historique moderne (voir
+ *  consigne Phase 6B §6). Exportée pour rester disponible côté commerce sans forcer un import
+ *  redondant du catalogue ailleurs. */
+export function giftByAsin(asin: string | undefined): CuratedGift | undefined {
   if (!asin) return undefined;
   return CURATED_GIFTS.find((g) => g.asin === asin);
 }
@@ -103,13 +115,17 @@ function taxonomySimilarity(a: GiftTaxonomy | undefined, b: GiftTaxonomy | undef
 
 function isExcluded(gift: CuratedGift, feedback: ReturnType<typeof normalizeQuizProfile>['feedback']): boolean {
   return feedback.some((f) => {
-    if (f.asin && f.asin === gift.asin) return true; // ce produit précis a été rejeté
+    // CHANTIER "Phase 6B" (2026-09-21) — identité par `giftId` (canonique), plus jamais `asin`. Une
+    // entrée legacy dont l'ASIN ne correspond plus à aucun produit actuel a `giftId === undefined`
+    // (voir normalizeQuizProfile) : elle ne matche jamais rien ici, sans crash — exactement le
+    // comportement "ignorer pour le calcul moteur, tolérer la donnée persistée" voulu (consigne §4).
+    if (f.giftId && f.giftId === gift.id) return true; // ce produit précis a été rejeté
     if (f.reason !== 'has_it' && f.reason !== 'too_similar') return false;
     // "Il a déjà ça" / "Trop similaire" n'excluent plus tout le thème (trop large — un thème couvre
     // des dizaines d'idées très différentes) : seulement les autres produits qui partagent la MÊME
     // idée-cadeau concrète (giftConcept) que celui refusé, ex. une 2e carte cadeau PlayStation après
     // en avoir refusé une.
-    const rejected = giftByAsin(f.asin);
+    const rejected = giftById(f.giftId);
     if (rejected?.giftConcept && rejected.giftConcept === gift.giftConcept) return true;
     return false;
   });
@@ -455,8 +471,10 @@ function bestTextMatch(gift: CuratedGift, quiz: ReturnType<typeof normalizeQuizP
 /** Tous les produits "aimés" via ♡ sur ce contact, toutes recherches précédentes confondues —
  *  reconstruit à partir de l'historique plutôt que stocké à part, une seule source de vérité. */
 function likedGiftsFor(history: ReturnType<typeof normalizeQuizProfile>['recommendationHistory']): CuratedGift[] {
-  const likedAsins = new Set(history.flatMap((h) => h.likedAsins));
-  return CURATED_GIFTS.filter((g) => likedAsins.has(g.asin));
+  // CHANTIER "Phase 6B" (2026-09-21) — `likedGiftIds` (canonique) ; `normalizeQuizProfile` a déjà
+  // résolu les entrées legacy `likedAsins`, un ASIN legacy introuvable est simplement absent ici.
+  const likedIds = new Set(history.flatMap((h) => h.likedGiftIds ?? []));
+  return CURATED_GIFTS.filter((g) => likedIds.has(g.id));
 }
 
 /** Un produit qui ressemble à une idée déjà aimée (même thème, même trait, dimensions taxonomiques
@@ -469,7 +487,7 @@ function likedGiftsFor(history: ReturnType<typeof normalizeQuizProfile>['recomme
 function likedSimilarityBonus(gift: CuratedGift, liked: CuratedGift[]): number {
   let bonus = 0;
   for (const l of liked) {
-    if (l.asin === gift.asin) continue;
+    if (l.id === gift.id) continue;
     if (l.theme === gift.theme) bonus += 8;
     if (l.trait && l.trait === gift.trait) bonus += 6;
     if (l.taxonomy && gift.taxonomy) {
@@ -492,8 +510,8 @@ function notStyleTaxonomyPenalty(gift: CuratedGift, feedback: ReturnType<typeof 
   let penalty = 0;
   for (const f of feedback) {
     if (f.reason !== 'not_his_style') continue;
-    const rejected = giftByAsin(f.asin);
-    if (!rejected || rejected.asin === gift.asin) continue;
+    const rejected = giftById(f.giftId);
+    if (!rejected || rejected.id === gift.id) continue;
     if (rejected.taxonomy && gift.taxonomy) {
       penalty += taxonomySimilarity(rejected.taxonomy, gift.taxonomy) * 4;
     }
@@ -507,7 +525,7 @@ function notStyleTaxonomyPenalty(gift: CuratedGift, feedback: ReturnType<typeof 
  * pool sur les intérêts choisis est trop restreint (<6, ex. un seul centre d'intérêt sélectionné),
  * élargissement automatique à tout le catalogue pour garder assez de choix à scorer.
  */
-export function generateCandidates(contact: Contact, budget: BudgetRequest, excludeAsins: string[] = []): ScoredCandidate[] {
+export function generateCandidates(contact: Contact, budget: BudgetRequest, excludeGiftIds: string[] = []): ScoredCandidate[] {
   if (!isQuizComplete(contact.quiz)) return [];
   const quiz = normalizeQuizProfile(contact.quiz);
   const traits = computeTraits(quiz.answers);
@@ -518,7 +536,9 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   const personalBoost = Math.min(quiz.feedback.filter((f) => f.reason === 'more_personal').length * 8, 24);
   const wantsMorePersonal = personalBoost > 0;
   const liked = likedGiftsFor(quiz.recommendationHistory);
-  const excludedSet = new Set(excludeAsins);
+  // CHANTIER "Phase 6B" (2026-09-21) — exclusion par `gift.id` (canonique), plus jamais par ASIN :
+  // voir GiftsScreen.tsx (sessionExcluded stocke désormais des `gift.id`, jamais des ASIN).
+  const excludedSet = new Set(excludeGiftIds);
 
   const onInterests = CURATED_GIFTS.filter((g) => quiz.interests.includes(g.theme) && g.price <= budget.maxEuros);
   const pool = onInterests.length >= 6 ? onInterests : CURATED_GIFTS.filter((g) => g.price <= budget.maxEuros);
@@ -526,7 +546,7 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   return pool
     .filter(
       (g) =>
-        !excludedSet.has(g.asin) &&
+        !excludedSet.has(g.id) &&
         !isExcluded(g, quiz.feedback) &&
         !quiz.avoid.includes(g.theme) &&
         passesHardFilters(g, quiz.themeAnswers[g.theme])

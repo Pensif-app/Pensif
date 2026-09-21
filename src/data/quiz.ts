@@ -1,5 +1,17 @@
 import { BudgetBand, Contact, Genre, InterestTag, QuizAnswer, QuizProfile, TraitKey } from './types';
-import { COVERED_THEMES } from './giftCatalog';
+import { COVERED_THEMES, CURATED_GIFTS } from './giftCatalog';
+
+/**
+ * CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — convertit un ASIN legacy vers le `gift.id`
+ * correspondant en le recherchant dans le catalogue COURANT — jamais une affectation directe
+ * `giftId = asin` (un ASIN n'est PAS un id Pensif, ce serait une fausse identité). Retourne
+ * `undefined` si l'ASIN ne correspond plus à aucun produit actuel (fiche retirée du catalogue
+ * depuis) : ce cas est géré par l'appelant, jamais un crash, jamais un id fabriqué (voir
+ * normalizeQuizProfile ci-dessous — l'entrée reste tolérée telle quelle, juste sans effet moteur).
+ */
+export function giftIdFromLegacyAsin(asin: string): string | undefined {
+  return CURATED_GIFTS.find((g) => g.asin === asin)?.id;
+}
 
 /**
  * Comble les champs absents sur un profil de quiz créé avant l'ajout de l'affinage par thème / du
@@ -7,13 +19,33 @@ import { COVERED_THEMES } from './giftCatalog';
  * tôt) ou données legacy en base. C'est le SEUL endroit du code qui doit connaître l'ancienne
  * forme : tout le reste lit toujours un QuizProfile complet (même pattern que normalizeRelation
  * dans FicheScreen.tsx pour les anciennes valeurs de relation).
+ *
+ * CHANTIER "Phase 6B" (2026-09-21) — convertit également l'identité legacy par ASIN
+ * (`feedback[].asin`, `recommendationHistory[].shownAsins/likedAsins`) vers l'identité canonique
+ * par `gift.id` (`feedback[].giftId`, `.../shownGiftIds/likedGiftIds`) : SEUL endroit qui fait
+ * cette conversion, via `giftIdFromLegacyAsin` (jamais `giftId = asin`). Un ASIN legacy introuvable
+ * dans le catalogue actuel n'est JAMAIS transformé en faux id — il est simplement ignoré pour le
+ * calcul (`undefined` filtré), tout en laissant l'entrée brute (`asin`/`shownAsins`/`likedAsins`)
+ * intacte dans l'objet retourné : cette fonction ne fait jamais persister quoi que ce soit (elle
+ * retourne une copie en mémoire), donc aucune donnée utilisateur n'est jamais supprimée — voir
+ * consigne §4/§5. Les nouveaux écrits (GiftsScreen.tsx) n'utilisent plus jamais `asin`/`shownAsins`/
+ * `likedAsins`, uniquement les champs `*GiftId(s)`.
  */
 export function normalizeQuizProfile(raw: QuizProfile): QuizProfile {
+  const feedback = (raw.feedback ?? []).map((f) => ({
+    ...f,
+    giftId: f.giftId ?? (f.asin ? giftIdFromLegacyAsin(f.asin) : undefined),
+  }));
+  const recommendationHistory = (raw.recommendationHistory ?? []).map((h) => ({
+    ...h,
+    shownGiftIds: h.shownGiftIds ?? (h.shownAsins ?? []).map(giftIdFromLegacyAsin).filter((id): id is string => !!id),
+    likedGiftIds: h.likedGiftIds ?? (h.likedAsins ?? []).map(giftIdFromLegacyAsin).filter((id): id is string => !!id),
+  }));
   return {
     ...raw,
     themeAnswers: raw.themeAnswers ?? {},
-    feedback: raw.feedback ?? [],
-    recommendationHistory: raw.recommendationHistory ?? [],
+    feedback,
+    recommendationHistory,
   };
 }
 

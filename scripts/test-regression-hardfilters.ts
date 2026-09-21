@@ -70,10 +70,10 @@ function titles(candidates: ScoredCandidate[]): string[] {
   );
   const candidates = generateCandidates(contact, { maxEuros: 20 });
   const guitarAsins = new Set(['B07VJJ3T1N', 'B0C49KV8S6', 'B093DS6L7R']); // musique-20, sangle, cordes
-  const leaked = candidates.filter((c) => guitarAsins.has(c.gift.asin));
+  const leaked = candidates.filter((c) => guitarAsins.has(c.gift.asin ?? ''));
   check('aucun accessoire guitare dans le pool complet', leaked.length === 0, titles(leaked).join(', '));
   const top3 = topRecommendations(candidates, 3);
-  check('aucun accessoire guitare dans le Top 3', top3.every((c) => !guitarAsins.has(c.gift.asin)), titles(top3).join(', '));
+  check('aucun accessoire guitare dans le Top 3', top3.every((c) => !guitarAsins.has(c.gift.asin ?? '')), titles(top3).join(', '));
 }
 
 // --- 2. Musique + jouer + guitare → accessoires guitare autorisés --------------------------------
@@ -88,7 +88,7 @@ function titles(candidates: ScoredCandidate[]): string[] {
   );
   const candidates = generateCandidates(contact, { maxEuros: 20 });
   const guitarAsins = new Set(['B07VJJ3T1N', 'B0C49KV8S6', 'B093DS6L7R']);
-  const present = candidates.filter((c) => guitarAsins.has(c.gift.asin));
+  const present = candidates.filter((c) => guitarAsins.has(c.gift.asin ?? ''));
   check('au moins un accessoire guitare toujours présent', present.length > 0, `trouvés: ${present.length}`);
 }
 
@@ -110,10 +110,10 @@ function titles(candidates: ScoredCandidate[]): string[] {
     'B0D2HG7ZLJ', // photo-telecommande
     'B0DF2651JN', // photo-stabilisateur
   ]);
-  const leaked = candidates.filter((c) => smartphoneOnlyAsins.has(c.gift.asin));
+  const leaked = candidates.filter((c) => smartphoneOnlyAsins.has(c.gift.asin ?? ''));
   check('aucun accessoire smartphone-only dans le pool', leaked.length === 0, titles(leaked).join(', '));
   // Les produits Instax dédiés doivent rester proposés.
-  const instaxPresent = candidates.some((c) => c.gift.asin === 'B0C9Q7QFGF' || c.gift.asin === 'B0000C73CQ');
+  const instaxPresent = candidates.some((c) => (c.gift.asin ?? '') === 'B0C9Q7QFGF' || (c.gift.asin ?? '') === 'B0000C73CQ');
   check('les produits Instax dédiés restent proposés', instaxPresent);
 }
 
@@ -128,8 +128,8 @@ function titles(candidates: ScoredCandidate[]): string[] {
     })
   );
   const candidates = generateCandidates(contact, { maxEuros: 200 });
-  const bonbons = candidates.find((c) => c.gift.asin === 'B09TZ39L7Y'); // cinema-20, contenu:['films','series']
-  const cinemaSeanceDuo = candidates.find((c) => c.gift.asin === 'B0DH9BBZ5N'); // cinema-giftcard, pas de contenu déclaré
+  const bonbons = candidates.find((c) => (c.gift.asin ?? '') === 'B09TZ39L7Y'); // cinema-20, contenu:['films','series']
+  const cinemaSeanceDuo = candidates.find((c) => (c.gift.asin ?? '') === 'B0DH9BBZ5N'); // cinema-giftcard, pas de contenu déclaré
   check('un produit taggé films+series obtient bien le bonus de correspondance', !!bonbons && bonbons.reasons.themeAnswer, bonbons ? `score=${bonbons.score}` : 'absent');
   // Comparaison directe : avec le mapping, contenu=les-deux doit matcher au moins autant qu'un choix
   // "films" seul sur un produit qui déclare contenu:['films','series'].
@@ -138,7 +138,7 @@ function titles(candidates: ScoredCandidate[]): string[] {
     makeQuiz({ interests: ['cinema'], themeAnswers: { cinema: { contenu: 'films', contexte: 'maison' } } })
   );
   const candidatesFilms = generateCandidates(contactFilmsSeul, { maxEuros: 200 });
-  const bonbonsFilms = candidatesFilms.find((c) => c.gift.asin === 'B09TZ39L7Y');
+  const bonbonsFilms = candidatesFilms.find((c) => (c.gift.asin ?? '') === 'B09TZ39L7Y');
   check(
     'contenu=les-deux ne score pas moins bien que contenu=films sur un produit films+series',
     !!bonbons && !!bonbonsFilms && bonbons.score >= bonbonsFilms.score,
@@ -160,9 +160,9 @@ function titles(candidates: ScoredCandidate[]): string[] {
     })
   );
   const candidates = generateCandidates(contact, { maxEuros: 100 });
-  const stillThere = candidates.some((c) => c.gift.asin === 'B07VJJ3T1N');
+  const stillThere = candidates.some((c) => (c.gift.asin ?? '') === 'B07VJJ3T1N');
   check('le produit guitare aimé ne réapparaît pas devenu incompatible', !stillThere);
-  const otherGuitar = candidates.some((c) => ['B0C49KV8S6', 'B093DS6L7R'].includes(c.gift.asin));
+  const otherGuitar = candidates.some((c) => ['B0C49KV8S6', 'B093DS6L7R'].includes(c.gift.asin ?? ''));
   check('le bonus "aimé" ne fait pas non plus remonter d’autres accessoires guitare', !otherGuitar);
 }
 
@@ -197,7 +197,7 @@ function titles(candidates: ScoredCandidate[]): string[] {
     })
   );
   const candidates = generateCandidates(contact, { maxEuros: 100 });
-  const balance = candidates.find((c) => c.gift.asin === 'B06X9NQ8GX'); // cuisine-20, tags:['patisserie'] + taxonomy.univers:['patisserie']
+  const balance = candidates.find((c) => (c.gift.asin ?? '') === 'B06X9NQ8GX'); // cuisine-20, tags:['patisserie'] + taxonomy.univers:['patisserie']
   // Avant correctif : rapport(1) + univers(1) + preference(1) via taxonomy = 3 matches, PLUS
   // patisserie via tags = 4 matches → score themeAnswer = 48. Après correctif (taxonomy prioritaire,
   // tags ignorés) : 3 matches → 36. On vérifie juste l'absence du double comptage (pas 4 matches).

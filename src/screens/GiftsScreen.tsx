@@ -61,7 +61,7 @@ export function GiftsScreen() {
   // pouvaient réapparaître en boucle à chaque réglage du curseur.
   const [sessionExcluded, setSessionExcluded] = useState<string[]>([]);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
-  const [likedAsins, setLikedAsins] = useState<string[]>([]);
+  const [likedGiftIds, setLikedGiftIds] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
 
   // Changer de contact repart d'un état propre — le budget/les exclusions n'ont pas de sens d'un
@@ -70,7 +70,7 @@ export function GiftsScreen() {
     setSliderValue(initialSlider);
     setBudgetMax(initialSlider === SLIDER_MAX ? Infinity : initialSlider);
     setSessionExcluded([]);
-    setLikedAsins([]);
+    setLikedGiftIds([]);
     setShowAll(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact?.id]);
@@ -99,7 +99,10 @@ export function GiftsScreen() {
 
   const days = daysUntilNext(contact.date, today);
   const sent = giftSentIds.includes(contact.id);
-  const candidateByAsin = new Map(candidates.map((c) => [c.gift.asin, c]));
+  // CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — `gift.id` est désormais l'identité canonique
+  // partout dans cet écran (clé React, Map, like/reject, historique) — `asin` n'est plus jamais lu
+  // que pour construire le lien Amazon (voir RecommendationCard), jamais comme identifiant.
+  const candidateById = new Map(candidates.map((c) => [c.gift.id, c]));
   const precision = precisionLevel(contact);
 
   function commitSlider(value: number) {
@@ -109,15 +112,17 @@ export function GiftsScreen() {
     // Un budget différent ne doit pas faire réapparaître ce qui a déjà été vu/rejeté.
   }
 
-  function handleLike(asin: string) {
+  function handleLike(giftId: string) {
     if (!contact?.quiz) return;
     const quiz = normalizeQuizProfile(contact.quiz);
-    setLikedAsins((prev) => [...prev, asin]);
+    setLikedGiftIds((prev) => [...prev, giftId]);
     upsertContact({
       ...contact,
       quiz: {
         ...quiz,
-        recommendationHistory: [...quiz.recommendationHistory, { at: new Date().toISOString(), shownAsins: top.map((c) => c.gift.asin), likedAsins: [asin] }],
+        // Nouvel écrit : uniquement la forme canonique (shownGiftIds/likedGiftIds), jamais
+        // shownAsins/likedAsins — voir types.ts.
+        recommendationHistory: [...quiz.recommendationHistory, { at: new Date().toISOString(), shownGiftIds: top.map((c) => c.gift.id), likedGiftIds: [giftId] }],
       },
     });
   }
@@ -125,15 +130,16 @@ export function GiftsScreen() {
   function handleReject(reason: RejectReason) {
     if (!contact?.quiz || !rejectTarget) return;
     const quiz = normalizeQuizProfile(contact.quiz);
-    const asin = rejectTarget;
-    const rejectedTheme = candidateByAsin.get(asin)?.gift.theme;
+    const giftId = rejectTarget;
+    const rejectedTheme = candidateById.get(giftId)?.gift.theme;
     upsertContact({
       ...contact,
-      quiz: { ...quiz, feedback: [...quiz.feedback, { asin, theme: rejectedTheme, reason, at: new Date().toISOString() }] },
+      // Nouvel écrit : uniquement `giftId`, jamais `asin` — voir types.ts.
+      quiz: { ...quiz, feedback: [...quiz.feedback, { giftId, theme: rejectedTheme, reason, at: new Date().toISOString() }] },
     });
     // Ajoute juste ce produit aux exclusions — candidates (dérivé) fait automatiquement remonter
     // le suivant sur la liste triée à cette place, pas besoin de le calculer/patcher à la main.
-    setSessionExcluded((prev) => [...prev, asin]);
+    setSessionExcluded((prev) => [...prev, giftId]);
     setRejectTarget(null);
 
     // "Trop cher" ne modifie jamais silencieusement un budget permanent — le budget appartient à
@@ -214,14 +220,14 @@ export function GiftsScreen() {
             <>
               {(showAll ? candidates : top).map((c, idx) => (
                 <RecommendationCard
-                  key={c.gift.asin}
+                  key={c.gift.id}
                   candidate={c}
                   medal={MEDALS[idx] ?? null}
                   contact={contact}
                   theme={theme}
-                  liked={likedAsins.includes(c.gift.asin)}
-                  onLike={() => handleLike(c.gift.asin)}
-                  onReject={() => setRejectTarget(c.gift.asin)}
+                  liked={likedGiftIds.includes(c.gift.id)}
+                  onLike={() => handleLike(c.gift.id)}
+                  onReject={() => setRejectTarget(c.gift.id)}
                 />
               ))}
               {candidates.length > 3 && (
@@ -283,25 +289,39 @@ function RecommendationCard({
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const gift = candidate.gift;
+  // CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — un produit sans donnée commerce (asin/imageUrl
+  // absents, ex. futur catalogue "safe beta" sans sourcing Amazon) reste affichable normalement :
+  // repli emoji au lieu de la photo, aucun lien Amazon construit/ouvert (jamais d'URL devinée), CTA
+  // externe simplement absent plutôt qu'inactif-mais-visible.
+  const hasAmazonLink = !!gift.asin;
+  const TopRow = (
+    <>
+      <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
+        {gift.imageUrl && !imageFailed ? (
+          <Image source={{ uri: gift.imageUrl }} style={styles.thumbImage} resizeMode="contain" onError={() => setImageFailed(true)} />
+        ) : (
+          <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        {medal && <Text style={{ fontSize: 12 }}>{medal}</Text>}
+        <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
+          {gift.title}
+        </Text>
+        <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>
+      </View>
+      {hasAmazonLink && <Ionicons name="open-outline" size={18} color={theme.inkSoft} />}
+    </>
+  );
   return (
     <View style={[styles.recoCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-      <Pressable onPress={() => Linking.openURL(amazonUrl(gift.asin))} style={styles.recoTop}>
-        <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-          {imageFailed ? (
-            <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
-          ) : (
-            <Image source={{ uri: gift.imageUrl }} style={styles.thumbImage} resizeMode="contain" onError={() => setImageFailed(true)} />
-          )}
-        </View>
-        <View style={{ flex: 1 }}>
-          {medal && <Text style={{ fontSize: 12 }}>{medal}</Text>}
-          <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
-            {gift.title}
-          </Text>
-          <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>
-        </View>
-        <Ionicons name="open-outline" size={18} color={theme.inkSoft} />
-      </Pressable>
+      {hasAmazonLink ? (
+        <Pressable onPress={() => Linking.openURL(amazonUrl(gift.asin!))} style={styles.recoTop}>
+          {TopRow}
+        </Pressable>
+      ) : (
+        <View style={styles.recoTop}>{TopRow}</View>
+      )}
       <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{whyForContact(candidate, contact)}</Text>
       <View style={styles.recoActions}>
         <Pressable onPress={onLike} style={[styles.recoActionBtn, { borderColor: theme.line }]}>

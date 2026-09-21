@@ -73,12 +73,31 @@ export type QuizProfile = {
   themeAnswers: Partial<Record<InterestTag, Record<string, string>>>;
 
   /** Retours "Pas convaincu" mémorisés — exclut des produits/thèmes des futures recommandations
-   *  et pondère le scoring (voir recommendationEngine.ts). */
-  feedback: { asin?: string; theme?: InterestTag; reason: RejectReason; at: string }[];
+   *  et pondère le scoring (voir recommendationEngine.ts).
+   *  CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — `giftId` (CuratedGift.id) est désormais
+   *  l'identité canonique, TOUJOURS écrite par les nouveaux retours (voir GiftsScreen.tsx).
+   *  `asin` reste lisible pour tolérer les entrées legacy déjà persistées (créées avant cette
+   *  version) mais n'est plus jamais écrit — voir normalizeQuizProfile() dans quiz.ts, SEUL endroit
+   *  qui convertit un `asin` legacy vers le `giftId` correspondant (recherche dans le catalogue
+   *  courant, jamais une affectation directe `giftId = asin`). Une entrée dont l'ASIN legacy ne
+   *  correspond plus à aucun produit du catalogue actuel reste dans ce tableau tel quel (donnée
+   *  utilisateur jamais supprimée) mais n'a alors aucun effet sur le scoring (voir isExcluded). */
+  feedback: { giftId?: string; asin?: string; theme?: InterestTag; reason: RejectReason; at: string }[];
 
   /** Léger historique des recommandations déjà montrées, pour ne pas re-proposer immédiatement
-   *  les mêmes idées via "Voir d'autres idées". */
-  recommendationHistory: { at: string; shownAsins: string[]; likedAsins: string[] }[];
+   *  les mêmes idées via "Voir d'autres idées".
+   *  CHANTIER "Phase 6B" (2026-09-21) — `shownGiftIds`/`likedGiftIds` sont la forme canonique,
+   *  seule écrite désormais. `shownAsins`/`likedAsins` restent lisibles pour les entrées legacy
+   *  (converties par normalizeQuizProfile(), jamais écrites après cette version). */
+  recommendationHistory: {
+    at: string;
+    shownGiftIds?: string[];
+    likedGiftIds?: string[];
+    /** @deprecated legacy pré-Phase 6B — converti vers *GiftIds par normalizeQuizProfile(). */
+    shownAsins?: string[];
+    /** @deprecated legacy pré-Phase 6B — converti vers *GiftIds par normalizeQuizProfile(). */
+    likedAsins?: string[];
+  }[];
 
   /** Ancien "budget habituel" demandé dans le quiz général — conservé uniquement pour pré-remplir
    *  le sélecteur de budget d'une recherche (voir GiftsScreen.tsx) ; le quiz général ne l'écrit
