@@ -226,15 +226,19 @@ function passesHardFilters(gift: CuratedGift, themeAnswers: Record<string, strin
  */
 const TAXONOMY_CONFLICTS: Partial<Record<InterestTag, Partial<Record<string, readonly (readonly [string, string])[]>>>> = {
   gaming: {
-    // Un accessoire "améliorer son setup" ne répond pas à "quelque chose lié à ses jeux préférés"/
-    // "plus de confort de jeu"/"jouer avec d'autres" — catégories de produit réellement distinctes
-    // (remplace l'ancien tagConflictPenalty gaming-only, -25 : ce cas précis est désormais couvert
-    // ici, sans double comptage — voir consigne §4/§6, aucun mécanisme séparé conservé).
-    focus: [
-      ['setup', 'fandom'],
-      ['setup', 'confort'],
-      ['setup', 'multijoueur'],
-    ],
+    // Un accessoire "améliorer son setup" ne répond pas à "quelque chose lié à ses jeux préférés"
+    // — catégories de produit réellement distinctes (remplace l'ancien tagConflictPenalty
+    // gaming-only, -25 : ce cas précis est désormais couvert ici, sans double comptage — voir
+    // consigne Phase 3 §4/§6, aucun mécanisme séparé conservé).
+    // CHANTIER "Phase 4C — nettoyage quiz pré-bêta" (2026-09-21) : setup↔confort et
+    // setup↔multijoueur RETIRÉS d'ici — les options 'confort'/'multijoueur' n'existent plus dans
+    // le quiz gaming (voir themeQuizzes.ts), donc ces paires ne pouvaient plus jamais être
+    // déclenchées par une nouvelle réponse ; les retirer rend explicitement neutres les anciennes
+    // réponses déjà stockées avec ces valeurs (elles ne recoupent plus aucune paire de
+    // TAXONOMY_CONFLICTS, donc `conflictsWith` retourne toujours `false` pour elles désormais —
+    // aucune dégradation silencieuse des recommandations pour les profils existants, voir
+    // consigne §7).
+    focus: [['setup', 'fandom']],
   },
   musique: {
     // Un accessoire pour JOUER d'un instrument est fonctionnellement inutile à quelqu'un qui

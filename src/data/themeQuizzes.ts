@@ -62,14 +62,17 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        // CHANTIER "Phase 4C — nettoyage quiz pré-bêta" (2026-09-21) : 'confort'/'multijoueur'
+        // retirés — 0 produit catalogue ne les recoupe positivement, et ils ne faisaient que
+        // pénaliser (via TAXONOMY_CONFLICTS) les produits 'setup' sans jamais pouvoir proposer
+        // d'alternative positive (voir audit Phase 4B §1c/§2). Réintroduire uniquement si le
+        // catalogue gagne des produits qui les recoupent réellement.
         id: 'focus',
         prompt: 'Pour son univers gaming, {il} apprécierait plutôt…',
         type: 'choice',
         options: [
           { key: 'setup', label: 'Améliorer son setup' },
           { key: 'fandom', label: 'Quelque chose lié à ses jeux préférés' },
-          { key: 'confort', label: 'Plus de confort de jeu' },
-          { key: 'multijoueur', label: 'Jouer avec d’autres' },
         ],
       },
       {
@@ -100,7 +103,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais un jeu, une licence ou un univers qu’{il} adore ?',
         type: 'text',
-        placeholder: 'Ex. Pokémon, Zelda, Star Wars…',
+        placeholder: 'Ex. un jeu, une licence ou un univers précis…',
       },
     ],
   },
@@ -119,15 +122,16 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'bbq'/'apero'/'cuisine-du-monde' retirés — 0 produit
+        // catalogue ne les recoupe, et 'univers' n'est pas une dimension à conflit (voir
+        // TAXONOMY_CONFLICTS.cuisine, qui ne couvre que 'preference') donc ces valeurs étaient
+        // strictement décoratives (audit Phase 4B §1c).
         id: 'univers',
         prompt: 'Son univers cuisine préféré ?',
         type: 'choice',
         options: [
           { key: 'patisserie', label: 'Pâtisserie' },
-          { key: 'bbq', label: 'BBQ' },
           { key: 'cafe', label: 'Café' },
-          { key: 'apero', label: 'Apéro' },
-          { key: 'cuisine-du-monde', label: 'Cuisine du monde' },
           { key: 'quotidien', label: 'Cuisine du quotidien' },
           { key: 'gastronomie', label: 'Gastronomie' },
         ],
@@ -161,6 +165,9 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     theme: 'musique',
     questions: [
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'concerts' retiré — 0 produit catalogue ne le
+        // recoupe (voir audit Phase 4B §1c) ; 'ecoute'/'jouer'/'both' restent, seules valeurs
+        // réellement exploitées (bonus positif ET conflit ecoute↔jouer, voir TAXONOMY_CONFLICTS).
         id: 'mode',
         prompt: '{Il} préfère…',
         type: 'choice',
@@ -168,7 +175,6 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'ecoute', label: 'Écouter de la musique' },
           { key: 'jouer', label: 'Jouer de la musique' },
           { key: 'both', label: 'Les deux' },
-          { key: 'concerts', label: 'Aller à des concerts' },
         ],
       },
       {
@@ -208,6 +214,8 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'experience' retiré — 0 produit catalogue ne le
+        // recoupe (voir audit Phase 4B §1c).
         id: 'preference',
         prompt: '{Il} apprécierait plutôt…',
         type: 'choice',
@@ -215,14 +223,13 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'son', label: 'Un meilleur son' },
           { key: 'pratique', label: 'De quoi pratiquer' },
           { key: 'fandom', label: 'Quelque chose lié à son artiste préféré' },
-          { key: 'experience', label: 'Une expérience (concert, événement)' },
         ],
       },
       {
         id: 'favorite',
         prompt: 'Tu connais son artiste ou son genre préféré ?',
         type: 'text',
-        placeholder: 'Ex. Taylor Swift, jazz, rock…',
+        placeholder: 'Ex. un artiste, un groupe ou un style qu’il adore…',
       },
     ],
   },
@@ -286,6 +293,11 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     theme: 'sport',
     questions: [
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'collectif'/'raquette'/'autre' retirés — audit
+        // Phase 4B §1c confirmait 'collectif'/'raquette' ZERO ; 'autre' était omis par erreur du
+        // rapport §2/§5, revérifié ici (0 produit taxonomé, 'discipline' hors TAXONOMY_CONFLICTS,
+        // aucun hardRequirement, aucune composite expansion sur cette dimension — seule
+        // sport.lieu en a une, dimension différente) : également ZERO, donc retiré.
         id: 'discipline',
         prompt: '{Il} pratique surtout…',
         type: 'choice',
@@ -294,9 +306,6 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'musculation', label: 'Musculation' },
           { key: 'yoga', label: 'Yoga / étirement' },
           { key: 'velo', label: 'Vélo' },
-          { key: 'collectif', label: 'Sport collectif' },
-          { key: 'raquette', label: 'Sport de raquette' },
-          { key: 'autre', label: 'Autre discipline' },
         ],
       },
       {
@@ -377,30 +386,16 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'intemporel', label: 'Une pièce intemporelle' },
         ],
       },
-      {
-        // Filtre DUR potentiel : une taille connue permet d'éliminer les produits dont la taille
-        // ne correspond pas (voir hardRequirements sur les futurs vêtements/chaussures taillés).
-        id: 'tailleConnue',
-        prompt: 'Tu connais sa taille ?',
-        type: 'choice',
-        options: [
-          { key: 'oui', label: 'Oui' },
-          { key: 'non', label: 'Non' },
-        ],
-      },
-      {
-        id: 'taille',
-        prompt: 'Sa taille, c’est…',
-        type: 'choice',
-        options: [
-          { key: 'xs', label: 'XS' },
-          { key: 's', label: 'S' },
-          { key: 'm', label: 'M' },
-          { key: 'l', label: 'L' },
-          { key: 'xl', label: 'XL' },
-        ],
-        when: { questionId: 'tailleConnue', oneOf: ['oui'] },
-      },
+      // CHANTIER "Phase 4C — nettoyage quiz pré-bêta" (2026-09-21) : 'tailleConnue'/'taille'
+      // retirés ensemble — audit Phase 4B confirmait `mode.taille` (xs/s/m/l/xl) totalement mort
+      // (aucun produit catalogue ne déclare de dimension taille, aucun hardRequirement dessus) ;
+      // `tailleConnue` n'existait que pour conditionner l'affichage de `taille` (voir `when`
+      // ci-dessus, désormais supprimé) et n'avait lui-même aucun effet de scoring propre (aucune
+      // valeur 'oui'/'non' n'est recoupée par une taxonomy produit du thème mode) — le conserver
+      // seul aurait posé une question sans plus aucune conséquence, contraire à l'objectif de ce
+      // nettoyage (voir consigne §6). Anciennes réponses `mode.tailleConnue`/`mode.taille`
+      // stockées restent tolérées et simplement ignorées par le moteur (Record<string,string>
+      // libre, jamais validé contre un schéma fixe).
       detailQuestion('Mode'),
     ],
   },
@@ -460,13 +455,14 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     theme: 'lecture',
     questions: [
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'audio' retiré — 0 produit catalogue ne le recoupe
+        // (voir audit Phase 4B §1c).
         id: 'format',
         prompt: '{Il} lit surtout…',
         type: 'choice',
         options: [
           { key: 'papier', label: 'Sur papier' },
           { key: 'numerique', label: 'Sur liseuse numérique' },
-          { key: 'audio', label: 'En livre audio' },
           { key: 'ecriture', label: '{Il} écrit aussi' },
         ],
       },
@@ -548,7 +544,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais une licence ou un univers qu’{il} adore ?',
         type: 'text',
-        placeholder: 'Ex. Pokémon, LEGO Star Wars, Marvel…',
+        placeholder: 'Ex. une licence, une marque ou un univers qu’il collectionne…',
       },
     ],
   },
@@ -738,13 +734,14 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'fandom' retiré — 0 produit licence cinéma au
+        // catalogue ne le recoupe (voir audit Phase 4B §1c).
         id: 'besoin',
         prompt: '{Il} apprécierait plutôt…',
         type: 'choice',
         options: [
           { key: 'installation', label: 'Une meilleure installation' },
           { key: 'ambiance', label: 'De l’ambiance' },
-          { key: 'fandom', label: 'Quelque chose lié à sa franchise préférée' },
           { key: 'collection', label: 'Un objet de collection' },
           { key: 'experience', label: 'Une expérience' },
         ],
@@ -753,7 +750,7 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         id: 'favorite',
         prompt: 'Tu connais un film, une série ou une franchise qu’{il} adore ?',
         type: 'text',
-        placeholder: 'Ex. Star Wars, Harry Potter, Marvel…',
+        placeholder: 'Ex. un film, une série ou un univers qu’il adore…',
       },
     ],
   },
@@ -974,6 +971,8 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
     theme: 'jardinage',
     questions: [
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'grand-jardin' retiré — 0 produit catalogue ne le
+        // recoupe (voir audit Phase 4B §1c).
         id: 'lieu',
         prompt: '{Il} jardine plutôt…',
         type: 'choice',
@@ -981,7 +980,6 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'interieur', label: 'À l’intérieur' },
           { key: 'balcon', label: 'Sur un balcon' },
           { key: 'petit-jardin', label: 'Dans un petit jardin' },
-          { key: 'grand-jardin', label: 'Dans un grand jardin' },
         ],
       },
       {
@@ -1087,13 +1085,14 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
         ],
       },
       {
+        // CHANTIER "Phase 4C" (2026-09-21) : 'club' retiré — 0 produit catalogue ne le recoupe
+        // (voir audit Phase 4B §1c).
         id: 'lieu',
         prompt: '{Il} danse surtout…',
         type: 'choice',
         options: [
           { key: 'maison', label: 'À la maison' },
           { key: 'studio', label: 'En studio / en cours' },
-          { key: 'club', label: 'En club / soirée' },
           { key: 'mixte', label: 'Ça dépend' },
         ],
       },

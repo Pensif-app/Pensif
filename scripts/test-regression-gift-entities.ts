@@ -13,6 +13,7 @@ import { Contact, QuizProfile } from '../src/data/types';
 import { generateCandidates, topRecommendations, whyForContact, ScoredCandidate } from '../src/data/recommendationEngine';
 import { CURATED_GIFTS } from '../src/data/giftCatalog';
 import { canonicalize, toCanonicalConcept, extractConcepts } from '../src/data/textSignals';
+import { getThemeQuiz } from '../src/data/themeQuizzes';
 
 function makeQuiz(overrides: Partial<QuizProfile>): QuizProfile {
   return {
@@ -604,6 +605,139 @@ console.log('\n[19] Non-régressions Phase 1 — cas obligatoires rejoués aprè
   const contactStarWarsSeul = makeContact('FanSeul', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { favorite: 'Star Wars' } } }));
   const candidatesStarWarsSeul = generateCandidates(contactStarWarsSeul, { maxEuros: 100 });
   check('"Star Wars" seul (sans LEGO) : toujours AUCUN faux bonus entity', candidatesStarWarsSeul.every((c) => c.reasons.textMatchCoverage === null || c.reasons.textMatchKind === 'substring_fallback' || c.reasons.textMatchKind === null));
+}
+
+console.log('\n[23] Phase 4C — nettoyage quiz pré-bêta : anciennes valeurs gaming confort/multijoueur neutres');
+{
+  const gamingConfig = getThemeQuiz('gaming');
+  const focusQuestion = gamingConfig.questions.find((q: any) => q.id === 'focus')!;
+  check("gaming.focus ne propose plus 'confort'", !focusQuestion.options!.some((o: any) => o.key === 'confort'));
+  check("gaming.focus ne propose plus 'multijoueur'", !focusQuestion.options!.some((o: any) => o.key === 'multijoueur'));
+  check('gaming.focus conserve setup/fandom (question garde un sens)', focusQuestion.options!.map((o: any) => o.key).sort().join(',') === 'fandom,setup');
+
+  const modeConfig = getThemeQuiz('mode');
+  check("mode.taille n'est plus proposé", !modeConfig.questions.some((q: any) => q.id === 'taille'));
+  check("mode.tailleConnue n'est plus proposé (n'avait plus aucun effet une fois 'taille' retiré)", !modeConfig.questions.some((q: any) => q.id === 'tailleConnue'));
+
+  const lectureConfig = getThemeQuiz('lecture');
+  const formatQuestion = lectureConfig.questions.find((q: any) => q.id === 'format')!;
+  check("lecture.format ne propose plus 'audio'", !formatQuestion.options!.some((o: any) => o.key === 'audio'));
+
+  const sportConfig = getThemeQuiz('sport');
+  const disciplineQuestion = sportConfig.questions.find((q: any) => q.id === 'discipline')!;
+  check("sport.discipline ne propose plus 'collectif'", !disciplineQuestion.options!.some((o: any) => o.key === 'collectif'));
+  check("sport.discipline ne propose plus 'raquette'", !disciplineQuestion.options!.some((o: any) => o.key === 'raquette'));
+  check("sport.discipline ne propose plus 'autre' (revérifié Phase 4C : 0 match taxonomy, hors TAXONOMY_CONFLICTS, aucun hardRequirement, aucune composite expansion sur discipline — ZERO confirmé)", !disciplineQuestion.options!.some((o: any) => o.key === 'autre'));
+
+  const cuisineConfig = getThemeQuiz('cuisine');
+  const universQuestion = cuisineConfig.questions.find((q: any) => q.id === 'univers')!;
+  check("cuisine.univers ne propose plus bbq/apero/cuisine-du-monde", !universQuestion.options!.some((o: any) => ['bbq', 'apero', 'cuisine-du-monde'].includes(o.key)));
+
+  const jardinageConfig = getThemeQuiz('jardinage');
+  const lieuJardinageQuestion = jardinageConfig.questions.find((q: any) => q.id === 'lieu')!;
+  check("jardinage.lieu ne propose plus 'grand-jardin'", !lieuJardinageQuestion.options!.some((o: any) => o.key === 'grand-jardin'));
+
+  const danseConfig = getThemeQuiz('danse');
+  const lieuDanseQuestion = danseConfig.questions.find((q: any) => q.id === 'lieu')!;
+  check("danse.lieu ne propose plus 'club'", !lieuDanseQuestion.options!.some((o: any) => o.key === 'club'));
+
+  const musiqueConfig = getThemeQuiz('musique');
+  const modeQuestion = musiqueConfig.questions.find((q: any) => q.id === 'mode')!;
+  const preferenceQuestion = musiqueConfig.questions.find((q: any) => q.id === 'preference')!;
+  check("musique.mode ne propose plus 'concerts'", !modeQuestion.options!.some((o: any) => o.key === 'concerts'));
+  check("musique.preference ne propose plus 'experience'", !preferenceQuestion.options!.some((o: any) => o.key === 'experience'));
+
+  const cinemaConfig = getThemeQuiz('cinema');
+  const besoinCinemaQuestion = cinemaConfig.questions.find((q: any) => q.id === 'besoin')!;
+  check("cinema.besoin ne propose plus 'fandom'", !besoinCinemaQuestion.options!.some((o: any) => o.key === 'fandom'));
+
+  const collectionConfig = getThemeQuiz('collection');
+  const typeQuestion = collectionConfig.questions.find((q: any) => q.id === 'type')!;
+  check("collection.type=autre reste proposé (conservé volontairement, hard filter utile — consigne §4)", typeQuestion.options!.some((o: any) => o.key === 'autre'));
+
+  const favoriteGaming = gamingConfig.questions.find((q: any) => q.id === 'favorite');
+  const favoriteMusique = musiqueConfig.questions.find((q: any) => q.id === 'favorite');
+  const favoriteCollection = collectionConfig.questions.find((q: any) => q.id === 'favorite');
+  const favoriteCinema = cinemaConfig.questions.find((q: any) => q.id === 'favorite');
+  check('favorite gaming toujours présent', !!favoriteGaming);
+  check('favorite musique toujours présent', !!favoriteMusique);
+  check('favorite collection toujours présent', !!favoriteCollection);
+  check('favorite cinema toujours présent', !!favoriteCinema);
+  const uncoveredFranchises = ['Pokémon', 'Zelda', 'Star Wars', 'Taylor Swift', 'Harry Potter', 'Marvel'];
+  check(
+    'aucun placeholder favorite ne cite plus une franchise/artiste non couverte',
+    [favoriteGaming, favoriteMusique, favoriteCollection, favoriteCinema].every(
+      (q: any) => !uncoveredFranchises.some((name) => (q.placeholder ?? '').includes(name))
+    )
+  );
+}
+
+console.log('\n[24] Phase 4C — TAXONOMY_CONFLICTS gaming.focus : anciennes réponses confort/multijoueur devenues neutres');
+{
+  const mouseProduct = CURATED_GIFTS.find((g) => g.id === 'gaming-20')!; // focus:['setup']
+  const contactOldConfort = makeContact('Ancien1', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'confort' } } }));
+  const candidatesOldConfort = generateCandidates(contactOldConfort, { maxEuros: 100 });
+  const mouseWithOldConfort = findByAsin(candidatesOldConfort, mouseProduct.asin)!;
+  check(
+    "ancienne réponse gaming.focus='confort' : la souris (focus=setup) n'est plus en conflit (realConflictCount=0)",
+    mouseWithOldConfort.reasons.realConflictCount === 0
+  );
+
+  const contactOldMultijoueur = makeContact('Ancien2', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { focus: 'multijoueur' } } }));
+  const candidatesOldMultijoueur = generateCandidates(contactOldMultijoueur, { maxEuros: 100 });
+  const mouseWithOldMultijoueur = findByAsin(candidatesOldMultijoueur, mouseProduct.asin)!;
+  check(
+    "ancienne réponse gaming.focus='multijoueur' : la souris (focus=setup) n'est plus en conflit (realConflictCount=0)",
+    mouseWithOldMultijoueur.reasons.realConflictCount === 0
+  );
+
+  // Le seul conflit gaming encore supporté (setup vs fandom) continue de fonctionner à l'identique.
+  const psGiftCardStillConflicts = makeContact('Ancien3', makeQuiz({ interests: ['gaming'], themeAnswers: { gaming: { platform: 'playstation', focus: 'setup' } } }));
+  const candidatesStillConflict = generateCandidates(psGiftCardStillConflicts, { maxEuros: 100 });
+  const psGiftCard = candidatesStillConflict.find((c) => c.gift.id === 'gaming-fandom-playstation');
+  check(
+    "gaming.focus='setup' vs carte cadeau focus=[fandom] : conflit setup↔fandom toujours actif (non-régression Phase 3)",
+    !!psGiftCard && psGiftCard.reasons.realConflictCount === 1
+  );
+}
+
+console.log('\n[25] Phase 4C — legacy themeAnswers inconnus tolérés sans crash (mode.taille, sport.discipline=autre)');
+{
+  const contactLegacyTaille = makeContact('Legacy1', makeQuiz({ interests: ['mode'], themeAnswers: { mode: { tailleConnue: 'oui', taille: 'm' } } }));
+  let crashed = false;
+  let candidatesLegacy: ScoredCandidate[] = [];
+  try {
+    candidatesLegacy = generateCandidates(contactLegacyTaille, { maxEuros: 100 });
+  } catch {
+    crashed = true;
+  }
+  check("clés legacy mode.tailleConnue/mode.taille tolérées sans crash", !crashed && candidatesLegacy.length > 0);
+
+  const contactLegacyDiscipline = makeContact('Legacy2', makeQuiz({ interests: ['sport'], themeAnswers: { sport: { discipline: 'autre' } } }));
+  let crashed2 = false;
+  let candidatesLegacy2: ScoredCandidate[] = [];
+  try {
+    candidatesLegacy2 = generateCandidates(contactLegacyDiscipline, { maxEuros: 100 });
+  } catch {
+    crashed2 = true;
+  }
+  check("valeur legacy sport.discipline='autre' tolérée sans crash", !crashed2 && candidatesLegacy2.length > 0);
+}
+
+console.log('\n[26] Phase 4C — collection.type=autre reste un hard filter fonctionnel (consigne §4)');
+{
+  const classeurProduct = CURATED_GIFTS.find((g) => g.id === 'collection-classeur')!; // hardRequirements:{type:['tcg']}
+  const pochettesProduct = CURATED_GIFTS.find((g) => g.id === 'collection-pochettes')!; // hardRequirements:{type:['tcg']}
+  const socleProduct = CURATED_GIFTS.find((g) => g.id === 'collection-socle-figurine')!; // hardRequirements:{type:['figurines','miniatures']}
+  const contactAutre = makeContact('Collectionneur', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { type: 'autre' } } }));
+  const candidatesAutre = generateCandidates(contactAutre, { maxEuros: 100 });
+  check("collection.type='autre' écarte le classeur TCG (hardRequirements incompatible)", !candidatesAutre.some((c) => c.gift.asin === classeurProduct.asin));
+  check("collection.type='autre' écarte les pochettes TCG (hardRequirements incompatible)", !candidatesAutre.some((c) => c.gift.asin === pochettesProduct.asin));
+  check("collection.type='autre' écarte le socle figurines/miniatures (hardRequirements incompatible)", !candidatesAutre.some((c) => c.gift.asin === socleProduct.asin));
+
+  const contactTcg = makeContact('Collectionneur2', makeQuiz({ interests: ['collection'], themeAnswers: { collection: { type: 'tcg' } } }));
+  const candidatesTcg = generateCandidates(contactTcg, { maxEuros: 100 });
+  check("collection.type='tcg' laisse passer le classeur TCG (non-régression)", candidatesTcg.some((c) => c.gift.asin === classeurProduct.asin));
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
