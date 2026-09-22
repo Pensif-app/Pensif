@@ -62,12 +62,12 @@ Deno.test('règle "ton" — contexte pauvre → message simple ; complicité par
   assert(prompt.includes('jamais en inventant un souvenir ou une habitude partagée'));
 });
 
-Deno.test('les 10 règles restent numérotées dans l’ordre (facts, sélection contexte, extrapolation, invention, naturel, ton, non-mention Pensif, interdiction tirets, JSON, relation)', () => {
+Deno.test('les 11 règles restent numérotées dans l’ordre (facts, sélection contexte, extrapolation, invention, naturel, ton, non-mention Pensif, interdiction tirets, JSON, relation, vocabulaire relationnel)', () => {
   const prompt = buildSystemPrompt('chaleureux');
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 11; i++) {
     assert(new RegExp(`\\n${i}\\.`).test(prompt) || prompt.startsWith(`${i}.`), `règle ${i} manquante ou mal numérotée`);
   }
-  assert(!prompt.includes('\n11.'), 'aucune 11e règle ne doit exister (pas de liste de cas particuliers)');
+  assert(!prompt.includes('\n12.'), 'aucune 12e règle ne doit exister (pas de liste de cas particuliers)');
 });
 
 // --- CHANTIER "Pré-TestFlight Phase 4C — Messages relation-aware" (2026-09-22) — règle 10, ajoutée
@@ -90,6 +90,103 @@ Deno.test('règle 10 "relation" — présente identiquement dans les 3 tons (rè
   assert(chaleureux.includes(rule10));
   assert(complice.includes(rule10));
   assert(court.includes(rule10));
+});
+
+// --- CHANTIER "Phase 4C.3 — Naturaliser le ton Complice" (2026-09-22) — cas réel observé sur iPhone
+// (Léa/Fiancée/ton Complice) : le modèle récitait le rôle relationnel ("Hey ma fiancée...") ET
+// inventait une complicité non fondée ("tu gardes tes secrets pour toi ?"). Règle 11 (commune aux 3
+// tons, relation = signal de calibration du ton, jamais un mot obligatoire) + réserve complice
+// étendue (lettre l./m., dynamiques de couple/complicité inventées explicitement proscrites).
+
+Deno.test('règle 11 "vocabulaire relationnel" — présence explicite, relation utilisée pour calibrer, pas pour être récitée', () => {
+  const prompt = buildSystemPrompt('chaleureux');
+  assert(prompt.includes('La relation connue sert principalement à calibrer le degré de proximité et de familiarité du message'));
+  assert(prompt.includes('Ne mentionne pas explicitement le rôle relationnel'));
+  assert(prompt.includes('"ma fiancée"'));
+  assert(prompt.includes('"mon mari"'));
+  assert(prompt.includes('"mon collègue"'));
+  assert(prompt.includes('En général, utilise simplement le prénom'));
+});
+
+Deno.test('règle 11 "vocabulaire relationnel" — présente identiquement dans les 3 tons (règle commune)', () => {
+  const chaleureux = buildSystemPrompt('chaleureux');
+  const complice = buildSystemPrompt('complice');
+  const court = buildSystemPrompt('court');
+  const rule11 = '11. La relation connue sert principalement à calibrer';
+  assert(chaleureux.includes(rule11));
+  assert(complice.includes(rule11));
+  assert(court.includes(rule11));
+});
+
+Deno.test('relation="Fiancée" disponible dans le contexte utilisateur, mais aucune consigne système n’oblige à écrire "ma fiancée"', () => {
+  // familyDescriptor() (Phase 4C.1/4C.2) transmet toujours la relation connue dans buildUserPrompt —
+  // ce test confirme que sa PRÉSENCE dans le contexte ne s'accompagne d'AUCUNE instruction système
+  // qui imposerait sa verbalisation littérale, contrairement à avant cette passe.
+  const context: MessageSuggestionContext = {
+    contact: { prenom: 'Léa', genre: 'femme', relation: 'Couple', familyRole: 'Fiancée' },
+    occasion: { occasion: 'thinking_of_you' },
+    quiz: null,
+    pensees: { optional: true, items: [] },
+  };
+  const userPrompt = buildUserPrompt(context, 'complice');
+  assert(userPrompt.includes('fiancée de l\'utilisateur'), 'la relation reste bien transmise dans le contexte (calibration du ton)');
+
+  const systemPrompt = buildSystemPrompt('complice');
+  assert(
+    !/tu DOIS (mentionner|utiliser|écrire) (le rôle|la relation|"ma fiancée")/i.test(systemPrompt),
+    'aucune consigne système ne doit jamais obliger à recopier littéralement le rôle relationnel',
+  );
+  assert(systemPrompt.includes('Ne mentionne pas explicitement le rôle relationnel'));
+});
+
+Deno.test('Complice — interdiction explicite d’inventer secret/private joke/habitude/rituel/rivalité/dynamique', () => {
+  const complice = buildSystemPrompt('complice');
+  assert(complice.includes('private joke'));
+  assert(complice.includes('un secret'));
+  assert(complice.includes('un rituel'));
+  assert(complice.includes('une rivalité'));
+  assert(complice.includes('une dynamique quelconque entre l\'utilisateur et le proche'));
+  assert(complice.includes('à moins que cette dynamique soit explicitement décrite dans le contexte fourni'));
+});
+
+Deno.test('Complice — formulations explicitement proscrites du cas réel observé (tu gardes tes secrets, comme toujours, tu me connais, encore toi, notre petit rituel, comme à notre habitude)', () => {
+  const complice = buildSystemPrompt('complice');
+  assert(complice.includes('"tu gardes tes secrets pour toi ?"'));
+  assert(complice.includes('"comme toujours"'));
+  assert(complice.includes('"tu me connais"'));
+  assert(complice.includes('"encore toi..."'));
+  assert(complice.includes('"notre petit rituel"'));
+  assert(complice.includes('"comme à notre habitude"'));
+});
+
+Deno.test('Complice — la légèreté reste une question de style, jamais de contenu relationnel inventé (ne devient pas un simple Chaleureux)', () => {
+  const complice = buildSystemPrompt('complice');
+  const chaleureux = buildSystemPrompt('chaleureux');
+  assert(complice.includes('léger, spontané ou légèrement taquin'));
+  assert(complice.includes('La légèreté est une question de STYLE, jamais de contenu relationnel inventé'));
+  // Non-régression : le ton reste bien DIFFÉRENT de chaleureux (texte plus long, réserve spécifique
+  // toujours présente) — cette passe ne l'a pas rendu fade/identique.
+  assert(complice.length > chaleureux.length);
+  assert(complice !== chaleureux);
+});
+
+Deno.test('Ami / Autres(Collègue) / Couple — relation utilisée pour calibrer le ton via le contexte, jamais obligatoirement verbalisée (règle 11 générale, pas un cas particulier par relation)', () => {
+  const systemPrompt = buildSystemPrompt('chaleureux');
+  // La règle 11 est volontairement GÉNÉRALE (comme les règles 1-10) — un seul texte couvre Ami,
+  // Couple, Autres/Collègue et toute future catégorie, jamais une liste de cas par relation.
+  assert(systemPrompt.includes('Ne mentionne pas explicitement le rôle relationnel ("ma fiancée", "mon mari", "mon collègue", etc.)'));
+
+  const contextFor = (relation: string, familyRole: string | null): MessageSuggestionContext => ({
+    contact: { prenom: 'X', genre: null, relation, familyRole },
+    occasion: { occasion: 'thinking_of_you' },
+    quiz: null,
+    pensees: { optional: true, items: [] },
+  });
+  // La relation reste bien PRÉSENTE dans le contexte utilisateur pour les 3 cas (calibration
+  // possible), sans qu'aucune règle système n'oblige sa verbalisation littérale (vérifié ci-dessus).
+  assert(buildUserPrompt(contextFor('Ami', null), 'chaleureux').includes('ami de l\'utilisateur'));
+  assert(buildUserPrompt(contextFor('Autres', 'Collègue'), 'chaleureux').includes('collègue de l\'utilisateur'));
+  assert(buildUserPrompt(contextFor('Couple', 'Mari'), 'chaleureux').includes('mari de l\'utilisateur'));
 });
 
 Deno.test('règle "interdiction des tirets" — présence explicite, tiret cadratin et demi-cadratin nommés', () => {
