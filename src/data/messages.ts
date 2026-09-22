@@ -22,7 +22,18 @@ const FAMILY_TERMS: Record<string, { warm: string; casual: string }> = {
 };
 
 /** null si le contact n'est pas de la famille, ou si son lien précis n'a pas de terme dédié
- *  (ex. "Autre"). */
+ *  (ex. "Autre").
+ *
+ *  CHANTIER "Pré-TestFlight Phase 4C — Messages relation-aware" (2026-09-22) — décision explicite :
+ *  `relation = 'Couple'` (Partenaire/Petit ami/Petite amie/Fiancé/Fiancée/Mari/Épouse, voir
+ *  FicheScreen.tsx Phase 4B) reste volontairement HORS de FAMILY_TERMS, scope INCHANGÉ (`!==
+ *  'Famille'` ci-dessous continue de couvrir Couple comme Ami/Autres). Ces templates statiques
+ *  n'ont aucun moyen de savoir comment l'utilisateur appelle réellement son/sa partenaire — y
+ *  injecter un surnom générique ("mon amour", "chéri(e)", "bébé", "cœur") serait une INVENTION, pas
+ *  une donnée connue (même principe que le prompt IA, voir suggest-message/prompt.ts §10 : ne
+ *  jamais inventer la nature/le degré d'une relation ni ce qui en découle). Le repli déjà existant
+ *  (prénom seul, `term` → null) reste donc le comportement pour Couple, identique à Ami/Autres —
+ *  aucun changement de code n'était nécessaire ici, uniquement cette clarification. */
 function familyTerm(contact: Pick<Contact, 'relation' | 'familyRole'>, style: 'warm' | 'casual'): string | null {
   if (contact.relation !== 'Famille' || !contact.familyRole) return null;
   return FAMILY_TERMS[contact.familyRole]?.[style] ?? null;

@@ -56,7 +56,8 @@ Règles strictes, à respecter systématiquement :
 6. Respecte strictement le registre de ton demandé. Le ton modifie UNIQUEMENT la manière de formuler les informations disponibles — il n'autorise JAMAIS l'ajout d'un fait, d'une anecdote, d'une habitude, d'une blague supposant un vécu commun, ou de tout autre détail personnel absent du contexte. Si le contexte est pauvre, le message doit rester simple : pour un ton complice sans information personnelle exploitable, crée la complicité uniquement par le style et la formulation, jamais en inventant un souvenir ou une habitude partagée.
 7. Ne mentionne JAMAIS "Pensif", un "quiz", des "pensées enregistrées", un "profil", un "contexte fourni", ni la provenance d'une information quelconque. Le message doit se lire comme si l'expéditeur savait déjà tout cela lui-même.
 8. N'utilise JAMAIS de tiret cadratin (—) ni de demi-cadratin (–) dans le message, même pour marquer une pause ou une incise. Utilise uniquement une ponctuation française naturelle à la place : virgule, point, deux-points, point-virgule.
-9. Réponds UNIQUEMENT avec l'objet JSON demandé par le schéma — jamais de texte hors de ce format, jamais d'explication de ton raisonnement.`;
+9. Réponds UNIQUEMENT avec l'objet JSON demandé par le schéma — jamais de texte hors de ce format, jamais d'explication de ton raisonnement.
+10. N'invente jamais la nature ou le degré de la relation entre l'utilisateur et le proche. Utilise uniquement la relation explicitement fournie dans le contexte. Si elle est générique ou absente, reste générique.`;
   return tone === 'complice' ? base + COMPLICE_REINFORCEMENT : base;
 }
 
@@ -73,9 +74,56 @@ function formatOccasion(context: MessageSuggestionContext): string {
   return `Occasion : un fait réel enregistré par l'utilisateur à propos de cette personne — "${o.texte}" (daté du ${o.date}).`;
 }
 
+// CHANTIER "Phase 4C.1 — Hardening descriptor relation" (2026-09-22) — CORRECTIF : la version
+// précédente (`contact.relation.toLowerCase()`) transmettait une `relation` non vide mais INCONNUE
+// telle quelle au modèle (ex. un texte libre legacy jamais catégorisé) — `relation`/`familyRole`
+// sont de simples `text` côté DB, sans contrainte (voir schema.sql), donc rien ne garantit qu'ils
+// appartiennent à une des catégories connues. Whitelist stricte désormais : SEULES les 4 catégories
+// réellement gérées par FicheScreen.tsx (Famille/Couple/Ami/Autres) produisent un descriptor
+// construit à partir de la donnée — toute autre valeur (vide, inconnue, texte libre) retombe sur le
+// générique "proche de l'utilisateur", jamais relayée brute.
+const COUPLE_ROLES = ['Partenaire', 'Petit ami', 'Petite amie', 'Fiancé', 'Fiancée', 'Mari', 'Épouse'];
+// CHANTIER "Phase 4C.2 — Descriptor Autres" (2026-09-22) — seuls 'Collègue'/'Connaissance' sont des
+// liens précis réellement informatifs pour 'Autres' (voir LIEN_OPTIONS_STATIC.Autres, FicheScreen.tsx
+// : ['Collègue', 'Connaissance', 'Autres']) ; 'Autres' comme LIEN PRÉCIS (par opposition à la
+// catégorie) ne dit rien de plus que la catégorie elle-même — ne mérite pas d'être renvoyé au modèle,
+// contrairement à 'Ami' (§2 de la consigne : volontairement PAS étendu à Meilleur/Proche dans cette
+// passe, pour ne pas introduire de formulation genrée/supposée sans besoin).
+const AUTRES_ROLES = ['Collègue', 'Connaissance'];
+
 function familyDescriptor(contact: MessageSuggestionContext['contact']): string {
-  if (contact.relation === 'Famille' && contact.familyRole) return `${contact.familyRole.toLowerCase()} de l'utilisateur`;
-  return contact.relation ? contact.relation.toLowerCase() : 'proche de l’utilisateur';
+  // Famille — comportement HISTORIQUE inchangé (voir consigne §2 : ne pas toucher sans raison) :
+  // un `familyRole` de famille n'a jamais été whitelisté, il est accepté tel quel dès lors que
+  // `relation === 'Famille'` (source de vérité = FicheScreen.tsx, jamais un texte inventé par
+  // l'utilisateur final — ce champ n'est jamais un texte libre côté UI).
+  if (contact.relation === 'Famille' && contact.familyRole) {
+    return `${contact.familyRole.toLowerCase()} de l'utilisateur`;
+  }
+  if (contact.relation === 'Couple') {
+    // Contrairement à Famille, `familyRole` est ici explicitement whitelisté (§2 de la consigne) :
+    // une valeur qui ne fait pas partie des 7 liens Couple proposés par FicheScreen.tsx (ex. une
+    // valeur invalide/orpheline suite à un changement de catégorie mal reconstruit) ne doit jamais
+    // être reprise aveuglément — repli sur "partenaire de l'utilisateur", identique au cas "aucun
+    // lien précis choisi".
+    if (contact.familyRole && COUPLE_ROLES.includes(contact.familyRole)) {
+      return `${contact.familyRole.toLowerCase()} de l'utilisateur`;
+    }
+    return "partenaire de l'utilisateur";
+  }
+  if (contact.relation === 'Ami') return "ami de l'utilisateur";
+  if (contact.relation === 'Autres') {
+    // CORRECTIF Phase 4C.2 : "autres" seul (ancien comportement) n'apporte aucune information utile
+    // au modèle — remplacé par le lien précis quand il est réellement informatif (Collègue/
+    // Connaissance), sinon repli générique. 'Autres' comme LIEN PRÉCIS (familyRole === 'Autres',
+    // le contact n'a précisé aucun lien) et toute valeur non whitelistée retombent sur le même
+    // générique que l'absence de familyRole — jamais "autres" tel quel, jamais une valeur brute.
+    if (contact.familyRole && AUTRES_ROLES.includes(contact.familyRole)) {
+      return `${contact.familyRole.toLowerCase()} de l'utilisateur`;
+    }
+    return 'proche de l’utilisateur';
+  }
+  // Tout le reste (vide, ou n'importe quelle autre valeur non catégorisée) : jamais relayé brut.
+  return 'proche de l’utilisateur';
 }
 
 /** Construit le message "user" envoyé au modèle — assemble uniquement des faits déjà validés
