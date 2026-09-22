@@ -106,7 +106,16 @@ console.log('\n[§3] Pensées — sélection multiple par appui long');
 console.log('\n[§4] PenseeDetail — Date optionnelle (source : câblage écran)');
 {
   check('aucune date par défaut : état initial = existing?.date ?? null (jamais une date du jour silencieuse)', /const \[eventDate, setEventDate\] = useState<string \| null>\(existing\?\.date \?\? null\);/.test(penseeDetailSrc));
-  check('retrait d’une date déjà choisie possible (bouton dédié)', /onPress={\(\) => setEventDate\(null\)}/.test(penseeDetailSrc));
+  // CHANTIER "Pré-TestFlight Phase 2 — Hardening release" (2026-09-22) — CORRECTIF regex obsolète :
+  // le bouton dédié existe toujours (comportement inchangé, validé sur iPhone physique), mais son
+  // handler a été enrichi par "Polish Nouvelle/Modifier pensée" (2026-09-20) pour aussi effacer
+  // `eventTime`/fermer le picker dans le même onPress (voir retrait ENTIER de l'événement, docstring
+  // PenseeDetailScreen.tsx) — l'ancienne forme mono-ligne `onPress={() => setEventDate(null)}` ne
+  // matche plus, PAS une régression du bouton lui-même.
+  check(
+    'retrait d’une date déjà choisie possible (bouton dédié, efface aussi eventTime dans le même handler)',
+    /onPress={\(\) => \{[\s\S]{0,300}setEventDate\(null\);[\s\S]{0,50}setEventTime\(null\);/.test(penseeDetailSrc),
+  );
   check('AUCUNE heure associée à cette date (mode="date", jamais "datetime"/"time" pour ce picker)', /value={eventDate \? new Date\(`\$\{eventDate\}T00:00:00`\) : new Date\(\)}\s*mode="date"/.test(penseeDetailSrc));
   check(
     'date et rappel restent deux champs distincts dans l’objet écrit (date ET reminderAt tous deux présents, jamais l’un dérivé de l’autre)',

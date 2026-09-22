@@ -117,9 +117,14 @@ export function RootNavigator({ onReady }: { onReady?: () => void } = {}) {
             l'enregistrement le déclenchait sinon, annulant le vocal en cours (voir CaptureScreen).
             Le bouton retour du header reste le seul moyen de quitter, sur tous les états de l'écran. */}
         <Stack.Screen name="Capture" component={CaptureScreen} options={{ title: '', gestureEnabled: false }} />
-        {/* Conservé pour diagnostic (chemin micro → backend → JSON brut) — plus aucun bouton n'y
-            mène depuis l'app (voir HomeScreen/PenseesScreen), remplacé par "Capture" ci-dessus. */}
-        <Stack.Screen name="CaptureDebug" component={CaptureDebugScreen} options={{ title: 'Capture (debug)' }} />
+        {/* CHANTIER "Pré-TestFlight Phase 2 — Hardening release" (2026-09-22) — conservé pour
+            diagnostic (chemin micro → backend → JSON brut), plus aucun bouton n'y mène depuis l'app
+            (voir HomeScreen/PenseesScreen), remplacé par "Capture" ci-dessus. Le `<Stack.Screen>`
+            lui-même est désormais absent de la stack en production/TestFlight (pas seulement un
+            bouton masqué) : `__DEV__` est évalué une fois au chargement du module React Native (pas
+            une valeur runtime togglable), donc cette condition retire réellement l'écran du bundle de
+            navigation en build production, il ne peut jamais être atteint par un nom de route. */}
+        {__DEV__ && <Stack.Screen name="CaptureDebug" component={CaptureDebugScreen} options={{ title: 'Capture (debug)' }} />}
       </Stack.Navigator>
     </NavigationContainer>
   );

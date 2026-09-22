@@ -206,7 +206,17 @@ export async function insertContactRemote(userId: string, contact: Omit<Contact,
   return rowToContact(data, new Date());
 }
 
-export async function updateContactRemote(contact: Contact): Promise<void> {
+// CHANTIER "Pré-TestFlight Phase 2 — Hardening release" (2026-09-22) — défense en profondeur :
+// `.eq('user_id', userId)` s'ajoute à `.eq('id', ...)` sur les 4 mutations ci-dessous (update/delete
+// contact, update gift_sent, delete pensée). La policy RLS (`auth.uid()=user_id`, voir
+// supabase/schema.sql) reste la SEULE protection réellement nécessaire et n'est pas modifiée : une
+// requête ciblant la ligne d'un autre utilisateur était déjà rejetée par Postgres avant ce chantier.
+// Ce filtre supplémentaire ne change donc AUCUN comportement observable (même succès/échec
+// qu'avant, RLS inchangée) — il rend simplement explicite, côté client, une intention qui reposait
+// jusqu'ici implicitement sur la base. `userId` provient du même paramètre déjà utilisé par
+// `insertContactRemote`/`insertPenseeRemote` (session Supabase active, voir `userIdRef.current` dans
+// store.tsx) — jamais une valeur devinée ou optionnelle.
+export async function updateContactRemote(contact: Contact, userId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase non configuré');
   const { error } = await supabase
     .from('contacts')
@@ -223,25 +233,26 @@ export async function updateContactRemote(contact: Contact): Promise<void> {
       favorite: contact.favorite,
       birthday_reminder_days: contact.birthdayReminderDays,
     })
-    .eq('id', contact.id);
+    .eq('id', contact.id)
+    .eq('user_id', userId);
   if (error) throw error;
 }
 
-export async function setGiftSentRemote(contactId: string, value: boolean): Promise<void> {
+export async function setGiftSentRemote(contactId: string, value: boolean, userId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase non configuré');
-  const { error } = await supabase.from('contacts').update({ gift_sent: value }).eq('id', contactId);
+  const { error } = await supabase.from('contacts').update({ gift_sent: value }).eq('id', contactId).eq('user_id', userId);
   if (error) throw error;
 }
 
-export async function deleteContactRemote(contactId: string): Promise<void> {
+export async function deleteContactRemote(contactId: string, userId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase non configuré');
-  const { error } = await supabase.from('contacts').delete().eq('id', contactId);
+  const { error } = await supabase.from('contacts').delete().eq('id', contactId).eq('user_id', userId);
   if (error) throw error;
 }
 
-export async function deletePenseeRemote(penseeId: string): Promise<void> {
+export async function deletePenseeRemote(penseeId: string, userId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase non configuré');
-  const { error } = await supabase.from('pensees').delete().eq('id', penseeId);
+  const { error } = await supabase.from('pensees').delete().eq('id', penseeId).eq('user_id', userId);
   if (error) throw error;
 }
 

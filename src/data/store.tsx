@@ -170,7 +170,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       if (op.kind === 'contact') {
         if (op.action === 'delete') {
-          await deleteContactRemote(op.entityId);
+          await deleteContactRemote(op.entityId, userIdRef.current);
         } else if (op.isNew) {
           const { initials, color, ...rest } = op.payload;
           // CHANTIER ROBUSTESSE PRÉ-BÊTA — suppressions (2026-09-16) : NE PLUS réécrire l'état local
@@ -183,11 +183,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // scénario exact couvert par test-regression-outbox-contact-delete-race.ts.
           await insertContactRemote(userIdRef.current, rest);
         } else {
-          await updateContactRemote(op.payload);
+          await updateContactRemote(op.payload, userIdRef.current);
         }
       } else {
         if (op.action === 'delete') {
-          await deletePenseeRemote(op.entityId);
+          await deletePenseeRemote(op.entityId, userIdRef.current);
         } else if (op.isNew) {
           // Même raisonnement que ci-dessus pour les pensées — `insertPenseeRemote` échoïe aussi
           // strictement le payload envoyé (voir supabaseRepo.ts), jamais de champ serveur inconnu du

@@ -108,6 +108,18 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
     createdAt: '2026-01-01T00:00:00.000Z',
     reminderAt: null,
     pinned: false,
+    // CHANTIER "Pré-TestFlight Phase 2 — Hardening release" (2026-09-22) — CORRECTIF fixture obsolète :
+    // ce helper datait d'avant l'ajout de `eventTime` (Capture — event time, incrément 3, 2026-09-18)
+    // et `reminderRecurrence` (persistance reminderRecurrence, 2026-09-18) à `Pensee`/`normalizePensee`.
+    // Sans ces deux champs, `fullyPopulated` (§4 ci-dessous) n'était structurellement pas "une pensée
+    // déjà entièrement renseignée" comme son nom l'affirmait — le test d'idempotence de normalizePensee
+    // comparait un objet à 9 clés contre son résultat à 11 clés (eventTime/reminderRecurrence toujours
+    // ajoutés par normalizePensee, jamais inventés : cf. calendar.ts, `?? null`) : PAS une régression
+    // de normalizePensee, un fixture qui n'avait jamais suivi ces deux chantiers. Valeurs par défaut
+    // alignées sur le comportement `normalizePensee` legacy (absent → null), identique à avant leur
+    // ajout — aucun changement de comportement produit.
+    eventTime: null,
+    reminderRecurrence: null,
     ...overrides,
   } as Pensee;
 }

@@ -240,19 +240,32 @@ console.log('\n[§G — PenseeDetailScreen.tsx] bloc ÉVÉNEMENT (FACULTATIF) un
   const screenSrc = readSrc('src', 'screens', 'PenseeDetailScreen.tsx');
   check('bloc "ÉVÉNEMENT (FACULTATIF)" présent (remplace les anciens blocs séparés DATE/HEURE)', screenSrc.includes('ÉVÉNEMENT (FACULTATIF)'));
   check('anciens libellés séparés "DATE (FACULTATIF)"/"HEURE (FACULTATIF)" disparus', !screenSrc.includes('DATE (FACULTATIF)') && !screenSrc.includes('HEURE (FACULTATIF)'));
-  check('chip principal combine date ET heure ("... à ...")', /\{eventDate \? `\$\{eventDate\.split\('-'\)\.reverse\(\)\.join\('\/'\)\}\$\{eventTime \? ` à \$\{eventTime\}` : ''\}` : 'Ajouter un événement'\}/.test(screenSrc));
+  // CHANTIER "Pré-TestFlight Phase 2 — Hardening release" (2026-09-22) — CORRECTIF fixtures/regex
+  // obsolètes : les 3 checks ci-dessous ciblaient la forme du bloc événement telle qu'issue de
+  // "UNIFICATION UX PICKERS iOS"/"POLISH PICKER ÉVÉNEMENT" (2026-09-18), depuis remplacée par le
+  // chantier "Polish Nouvelle/Modifier pensée — hiérarchie événement/proche/rappel" (2026-09-20,
+  // validé sur iPhone physique) : icône calendrier discrète dans l'en-tête (accessibilityLabel
+  // "Ajouter un événement") + résumé compact affiché SOUS le texte uniquement si une date existe déjà.
+  // PAS une régression : la garantie de fond (date et heure combinées dans un affichage unique,
+  // jamais deux champs séparés) est toujours vraie, seule sa forme concrète a changé — vérifiée
+  // ci-dessous contre le VRAI texte source actuel plutôt qu'une ancienne capture figée.
   check(
-    'action secondaire heure + Terminé rendues UNIQUEMENT si eventDate est renseignée, partagent une row commune ({eventDate && (<View style={{ flexDirection: \'row\'...)',
-    screenSrc.includes("{eventDate && (\n        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>"),
+    'résumé compact combine date ET heure quand les deux existent (Text avec deux expressions, séparateur " · ")',
+    /\{eventDate\.split\('-'\)\.reverse\(\)\.join\('\/'\)\}\s*\{eventTime \? ` · \$\{eventTime\}` : ''\}/.test(screenSrc),
   );
-  // CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — CORRECTIF : le second champ/chip heure ÉVÉNEMENT
-  // (View + deux Pressable, dont un dateBtn) a été supprimé — remplacé par UNE action texte discrète.
-  // Seuls 4 `styles.dateBtn` restent : le chip événement unique, le chip rappel iOS, et les 2 chips
-  // rappel Android (date + heure — ceux-là légitimes, le rappel exige toujours une heure).
-  check('un seul dateBtn pour l’événement (plus aucun second champ heure) — 4 dateBtn au total avec le rappel', (screenSrc.match(/styles\.dateBtn/g) ?? []).length === 4);
-  // L'icône horloge ("time-outline") ne doit plus apparaître QUE pour le rappel Android (légitime,
-  // toujours requis) — plus du tout associée à un champ ÉVÉNEMENT.
-  check('icône horloge (time-outline) restante uniquement pour le rappel Android, plus pour un champ événement', (screenSrc.match(/Ionicons name="time-outline"/g) ?? []).length === 1);
+  check(
+    'résumé compact + bouton retrait ("×") rendus UNIQUEMENT si eventDate est renseignée ({eventDate && (<View...)',
+    screenSrc.includes("{eventDate && (\n        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>"),
+  );
+  // "styles.dateBtn" n'existe plus du tout dans ce fichier (événement ET rappel réécrits en
+  // Pressable/Ionicons/Text, sans cette classe de style) — le comptage "4 dateBtn" de l'ancienne
+  // version n'a plus de sens structurel, remplacé par une vérification directe : exactement 2
+  // occurrences de l'icône "calendar-outline" pour l'événement (en-tête + résumé), jamais plus.
+  check('exactement 2 icônes "calendar-outline" pour le bloc événement (en-tête discret + résumé compact)', (screenSrc.match(/Ionicons name="calendar-outline"/g) ?? []).length === 2);
+  // "time-outline" a disparu de tout le fichier (événement ET rappel réécrits sans cette icône,
+  // remplacés par des actions texte "+ Ajouter une heure"/"Retirer l'heure" et des pickers natifs
+  // sans icône dédiée) — 0 occurrence est désormais le comportement correct, pas un défaut.
+  check('aucune icône horloge (time-outline) — événement ET rappel utilisent des actions texte, plus d’icône dédiée', (screenSrc.match(/Ionicons name="time-outline"/g) ?? []).length === 0);
   check('action heure événement = texte seul ("+ Ajouter une heure"/"Retirer l’heure"), jamais un champ avec icône', /<Text style=\{\{ color: theme\.accent, fontSize: 13, fontWeight: '600' \}\}>\s*\{eventTime \? 'Retirer l’heure' : '\+ Ajouter une heure'\}/.test(screenSrc));
   check('retirer l’événement efface DATE ET HEURE (setEventDate(null) puis setEventTime(null) dans le même handler)', /setEventDate\(null\);[\s\S]{0,400}setEventTime\(null\);[\s\S]{0,100}closeEventPickerIfOpen/.test(screenSrc));
   check(
