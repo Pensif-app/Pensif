@@ -8,6 +8,7 @@ import { Pill } from '../components/Pill';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SelectionHeader } from '../components/SelectionHeader';
 import { Avatar } from '../components/Avatar';
+import { ContactPicker } from '../components/ContactPicker';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { buildPenseeCards, groupPenseeCards, PenseeCard } from '../data/penseesView';
@@ -39,14 +40,23 @@ export function PenseesScreen() {
   // Set qui survivrait silencieusement à une sortie de mode.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // CHANTIER "Pré-TestFlight Phase 4E — Filtre contact dans Pensées" (2026-09-22) — état du
+  // ContactPicker partagé (aucun second système de sélection, voir §3 du chantier).
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
 
   const filterContactId = route.params?.contactId;
   const filterContact = filterContactId ? contacts.find((c) => c.id === filterContactId) : undefined;
-  const isFiltered = Boolean(filterContactId);
+  // CORRECTIF §10 du chantier — un `contactId` qui ne correspond plus à AUCUN contact (proche
+  // supprimé entre-temps, ou tout param orphelin) ne doit jamais laisser cet écran bloqué sur un
+  // état incohérent ("Pensées de undefined"/liste vide sans explication) : il n'est alors simplement
+  // plus considéré comme un filtre actif — fallback sûr et immédiat vers "Toutes les pensées", sans
+  // action utilisateur requise. Un `filterContactId` valide (contact trouvé) reste inchangé.
+  const isFiltered = Boolean(filterContactId) && Boolean(filterContact);
+  const effectiveFilterContactId = isFiltered ? filterContactId : undefined;
 
   const visiblePensees = useMemo(
-    () => (filterContactId ? pensees.filter((p) => p.contactId === filterContactId) : pensees),
-    [pensees, filterContactId],
+    () => (effectiveFilterContactId ? pensees.filter((p) => p.contactId === effectiveFilterContactId) : pensees),
+    [pensees, effectiveFilterContactId],
   );
 
   // CHANTIER PENSÉES V3 §5 — une pensée épinglée est affichée EN HAUT (pinnedCards), jamais une
@@ -77,7 +87,7 @@ export function PenseesScreen() {
   }
 
   function openCreate() {
-    navigation.navigate('PenseeDetail', { contactId: filterContactId });
+    navigation.navigate('PenseeDetail', { contactId: effectiveFilterContactId });
   }
 
   // Hors mode sélection : appui long entre en mode sélection avec CETTE carte immédiatement
@@ -138,6 +148,16 @@ export function PenseesScreen() {
     (navigation as any).setParams({ contactId: undefined });
   }
 
+  // CHANTIER "Pré-TestFlight Phase 4E — Filtre contact dans Pensées" (2026-09-22) — §1 : une SEULE
+  // source de vérité (route.params.contactId, déjà consommée par visiblePensees/filterContact
+  // ci-dessus) — sélectionner un contact ici aboutit exactement au même état que Fiche → "Voir les
+  // pensées" (même navigation.navigate('Tabs', { screen: 'Pensées', params: { contactId } }) côté
+  // FicheScreen.tsx, même `setParams` ici : jamais un second état local parallèle.
+  function selectContact(contactId: string) {
+    (navigation as any).setParams({ contactId });
+    setContactPickerOpen(false);
+  }
+
   const isEmpty = visiblePensees.length === 0;
 
   return (
@@ -192,6 +212,22 @@ export function PenseesScreen() {
             </Pressable>
           </View>
         </View>
+      )}
+
+      {/* CHANTIER "Pré-TestFlight Phase 4E — Filtre contact dans Pensées" (2026-09-22) — contrôle
+          discret UNIQUE (§2 du chantier) : pas de barre de recherche permanente, pas de rangée de
+          contacts, pas de chips multiples. Masqué en mode sélection (même principe que le header
+          normal juste au-dessus). Le libellé "Pensées de {prénom}"/"Toutes les pensées" du header
+          donne déjà l'information de contexte — ce bouton ne la répète jamais, il ne fait qu'ouvrir
+          l'action (§5 : éviter les informations redondantes). */}
+      {!selectionMode && (
+        <Pressable
+          onPress={() => setContactPickerOpen(true)}
+          style={[styles.filterPill, { borderColor: theme.line, backgroundColor: theme.card }]}
+        >
+          <Ionicons name="people-outline" size={14} color={theme.inkSoft} />
+          <Text style={[styles.filterPillLabel, { color: theme.inkSoft }]}>{isFiltered ? 'Changer de proche' : 'Filtrer par proche'}</Text>
+        </Pressable>
       )}
 
       {/* CHANTIER PENSÉES V3 §5 — jamais de titre/bloc "ÉPINGLÉES" vide : rendu conditionnel strict,
@@ -328,6 +364,11 @@ export function PenseesScreen() {
           )}
         </>
       )}
+
+      {/* CHANTIER "Pré-TestFlight Phase 4E — Filtre contact dans Pensées" (2026-09-22) — le
+          ContactPicker partagé (voir §3 du chantier), tel quel : recherche/virtualisation/sélection
+          inchangées, aucun clavier auto-focus (comportement déjà validé, voir ContactPicker.tsx). */}
+      <ContactPicker visible={contactPickerOpen} contacts={contacts} theme={theme} onSelect={selectContact} onClose={() => setContactPickerOpen(false)} />
     </Screen>
   );
 }
@@ -559,4 +600,17 @@ const styles = StyleSheet.create({
   memoRichLabel: { fontWeight: '700', fontSize: 13 },
   memoDate: { fontSize: 11 },
   memoRichText: { fontWeight: '700', fontSize: 15, lineHeight: 20, marginTop: 8 },
+  // CHANTIER "Pré-TestFlight Phase 4E — Filtre contact dans Pensées" (2026-09-22).
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  filterPillLabel: { fontSize: 12, fontWeight: '600' },
 });
