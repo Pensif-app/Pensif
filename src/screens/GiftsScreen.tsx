@@ -10,6 +10,7 @@ import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { daysUntilNext } from '../data/calendar';
 import { amazonUrl } from '../data/giftCatalog';
+import { isAmazonAffiliateEnabled } from '../lib/amazonAffiliate';
 import { BUDGET_OPTIONS, isQuizComplete, normalizeQuizProfile } from '../data/quiz';
 import {
   generateCandidates,
@@ -289,15 +290,31 @@ function RecommendationCard({
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const gift = candidate.gift;
-  // CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21) — un produit sans donnée commerce (asin/imageUrl
-  // absents, ex. futur catalogue "safe beta" sans sourcing Amazon) reste affichable normalement :
-  // repli emoji au lieu de la photo, aucun lien Amazon construit/ouvert (jamais d'URL devinée), CTA
-  // externe simplement absent plutôt qu'inactif-mais-visible.
-  const hasAmazonLink = !!gift.asin;
+  // CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21), étendu par "Pré-bêta Phase 1 — Amazon Safe Beta"
+  // (2026-09-22) — un produit sans donnée commerce (asin/imageUrl absents, ex. catalogue éditorial
+  // sans sourcing Amazon) reste affichable normalement : repli emoji au lieu de la photo, aucun lien
+  // Amazon construit/ouvert (jamais d'URL devinée), CTA externe simplement absent plutôt qu'inactif-
+  // mais-visible. DÉSORMAIS ce même repli s'applique AUSSI à un produit qui A un `asin`/`imageUrl`
+  // Amazon dès lors que `isAmazonAffiliateEnabled()` est faux (OFF par défaut, voir
+  // amazonAffiliate.ts/docs/amazon-affiliate.md) — le flag prime toujours sur la présence de
+  // métadonnées commerce : jamais d'image distante Amazon ni de lien construit tant qu'il est OFF,
+  // quel que soit le contenu du produit.
+  const amazonEnabled = isAmazonAffiliateEnabled();
+  const hasAmazonLink = amazonEnabled && !!gift.asin;
+  const showAmazonImage = amazonEnabled && !!gift.imageUrl && !imageFailed;
+  // CHANTIER "Pré-bêta Phase 1B — Safe Beta prix historiques" (2026-09-22) — `gift.price` sur un
+  // produit historique (asin présent) est un SNAPSHOT marchand vérifié à une date passée (voir
+  // giftCatalog.ts : "Chaque ASIN a été vérifié en direct sur Amazon.fr... le 2026-09-11"), pas un
+  // prix garanti actuel — tant qu'Amazon est OFF, ce montant reste utilisé tel quel par le moteur
+  // (budget/scoring/tie-break, `recommendationEngine.ts` INCHANGÉ) mais n'est PLUS AFFICHÉ pour ne
+  // jamais laisser croire à un prix marchand courant. Un produit éditorial (asin absent) n'a jamais
+  // eu ce problème — son prix est une référence Pensif assumée, toujours affichable, quel que soit
+  // le flag (voir amazonAffiliate.ts/docs/amazon-affiliate.md).
+  const showPrice = amazonEnabled || !gift.asin;
   const TopRow = (
     <>
       <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-        {gift.imageUrl && !imageFailed ? (
+        {showAmazonImage ? (
           <Image source={{ uri: gift.imageUrl }} style={styles.thumbImage} resizeMode="contain" onError={() => setImageFailed(true)} />
         ) : (
           <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
@@ -308,7 +325,11 @@ function RecommendationCard({
         <Text style={[styles.giftTitle, { color: theme.ink }]} numberOfLines={2}>
           {gift.title}
         </Text>
-        <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>
+        {/* Prix de référence Pensif (budget/scoring) — jamais présenté comme un prix Amazon actuel
+            ni un prix marchand garanti (voir consigne §3, giftCatalog.ts CuratedGift.price) : aucun
+            libellé "Amazon"/"prix marchand" ici, uniquement le montant — et masqué entièrement pour
+            un produit historique tant qu'Amazon est OFF (voir showPrice ci-dessus). */}
+        {showPrice && <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>}
       </View>
       {hasAmazonLink && <Ionicons name="open-outline" size={18} color={theme.inkSoft} />}
     </>
