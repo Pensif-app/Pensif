@@ -5,7 +5,8 @@
 // calculs de base (pensée active aujourd'hui, pensée terminée, sous-titre) sont partagés via
 // calendar.ts plutôt que recodés une 2e fois.
 import { Contact, Pensee } from './types';
-import { daysBetween, dIso, isPenseeActiveOn, isPenseeEnded, penseeAnchor, penseeSubtitle, reminderAtLabel } from './calendar';
+import { daysBetween, dIso, effectivePenseeAnchorDate, isPenseeActiveOn, isPenseeEnded, penseeAnchor, penseeSubtitle, reminderAtLabel } from './calendar';
+import { nextPenseeReminderOccurrence } from './reminderRecurrence';
 
 // 'memo' — CHANTIER PENSÉES V2 : une pensée sans aucune ancre calendrier ni rappel (voir
 // penseeAnchor, calendar.ts) n'est ni "à venir" ni "passée", elle reste un élément mémorisé — elle
@@ -31,16 +32,30 @@ export function buildPenseeCards(pensees: Pensee[], contacts: Contact[], today: 
   const todayIso = dIso(today);
   return pensees.map((p) => {
     const anchor = penseeAnchor(p);
-    // Référence le jour de l'ancre (event/période) pour n'afficher l'heure seule que si le rappel
-    // tombe ce même jour — sinon (ex. rappel "la veille") le jour du rappel est précisé en plus.
-    const reminderLabel = p.reminderAt ? `Rappel ${reminderAtLabel(p.reminderAt, anchor?.date)}` : null;
+    // CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — BUG D corrigé : pour une pensée récurrente,
+    // le badge affichait toujours l'heure/jour de la toute PREMIÈRE occurrence (`p.reminderAt` brut),
+    // même une fois celle-ci révolue. Utilise désormais la PROCHAINE occurrence réelle
+    // (nextPenseeReminderOccurrence, reminderRecurrence.ts) quand une récurrence est active et
+    // encore valide ; retombe sur `p.reminderAt` brut si la récurrence est épuisée (comportement
+    // conservateur, ne masque pas l'information) ou si la pensée n'a pas de récurrence (ponctuelle —
+    // comportement STRICTEMENT inchangé, voir consigne §5). Référence désormais le jour EFFECTIF
+    // (effectivePenseeAnchorDate) plutôt que l'ancre brute, pour qu'un rappel quotidien continue de
+    // n'afficher que l'heure ("Rappel 21h40", jamais "21 sept. à 21h40") même quand sa 1ère
+    // occurrence historique est passée.
+    const nextOccurrence = nextPenseeReminderOccurrence(p, today);
+    const effectiveReminderAt = p.reminderRecurrence ? (nextOccurrence ? nextOccurrence.toISOString() : p.reminderAt) : p.reminderAt;
+    const effectiveAnchorDay = effectivePenseeAnchorDate(p, today);
+    const reminderLabel = effectiveReminderAt ? `Rappel ${reminderAtLabel(effectiveReminderAt, effectiveAnchorDay ?? undefined)}` : null;
     if (!anchor) {
       // Purement mémorisée : jamais "passée", triée par date de création (voir groupPenseeCards).
       return { id: p.id, pensee: p, subtitle: penseeSubtitle(p, contacts), reminderLabel, bucket: 'memo' as const, daysFromToday: 0 };
     }
     const activeToday = isPenseeActiveOn(p, todayIso);
-    const ended = isPenseeEnded(p, todayIso);
-    const daysFromToday = activeToday ? 0 : daysBetween(anchor.date, today);
+    // BUG A corrigé : isPenseeEnded (calendar.ts) est désormais récurrence-aware — une pensée dont
+    // l'ancre brute est révolue mais dont le rappel récurrent a encore une occurrence future n'est
+    // plus jamais classée "passée". penseeAnchor lui-même reste INCHANGÉ (consigne §1).
+    const ended = isPenseeEnded(p, today);
+    const daysFromToday = activeToday ? 0 : daysBetween(effectiveAnchorDay ?? anchor.date, today);
     const bucket: PenseeBucket = activeToday ? 'today' : ended ? 'past' : 'upcoming';
     return {
       id: p.id,

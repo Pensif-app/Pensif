@@ -52,7 +52,11 @@ console.log('\n[§A — dateLocal.ts] extraction — aucune dépendance circulai
   check('reminderRecurrence.ts importe addDays/isoOf depuis dateLocal.ts (plus depuis calendar.ts)', /import \{ addDays, isoOf \} from '\.\/dateLocal'/.test(recurrenceSrc));
   check('reminderRecurrence.ts n’importe plus rien de calendar.ts', !/from '\.\/calendar'/.test(recurrenceSrc));
   check('calendar.ts réexporte addDays/isoOf depuis dateLocal.ts (compatibilité des consommateurs existants)', /export \{ addDays, isoOf \} from '\.\/dateLocal'/.test(calendarSrc));
-  check('calendar.ts importe normalizeReminderRecurrence depuis reminderRecurrence.ts', /import \{ normalizeReminderRecurrence \} from '\.\/reminderRecurrence'/.test(calendarSrc));
+  // CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — regex assouplie pour tolérer d'autres imports
+  // nommés sur la même ligne (ex. `nextPenseeReminderOccurrence`, ajouté par ce chantier) : ce test
+  // vérifie l'ABSENCE DE CYCLE (calendar.ts importe bien depuis reminderRecurrence.ts, jamais
+  // l'inverse), pas la liste exacte et figée des noms importés.
+  check('calendar.ts importe normalizeReminderRecurrence depuis reminderRecurrence.ts', /import \{[^}]*\bnormalizeReminderRecurrence\b[^}]*\} from '\.\/reminderRecurrence'/.test(calendarSrc));
 
   // Sémantique inchangée — mêmes résultats qu'avant le déplacement.
   check('isoOf(dateLocal) produit le même format que l’ancien calendar.ts', isoOf(2027, 1, 10) === '2027-02-10');

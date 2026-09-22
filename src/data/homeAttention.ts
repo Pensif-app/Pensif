@@ -7,6 +7,7 @@ import {
   daysBetween,
   daysUntilNext,
   dIso,
+  effectivePenseeAnchorDate,
   familyFetes,
   isPenseeActiveOn,
   isPenseeEnded,
@@ -165,10 +166,20 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
   // Une pensée passée (ponctuelle dont la date est révolue, ou période déjà terminée) ne doit plus
   // jamais apparaître comme "à venir" — c'est le bug corrigé par le chantier Accueil V1. Même
   // définition réutilisée par l'écran Pensées (voir penseesView.ts) — centralisée dans calendar.ts.
-  if (isPenseeEnded(p, todayIso)) return null;
+  // CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — BUG B corrigé : isPenseeEnded est désormais
+  // récurrence-aware (une occurrence future d'un rappel récurrent garde la pensée "active" même si
+  // sa toute première occurrence historique est révolue) — aucun changement de scoring/fenêtre/
+  // priorité ici, uniquement la bonne occurrence temporelle en entrée (voir consigne §4).
+  if (isPenseeEnded(p, today)) return null;
 
+  // Jour effectif pour daysUntil/horizon : reste `anchor.date` tant qu'il est encore valide ; ne
+  // devient la prochaine occurrence du rappel que lorsque l'ancre brute est révolue ET qu'une
+  // récurrence active la sauve (sinon on aurait un `daysUntil` négatif, faussant `horizonForDays`
+  // sans qu'aucune logique de scoring n'ait été touchée — voir effectivePenseeAnchorDate,
+  // calendar.ts).
+  const effectiveDay = effectivePenseeAnchorDate(p, today) ?? anchor.date;
   const activeToday = isPenseeActiveOn(p, todayIso);
-  const daysUntil = activeToday ? 0 : daysBetween(anchor.date, today);
+  const daysUntil = activeToday ? 0 : daysBetween(effectiveDay, today);
   if (daysUntil > HOME_WINDOW_DAYS) return null;
 
   const subtitle = penseeSubtitle(p, contacts);
@@ -176,7 +187,7 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
   return {
     id: `pensee-${p.id}`,
     type: 'pensee',
-    date: anchor.date,
+    date: effectiveDay,
     endDate: anchor.endDate,
     contactId: p.contactId,
     title: p.texte,

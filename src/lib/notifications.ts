@@ -116,23 +116,6 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
     // device réel) : un seul log par reschedule global, plus aucun détail par notification ni
     // dump de la liste programmée (voir CHANTIER NETTOYAGE POST-DEBUG).
     console.log(`[Pensif][notifications] exactAlarm=${canScheduleExactAlarms()}`);
-    // Diagnostic temporaire — BUG NOTIFICATIONS PENSÉES V2. Ne journalise que ce qui est
-    // nécessaire au diagnostic (id, reminderAt, raison d'exclusion), jamais le texte de la pensée
-    // ni aucune autre donnée personnelle.
-    const nowMs = Date.now();
-    for (const p of pensees) {
-      if (!p.reminderAt) {
-        console.log(`[Pensif][notif-debug] pensée ${p.id} ignorée — reminderAt absent (rappel désactivé)`);
-        continue;
-      }
-      const interpreted = new Date(p.reminderAt);
-      const future = interpreted.getTime() > nowMs;
-      console.log(
-        `[Pensif][notif-debug] pensée ${p.id} — reminderAt=${p.reminderAt} interprété=${interpreted.toString()} → ${
-          future ? 'future, sera planifiée' : 'déjà passée, ignorée par selectCandidateGroupsToSchedule'
-        }`,
-      );
-    }
   }
 
   // Étape 1 — demande complète. Une pensée en récurrence infinie n'y génère JAMAIS de `oneShot` pour
@@ -175,7 +158,21 @@ export async function rescheduleAllReminders(contacts: Contact[], pensees: Pense
   // été programmé pour un groupe dès que l'un de ses candidats échoue. Un groupe en échec (scheduling
   // OU rollback) reste totalement ISOLÉ : il n'affecte jamais le sort des autres groupes.
   const scheduling = await scheduleCandidateGroupsAtomically(selection.scheduledCandidates, {
-    schedule: (c) => scheduleOneCandidate(c, androidChannelId),
+    // CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — consigne §10/§13 : AUDIT a montré que
+    // `scheduleCandidateGroupsAtomically` (notificationPlanning.ts, NON modifié ici — voir consigne
+    // §8) avale l'erreur Expo réelle dans un `catch {}` nu autour de `ops.schedule(candidate)` — elle
+    // ne sait dire QUE "ce groupe a échoué", jamais POURQUOI. Wrapper additif ICI (couche
+    // `notifications.ts` uniquement) : journalise l'erreur RÉELLE avant qu'elle ne soit avalée en
+    // amont, puis la relance à l'identique — comportement de `scheduleCandidateGroupsAtomically`
+    // strictement inchangé (même rollback, mêmes `failedGroups`), uniquement de la visibilité en plus.
+    schedule: async (c) => {
+      try {
+        await scheduleOneCandidate(c, androidChannelId);
+      } catch (error) {
+        if (__DEV__) console.error(`[Pensif][notif-debug] ÉCHEC scheduleNotificationAsync pour identifier="${c.identifier}" kind=${c.kind} :`, error);
+        throw error;
+      }
+    },
     cancel: (identifier) => Notifications.cancelScheduledNotificationAsync(identifier),
     onCancelError: (identifier, error) => {
       // Rollback impossible pour CET identifiant précis — capturé, jamais fatal : les autres

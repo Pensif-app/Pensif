@@ -6,7 +6,7 @@ import { CalEvent, Contact, FamilyRole, Pensee } from './types';
 // ici TELLES QUELLES (même implémentation, aucune reformulation) pour que les nombreux consommateurs
 // existants qui les importent depuis `./calendar` n'aient rien à changer.
 import { addDays, isoOf, pad2 } from './dateLocal';
-import { normalizeReminderRecurrence } from './reminderRecurrence';
+import { nextPenseeReminderOccurrence, normalizeReminderRecurrence } from './reminderRecurrence';
 export { addDays, isoOf } from './dateLocal';
 
 export const monthAbbrev = ['jan', 'fév', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
@@ -284,15 +284,49 @@ export function isPenseeActiveOn(p: Pensee, iso: string): boolean {
   return anchor.endDate ? anchor.date <= iso && iso <= anchor.endDate : anchor.date === iso;
 }
 
-/** Une pensée (ponctuelle ou de période) est-elle définitivement terminée à la date `todayIso` ?
+/** Une pensée (ponctuelle ou de période) est-elle définitivement terminée à l'instant `now` ?
  *  Vrai pour une pensée ponctuelle déjà passée, ou une période dont `endDate` est révolue. Une
  *  pensée SANS ancre (voir penseeAnchor) n'est JAMAIS "terminée" — elle reste un élément mémorisé
  *  indéfiniment, jamais reléguée en "passée" simplement parce qu'elle vieillit (CHANTIER PENSÉES V2).
+ *
+ *  CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — NE modifie PAS la sémantique de `penseeAnchor`
+ *  (toujours l'ancre événementielle brute, `date`/`endDate` ou jour du `reminderAt` initial) : ce
+ *  BUG était que cette fonction s'arrêtait là, ignorant `reminderRecurrence`. Un rappel récurrent
+ *  garde la pensée "non terminée" tant qu'il lui reste une occurrence future (voir
+ *  `nextPenseeReminderOccurrence`, reminderRecurrence.ts) — même quand l'ancre BRUTE (première
+ *  occurrence historique) est déjà révolue. Une pensée SANS récurrence (ou dont la récurrence est
+ *  épuisée) garde EXACTEMENT le comportement d'avant (`nextPenseeReminderOccurrence` retourne alors
+ *  `null`, donc aucun changement de résultat pour ce cas).
+ *  Signature changée de `todayIso: string` à `now: Date` (les deux appelants, homeAttention.ts et
+ *  penseesView.ts, avaient déjà un `Date` sous la main — aucun autre appelant dans le code, voir
+ *  audit de chantier).
  */
-export function isPenseeEnded(p: Pensee, todayIso: string): boolean {
+export function isPenseeEnded(p: Pensee, now: Date): boolean {
   const anchor = penseeAnchor(p);
   if (!anchor) return false;
-  return anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
+  const todayIso = dIso(now);
+  const rawEnded = anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
+  if (!rawEnded) return false;
+  return nextPenseeReminderOccurrence(p, now) === null;
+}
+
+/**
+ * CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — jour ISO EFFECTIF à utiliser pour les calculs
+ * temporels d'AFFICHAGE (tri/fenêtre Accueil, "il y a/dans N jours", référence du badge "Rappel") —
+ * reste `anchor.date` (l'ancre événementielle brute, `penseeAnchor` INCHANGÉ) tant qu'elle n'est pas
+ * révolue. Si elle l'est ET qu'un rappel récurrent a encore une occurrence future, cette occurrence
+ * devient le jour effectif — jamais l'inverse : une ancre encore valide n'est JAMAIS recouverte par
+ * une occurrence de rappel (voir consigne §6 — ne pas mélanger date d'événement et calendrier de
+ * notification au-delà du strict nécessaire pour corriger le bug). Le Calendrier (getDayEvents plus
+ * bas) continue d'utiliser `penseeAnchor`/`p.date` directement, jamais cette fonction. */
+export function effectivePenseeAnchorDate(p: Pensee, now: Date): string | null {
+  const anchor = penseeAnchor(p);
+  if (!anchor) return null;
+  const todayIso = dIso(now);
+  const rawEnded = anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
+  if (!rawEnded) return anchor.date;
+  const next = nextPenseeReminderOccurrence(p, now);
+  return next ? dIso(next) : anchor.date;
 }
 
 /** Sous-titre lisible d'une pensée : "Du X au Y" pour une période, la date seule pour une pensée

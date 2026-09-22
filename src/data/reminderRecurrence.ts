@@ -11,7 +11,7 @@
 // constructeurs `Date` locaux et `addDays`/`isoOf` de dateLocal.ts) — jamais `toISOString().slice(...)`
 // ni `getUTCFullYear`/`getUTCMonth`/`getUTCDate`, qui décaleraient le jour affiché selon le fuseau de
 // l'utilisateur (même discipline que calendar.ts et reminderDate.ts, déjà en place dans ce projet).
-import { ReminderRecurrence, ReminderRecurrenceFrequency } from './types';
+import { Pensee, ReminderRecurrence, ReminderRecurrenceFrequency } from './types';
 // CHANTIER "persistance reminderRecurrence" (2026-09-18) — importe désormais `dateLocal.ts` (module
 // bas niveau) plutôt que `calendar.ts`, pour permettre à `calendar.ts` d'importer en retour
 // `normalizeReminderRecurrence` (ce fichier) sans créer de dépendance circulaire. Mêmes primitives,
@@ -203,4 +203,52 @@ export function nextReminderRecurrenceSeedDate(rule: ReminderRecurrence, time: L
 
   // Défensif seulement (voir docstring) — dernier jour balayé, jamais atteint par une règle valide.
   return { year: cursor.getFullYear(), month: cursor.getMonth(), day: cursor.getDate() };
+}
+
+/**
+ * CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — helper CANONIQUE de temporalité du rappel d'une
+ * pensée, utilisé par `calendar.ts` (Pensées upcoming/past, Accueil, badge "Rappel") pour ne plus
+ * jamais comparer `reminderAt`/`penseeAnchor` bruts à `now` quand une récurrence est active. Ne
+ * réimplémente RIEN : délègue entièrement à `computeNextReminderOccurrences` (règle finie — même
+ * primitive et même usage que `notificationPlanning.ts::buildPenseeReminderCandidates`, borne réelle
+ * déjà gérée par la primitive) et `nextReminderRecurrenceSeedDate` (règle infinie — même primitive
+ * que celle qui sert à programmer les triggers natifs DAILY/WEEKLY, balayage borné à 8 jours, donc
+ * bien moins coûteux qu'un scan de règle infinie ligne par ligne).
+ *
+ * Sémantique exacte (voir consigne §2) :
+ * - pas de `reminderAt` → `null` (rien à afficher).
+ * - `reminderAt` sans récurrence → `reminderAt` si strictement futur, sinon `null` (jamais réaffiché
+ *   comme "à venir" une fois son unique occurrence passée — comportement PONCTUEL inchangé).
+ * - `reminderAt` + récurrence active → prochaine occurrence strictement future (jamais l'instant
+ *   `now` lui-même, même convention que `nextReminderRecurrenceSeedDate` : à l'heure pile du rappel,
+ *   l'occurrence du jour est déjà considérée passée).
+ * - récurrence finie épuisée (toutes occurrences avant `now`, ou `occurrenceCount`/`untilDate`
+ *   atteints) → `null`.
+ *
+ * PURE — ne lit ni n'écrit aucun état applicatif, `now` toujours fourni par l'appelant (jamais
+ * `new Date()` interne), testable avec un `now` injecté/fixe comme le reste de ce module.
+ */
+export function nextPenseeReminderOccurrence(pensee: Pensee, now: Date): Date | null {
+  if (!pensee.reminderAt) return null;
+  const anchor = new Date(pensee.reminderAt);
+  const rule = pensee.reminderRecurrence ?? null;
+
+  if (!rule) {
+    return anchor.getTime() > now.getTime() ? anchor : null;
+  }
+
+  const isFinite = rule.occurrenceCount !== null || rule.untilDate !== null;
+  if (isFinite) {
+    // Même appel que buildPenseeReminderCandidates (notificationPlanning.ts) pour une règle finie —
+    // `limit: Number.MAX_SAFE_INTEGER` ne coûte jamais plus que le balayage borné interne
+    // (MAX_DAY_SCAN, voir docstring de computeNextReminderOccurrences), jamais une 2e borne inventée.
+    const occurrences = computeNextReminderOccurrences(rule, anchor, { from: now, limit: Number.MAX_SAFE_INTEGER });
+    return occurrences[0] ?? null;
+  }
+
+  // Règle infinie ('daily' ou 'weekly' sans occurrenceCount/untilDate) : réutilise le seed de
+  // programmation (balayage borné à 8 jours) plutôt qu'un scan illimité — l'heure/minute viennent
+  // TOUJOURS de `reminderAt` (jamais recalculées, même principe que buildPenseeReminderCandidates).
+  const seed = nextReminderRecurrenceSeedDate(rule, { hour: anchor.getHours(), minute: anchor.getMinutes() }, now);
+  return new Date(seed.year, seed.month, seed.day, anchor.getHours(), anchor.getMinutes(), anchor.getSeconds(), 0);
 }

@@ -334,7 +334,16 @@ export function PenseeDetailScreen() {
       console.log('[Pensées V2][reminder debug] constructedReminder.toISOString() =', reminderDate.toISOString());
       console.log('[Pensées V2][reminder debug] constructedReminder.getTime() - Date.now() =', reminderDate.getTime() - Date.now());
     }
-    if (reminderEnabled && reminderDate && !isFutureReminder(reminderDate)) {
+    // CHANTIER "P0 Récurrence Phase 2B" (2026-09-22) — BUG E corrigé : ce garde ne représente le
+    // rappel PONCTUEL (reminderDate = l'instant unique de déclenchement, qui DOIT être futur) que
+    // lorsqu'aucune récurrence n'est active. Pour une récurrence active, `reminderDate` reste
+    // l'ANCRE HISTORIQUE de la série (première occurrence) — elle peut légitimement être passée
+    // (voir consigne §2 : jamais déplacée automatiquement vers `now`) tant que la règle a encore une
+    // occurrence future, ce que `validatePenseeRecurrenceEdit` ci-dessous vérifie déjà correctement
+    // (audit Phase 2 : elle n'a jamais rejeté une ancre passée pour une récurrence infinie, et
+    // rejette bien une récurrence FINIE épuisée via `finite_series_exhausted` — ce garde ponctuel ne
+    // doit donc jamais court-circuiter cette validation plus précise).
+    if (reminderEnabled && reminderDate && !recurrenceDraft.enabled && !isFutureReminder(reminderDate)) {
       Alert.alert('Rappel dans le passé', 'Choisis une date et une heure dans le futur, ou désactive le rappel.');
       return;
     }
