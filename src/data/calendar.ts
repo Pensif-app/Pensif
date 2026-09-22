@@ -332,9 +332,15 @@ export function effectivePenseeAnchorDate(p: Pensee, now: Date): string | null {
 /** Sous-titre lisible d'une pensée : "Du X au Y" pour une période, la date seule pour une pensée
  *  ancrée à un jour, ou "Notée le J" (date de création) pour une pensée purement mémorisée sans
  *  aucune ancre — toujours avec le nom du proche lié en suffixe s'il y en a un. Même formatage
- *  utilisé par l'Accueil et l'écran Pensées, centralisé ici pour n'exister qu'à un seul endroit. */
-export function penseeSubtitle(p: Pensee, contacts: Contact[]): string {
-  const linkedName = p.contactId ? contactName(contacts, p.contactId) : '';
+ *  utilisé par l'Accueil et l'écran Pensées, centralisé ici pour n'exister qu'à un seul endroit.
+ *
+ *  CHANTIER "Pré-TestFlight Phase 4D.1 — Identité contact dans les pensées temporelles" (2026-09-22)
+ *  — `includeContactName` (facultatif, `true` par défaut = comportement STRICTEMENT inchangé pour
+ *  tous les appelants existants, voir homeAttention.ts/penseesView.ts) permet à PenseesScreen.tsx de
+ *  récupérer la partie DATE seule quand il affiche le nom du contact séparément, à côté d'un petit
+ *  Avatar — jamais une 2e implémentation de ce formatage, toujours cette même fonction. */
+export function penseeSubtitle(p: Pensee, contacts: Contact[], includeContactName: boolean = true): string {
+  const linkedName = includeContactName && p.contactId ? contactName(contacts, p.contactId) : '';
   const anchor = penseeAnchor(p);
   if (anchor?.endDate) {
     return `Du ${frDate(anchor.date)} au ${frDate(anchor.endDate)}${linkedName ? ` · ${linkedName}` : ''}`;

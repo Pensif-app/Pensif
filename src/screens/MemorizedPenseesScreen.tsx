@@ -198,6 +198,13 @@ export function MemorizedPenseesScreen() {
             onLongPress={() => handleCardLongPress(item.pensee.id)}
             selectionMode={selectionMode}
             selected={selectedIds.has(item.pensee.id)}
+            // CHANTIER "Pré-TestFlight Phase 4D — UI Pensées mémorisées" (2026-09-22) — bibliothèque
+            // dédiée : rendu memo plus riche (avatar/prénom/date en tête, texte en contenu
+            // principal) que la vue compacte de PenseesScreen. Toutes les cartes ici sont bucket
+            // 'memo' (voir memoCards plus haut) — contact résolu directement à partir de contacts,
+            // déjà en scope.
+            contact={item.pensee.contactId ? contacts.find((c) => c.id === item.pensee.contactId) ?? null : null}
+            memoVariant="rich"
           />
         )}
         contentContainerStyle={styles.listContent}

@@ -7,9 +7,12 @@ import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SelectionHeader } from '../components/SelectionHeader';
+import { Avatar } from '../components/Avatar';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { buildPenseeCards, groupPenseeCards, PenseeCard } from '../data/penseesView';
+import { frDate, penseeSubtitle } from '../data/calendar';
+import { Contact } from '../data/types';
 import { RootStackParamList, TabParamList } from '../navigation/types';
 
 /**
@@ -60,6 +63,14 @@ export function PenseesScreen() {
   // accessible via l'écran dédié "Pensées mémorisées" (§2), jamais silencieusement perdu.
   const memoVisible = useMemo(() => groups.memo.slice(0, 3), [groups.memo]);
   const hasMoreMemo = groups.memo.length > 3;
+
+  // CHANTIER "Pré-TestFlight Phase 4D — UI Pensées mémorisées" (2026-09-22) — résolution du contact
+  // pour une carte memo (voir PenseeRow/MemoPenseeRow) : ignoré par tout bucket != 'memo', calculé
+  // ici une seule fois plutôt que dans chaque section pour ne pas dupliquer le lookup.
+  function contactForCard(card: PenseeCard): Contact | null {
+    if (!card.pensee.contactId) return null;
+    return contacts.find((c) => c.id === card.pensee.contactId) ?? null;
+  }
 
   function openDetail(penseeId: string) {
     navigation.navigate('PenseeDetail', { penseeId });
@@ -197,6 +208,8 @@ export function PenseesScreen() {
               onLongPress={() => handleCardLongPress(c.pensee.id)}
               selectionMode={selectionMode}
               selected={selectedIds.has(c.pensee.id)}
+              contact={contactForCard(c)}
+              memoVariant="compact"
             />
           ))}
         </>
@@ -230,6 +243,8 @@ export function PenseesScreen() {
                   onLongPress={() => handleCardLongPress(c.pensee.id)}
                   selectionMode={selectionMode}
                   selected={selectedIds.has(c.pensee.id)}
+                  contact={contactForCard(c)}
+                  memoVariant="compact"
                 />
               ))}
             </>
@@ -247,6 +262,8 @@ export function PenseesScreen() {
                   onLongPress={() => handleCardLongPress(c.pensee.id)}
                   selectionMode={selectionMode}
                   selected={selectedIds.has(c.pensee.id)}
+                  contact={contactForCard(c)}
+                  memoVariant="compact"
                 />
               ))}
             </>
@@ -272,6 +289,8 @@ export function PenseesScreen() {
                   onLongPress={() => handleCardLongPress(c.pensee.id)}
                   selectionMode={selectionMode}
                   selected={selectedIds.has(c.pensee.id)}
+                  contact={contactForCard(c)}
+                  memoVariant="compact"
                 />
               ))}
               {hasMoreMemo && (
@@ -300,6 +319,8 @@ export function PenseesScreen() {
                     onLongPress={() => handleCardLongPress(c.pensee.id)}
                     selectionMode={selectionMode}
                     selected={selectedIds.has(c.pensee.id)}
+                    contact={contactForCard(c)}
+                    memoVariant="compact"
                     muted
                   />
                 ))}
@@ -313,6 +334,11 @@ export function PenseesScreen() {
 
 // Exporté — réutilisé tel quel par MemorizedPenseesScreen.tsx (CHANTIER PENSÉES V3 §2), pour ne
 // jamais dupliquer le rendu d'une carte pensée dans un second composant parallèle.
+//
+// CHANTIER "Pré-TestFlight Phase 4D — UI Pensées mémorisées" (2026-09-22) — `contact`/`memoVariant`
+// sont IGNORÉS dès que `card.bucket !== 'memo'` : le rendu Aujourd'hui/À venir/Passées/rappels
+// ci-dessous reste EXACTEMENT le code d'origine, intouché (voir le early-return dédié juste après).
+// Isolation par bucket existant, pas un nouveau champ sur le modèle — comme demandé.
 export function PenseeRow({
   card,
   theme,
@@ -321,6 +347,8 @@ export function PenseeRow({
   muted,
   selectionMode,
   selected,
+  contact,
+  memoVariant = 'compact',
 }: {
   card: PenseeCard;
   theme: any;
@@ -329,7 +357,30 @@ export function PenseeRow({
   muted?: boolean;
   selectionMode?: boolean;
   selected?: boolean;
+  /** Contact résolu pour une pensée memo liée (`card.pensee.contactId` non nul) — `null` si aucun
+   *  contact lié OU si l'id ne correspond plus à aucun contact existant (orphelin, voir MemoMeta
+   *  ci-dessous pour la distinction). Ignoré pour tout bucket != 'memo'. */
+  contact?: Contact | null;
+  /** 'compact' (PenseesScreen — vue temporelle dominante, la carte memo reste discrète) ou 'rich'
+   *  (MemorizedPenseesScreen — bibliothèque dédiée, contact/avatar davantage mis en avant). Ignoré
+   *  pour tout bucket != 'memo'. */
+  memoVariant?: 'compact' | 'rich';
 }) {
+  if (card.bucket === 'memo') {
+    return (
+      <MemoPenseeRow
+        card={card}
+        theme={theme}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        muted={muted}
+        selectionMode={selectionMode}
+        selected={selected}
+        contact={contact ?? null}
+        variant={memoVariant}
+      />
+    );
+  }
   return (
     <Pressable
       onPress={onPress}
@@ -353,9 +404,134 @@ export function PenseeRow({
             {card.pensee.texte}
           </Text>
         </View>
-        <Text style={[styles.subtitle, { color: theme.inkSoft }]}>{card.subtitle}</Text>
+        {/* CHANTIER "Pré-TestFlight Phase 4D.1 — Identité contact dans les pensées temporelles"
+            (2026-09-22) — la date reste TOUJOURS avant le contact (méta secondaire, jamais
+            l'information principale) : `penseeSubtitle(..., false)` isole la partie date SEULE
+            (même fonction que card.subtitle, jamais une 2e implémentation), puis le petit Avatar
+            existant (18px, même taille que le variant memo compact) + prénom sont ajoutés sur la
+            MÊME ligne — aucune nouvelle ligne dédiée au contact. Sans contact (aucun contactId, OU
+            contactId orphelin — `contact` est alors `null` dans les deux cas) : rendu strictement
+            historique, `card.subtitle` déjà calculé tel quel (date seule pour un orphelin, comme
+            avant cette passe — `contactName` renvoie déjà '' pour un id introuvable). */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          {/* CHANTIER "Pré-TestFlight Phase 4D.2 — Unifier la méta contact/date" (2026-09-22) —
+              CORRECTIF : Avatar+prénom avant la date (ordre inversé par rapport à la Phase 4D.1),
+              pour être strictement cohérent avec MÉMORISÉES ("[Avatar] Prénom · Date" dans les deux
+              cas). Seul l'ORDRE change — même Avatar 18px, même penseeSubtitle(..., false) pour la
+              date seule, même repli sur card.subtitle historique quand `contact` est null. */}
+          {contact && <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={18} />}
+          <Text
+            style={[styles.subtitle, { color: theme.inkSoft, flexShrink: 1 }]}
+            // numberOfLines uniquement avec contact (ligne désormais partagée avec l'Avatar, doit
+            // rester sur une ligne) — SANS contact, le sous-titre historique (ex. "Du X au Y" pour
+            // une période) garde son comportement d'avant cette passe, jamais tronqué en plus.
+            numberOfLines={contact ? 1 : undefined}
+          >
+            {contact ? `${contact.prenom} · ${penseeSubtitle(card.pensee, [], false)}` : card.subtitle}
+          </Text>
+        </View>
       </View>
       {card.reminderLabel && <Pill label={card.reminderLabel} tone="muted" theme={theme} />}
+    </Pressable>
+  );
+}
+
+/** Libellé + éventuel avatar d'une pensée mémorisée — centralise la distinction à 3 issues (contact
+ *  trouvé / aucun contact / contactId orphelin, voir §3-§4 du chantier), jamais recalculée deux fois
+ *  entre variant 'compact' et 'rich'. */
+function memoMeta(contactId: string | null, contact: Contact | null): { label: string; hasAvatar: boolean } {
+  if (contact) return { label: contact.prenom, hasAvatar: true };
+  // `contactId` présent mais `contact` introuvable : l'id ne pointe plus vers personne (proche
+  // supprimé, par exemple) — un fallback "Pensée personnelle" laisserait croire qu'elle n'a JAMAIS
+  // été liée à quelqu'un, ce qui est faux. "Pensée mémorisée" reste neutre et sûr dans les deux cas
+  // (aucun contact ET contact disparu), sans jamais réinventer un prénom.
+  if (contactId) return { label: 'Pensée mémorisée', hasAvatar: false };
+  return { label: 'Pensée personnelle', hasAvatar: false };
+}
+
+function MemoPenseeRow({
+  card,
+  theme,
+  onPress,
+  onLongPress,
+  muted,
+  selectionMode,
+  selected,
+  contact,
+  variant,
+}: {
+  card: PenseeCard;
+  theme: any;
+  onPress: () => void;
+  onLongPress?: () => void;
+  muted?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+  contact: Contact | null;
+  variant: 'compact' | 'rich';
+}) {
+  const { label, hasAvatar } = memoMeta(card.pensee.contactId, contact);
+  const dateLabel = frDate(card.pensee.createdAt.slice(0, 10));
+  const avatarSize = variant === 'rich' ? 30 : 18;
+
+  const AvatarOrIcon = hasAvatar && contact ? (
+    <Avatar initials={contact.initials} colorKey={contact.color} theme={theme} size={avatarSize} />
+  ) : (
+    // Pas de second système d'avatar : un simple glyphe discret dans un rond neutre (même rayon
+    // qu'Avatar), jamais un avatar avec des initiales inventées.
+    <View style={[styles.memoIconFallback, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2, backgroundColor: theme.paperDim }]}>
+      <Ionicons name="document-text-outline" size={avatarSize * 0.55} color={theme.inkSoft} />
+    </View>
+  );
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={[
+        styles.card,
+        { backgroundColor: theme.card, borderColor: theme.line, opacity: muted ? 0.75 : 1, alignItems: variant === 'rich' ? 'stretch' : 'center' },
+        selected && { borderColor: theme.accent, borderWidth: 2, backgroundColor: theme.accentTint },
+      ]}
+    >
+      {selectionMode && (
+        <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? theme.accent : theme.inkSoft} />
+      )}
+      {variant === 'rich' ? (
+        // Rich (MemorizedPenseesScreen — bibliothèque dédiée) : avatar/prénom/date EN TÊTE de
+        // carte, texte ensuite comme contenu principal (priorité visuelle demandée §2/§6).
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {AvatarOrIcon}
+            <Text style={[styles.memoRichLabel, { color: theme.ink, flex: 1 }]} numberOfLines={1}>
+              {label}
+            </Text>
+            {card.pensee.pinned && <Ionicons name="pin" size={12} color={theme.plum} />}
+            <Text style={[styles.memoDate, { color: theme.inkSoft }]}>{dateLabel}</Text>
+          </View>
+          <Text style={[styles.memoRichText, { color: theme.ink }]} numberOfLines={4}>
+            {card.pensee.texte}
+          </Text>
+        </View>
+      ) : (
+        // Compact (PenseesScreen — la vue temporelle Aujourd'hui/À venir/Passées reste dominante,
+        // voir consigne dédiée) : texte d'abord (priorité visuelle), petite méta contact+date sous
+        // le texte, hauteur proche du rendu historique — jamais une grosse carte relationnelle ici.
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            {card.pensee.pinned && <Ionicons name="pin" size={12} color={theme.plum} />}
+            <Text style={[styles.text, { color: theme.ink, flexShrink: 1 }]} numberOfLines={3}>
+              {card.pensee.texte}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+            {AvatarOrIcon}
+            <Text style={[styles.subtitle, { color: theme.inkSoft, flexShrink: 1 }]} numberOfLines={1}>
+              {label} · {dateLabel}
+            </Text>
+          </View>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -378,4 +554,9 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: '700', fontSize: 16, textAlign: 'center' },
   emptyBody: { fontSize: 13, textAlign: 'center', lineHeight: 19, marginTop: 8 },
   emptyInline: { fontSize: 13, marginTop: 16, textAlign: 'center' },
+  // CHANTIER "Pré-TestFlight Phase 4D — UI Pensées mémorisées" (2026-09-22).
+  memoIconFallback: { alignItems: 'center', justifyContent: 'center' },
+  memoRichLabel: { fontWeight: '700', fontSize: 13 },
+  memoDate: { fontSize: 11 },
+  memoRichText: { fontWeight: '700', fontSize: 15, lineHeight: 20, marginTop: 8 },
 });
