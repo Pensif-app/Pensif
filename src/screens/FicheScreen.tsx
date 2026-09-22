@@ -21,7 +21,11 @@ import { Contact, Genre } from '../data/types';
 import { generateId } from '../lib/id';
 
 const AVATAR_COLORS = ['accent', 'sage', 'plum', 'accentStrong'];
-const RELATIONS = ['Famille', 'Ami', 'Autres'];
+// CHANTIER "Pré-TestFlight Phase 4B — Relations Couple" (2026-09-22) — 'Couple' ajoutée en fin de
+// liste (catégories existantes conservées à l'identique, jamais réordonnées) : `normalizeRelation`
+// (ci-dessous) reconnaît automatiquement cette nouvelle valeur du seul fait de sa présence ici,
+// aucune autre logique à dupliquer pour ça.
+const RELATIONS = ['Famille', 'Couple', 'Ami', 'Autres'];
 // Liens de famille genrés : tant que le genre n'est pas choisi, les deux formes sont proposées ;
 // une fois choisi, seule la forme qui correspond s'affiche (ex. Genre = Femme → "Sœur", pas "Frère").
 const FAMILY_ROLE_PAIRS: { m: string; f: string }[] = [
@@ -32,28 +36,52 @@ const FAMILY_ROLE_PAIRS: { m: string; f: string }[] = [
   { m: 'Oncle', f: 'Tante' },
   { m: 'Cousin', f: 'Cousine' },
 ];
+// CHANTIER "Pré-TestFlight Phase 4B — Relations Couple" (2026-09-22) — même mécanisme de paire
+// genrée que FAMILY_ROLE_PAIRS, structure strictement équivalente (pas de refonte). 'Partenaire'
+// n'est volontairement PAS dans cette liste : c'est un lien neutre, jamais genré, jamais swappé par
+// swapFamilyRoleGender/déduit par genreForFamilyRole (voir coupleRoleOptions ci-dessous) — resté en
+// dehors de cette passe "Compagnon/Compagne", non demandée ici.
+const COUPLE_ROLE_PAIRS: { m: string; f: string }[] = [
+  { m: 'Petit ami', f: 'Petite amie' },
+  { m: 'Fiancé', f: 'Fiancée' },
+  { m: 'Mari', f: 'Épouse' },
+];
+// Les deux catégories genrées (Famille + Couple) partagent le même mécanisme de bascule/déduction de
+// genre (swapFamilyRoleGender/genreForFamilyRole ci-dessous) — une seule liste combinée à chercher,
+// jamais deux implémentations parallèles.
+const GENDERED_ROLE_PAIRS = [...FAMILY_ROLE_PAIRS, ...COUPLE_ROLE_PAIRS];
 function familyRoleOptions(genre: Genre | null): string[] {
   if (genre === 'homme') return [...FAMILY_ROLE_PAIRS.map((p) => p.m), 'Autre'];
   if (genre === 'femme') return [...FAMILY_ROLE_PAIRS.map((p) => p.f), 'Autre'];
   return [...FAMILY_ROLE_PAIRS.flatMap((p) => [p.m, p.f]), 'Autre'];
 }
-/** Bascule un lien de famille genré vers la forme qui correspond au nouveau genre (Frère → Sœur…). */
+/** 'Partenaire' toujours en tête, jamais affecté par le genre (lien neutre) — les 3 paires restantes
+ *  suivent exactement la même règle d'affichage que familyRoleOptions ci-dessus. Pas de 'Autre' ici
+ *  (liste fermée à 4 valeurs, telle que demandée dans cette passe). */
+function coupleRoleOptions(genre: Genre | null): string[] {
+  if (genre === 'homme') return ['Partenaire', ...COUPLE_ROLE_PAIRS.map((p) => p.m)];
+  if (genre === 'femme') return ['Partenaire', ...COUPLE_ROLE_PAIRS.map((p) => p.f)];
+  return ['Partenaire', ...COUPLE_ROLE_PAIRS.flatMap((p) => [p.m, p.f])];
+}
+/** Bascule un lien genré (famille OU couple) vers la forme qui correspond au nouveau genre (Frère →
+ *  Sœur…, Fiancé → Fiancée…) — 'Partenaire' n'apparaît dans aucune paire, donc jamais affecté. */
 function swapFamilyRoleGender(role: string | null, genre: Genre | null): string | null {
   if (!role || !genre) return role;
-  const pair = FAMILY_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
+  const pair = GENDERED_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
   if (!pair) return role;
   return genre === 'homme' ? pair.m : pair.f;
 }
-/** Déduit le genre à partir d'un lien de famille genré (Frère → Homme…) — pour le cas inverse : on
- *  clique un lien précis avant d'avoir choisi le genre, autant l'en déduire directement plutôt que
- *  de forcer à re-choisir un genre déjà implicite dans le lien sélectionné. */
+/** Déduit le genre à partir d'un lien genré (famille OU couple) — pour le cas inverse : on clique un
+ *  lien précis avant d'avoir choisi le genre, autant l'en déduire directement plutôt que de forcer à
+ *  re-choisir un genre déjà implicite dans le lien sélectionné. 'Partenaire' → null (neutre par
+ *  construction, jamais dans GENDERED_ROLE_PAIRS). */
 function genreForFamilyRole(role: string): Genre | null {
-  const pair = FAMILY_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
+  const pair = GENDERED_ROLE_PAIRS.find((p) => p.m === role || p.f === role);
   if (!pair) return null;
   return pair.m === role ? 'homme' : 'femme';
 }
-// Options de "lien précis", propres à chaque catégorie de relation (Famille dépend du genre —
-// voir familyRoleOptions).
+// Options de "lien précis", propres à chaque catégorie de relation (Famille/Couple dépendent du
+// genre — voir familyRoleOptions/coupleRoleOptions).
 const LIEN_OPTIONS_STATIC: Record<string, string[]> = {
   Ami: ['Meilleur', 'Proche', 'Ami'],
   Autres: ['Collègue', 'Connaissance', 'Autres'],
@@ -389,7 +417,12 @@ export function FicheScreen() {
 
       <Field label="Lien précis" theme={theme}>
         <ChipRow>
-          {(relation === 'Famille' ? familyRoleOptions(genre) : LIEN_OPTIONS_STATIC[relation] ?? []).map((r) => (
+          {(relation === 'Famille'
+            ? familyRoleOptions(genre)
+            : relation === 'Couple'
+              ? coupleRoleOptions(genre)
+              : LIEN_OPTIONS_STATIC[relation] ?? []
+          ).map((r) => (
             <Chip
               key={r}
               label={r}
@@ -397,9 +430,11 @@ export function FicheScreen() {
               theme={theme}
               onPress={() => {
                 setFamilyRole(r);
-                // "Frère" cliqué avant tout choix de genre → en déduire Homme directement, plutôt
-                // que de laisser le genre vide alors que le lien l'indique déjà sans ambiguïté.
-                if (relation === 'Famille' && !genre) {
+                // "Frère"/"Fiancé" cliqué avant tout choix de genre → en déduire Homme directement,
+                // plutôt que de laisser le genre vide alors que le lien l'indique déjà sans
+                // ambiguïté — même mécanisme pour Famille et Couple (genreForFamilyRole renvoie
+                // null pour 'Partenaire', neutre par construction : aucun genre n'est alors déduit).
+                if ((relation === 'Famille' || relation === 'Couple') && !genre) {
                   const inferred = genreForFamilyRole(r);
                   if (inferred) setGenre(inferred);
                 }
