@@ -16,6 +16,14 @@ import { Palette } from '../../theme/colors';
  * plusieurs réponses sont possibles (ex. plusieurs disciplines sportives pratiquées) — il faut
  * alors valider avec "Continuer". Chaque réponse est remontée au parent au fur et à mesure
  * (onAnswer), donc rien n'est perdu si l'utilisateur quitte en cours de route.
+ *
+ * CHANTIER "P0 Quiz Phase 1" (2026-09-22) — "Passer cette question"/"Passer" (dernière question)
+ * appelle désormais EXPLICITEMENT `onSkip(question.id)` AVANT `advance()` : une ancienne réponse
+ * déjà présente pour cette question (mode édition) doit être RETIRÉE, jamais conservée
+ * silencieusement (voir audit "Skip ne fait qu'avancer l'index" — reading-light gonflé à 93 au lieu
+ * de 57 par des réponses `contexte`/`besoin` jamais retouchées). `onSkip` est un appel dédié, distinct
+ * d'`onAnswer('', ...)`, pour que le parent (QuizScreen.tsx) puisse RETIRER la clé plutôt que d'y
+ * écrire une valeur vide — "absence de réponse = absence de clé" (consigne §2).
  */
 export function ThemeAffinageQuiz({
   quizConfig,
@@ -23,6 +31,7 @@ export function ThemeAffinageQuiz({
   theme,
   answers,
   onAnswer,
+  onSkip,
   onFinish,
   onExit,
 }: {
@@ -31,6 +40,9 @@ export function ThemeAffinageQuiz({
   theme: Palette;
   answers: Record<string, string>;
   onAnswer: (questionId: string, value: string) => void;
+  /** Retire toute réponse existante pour cette question (voir consigne §1/§2) — jamais un
+   *  `onAnswer(questionId, '')`, le parent supprime réellement la clé. */
+  onSkip: (questionId: string) => void;
   onFinish: () => void;
   onExit: () => void;
 }) {
@@ -159,7 +171,17 @@ export function ThemeAffinageQuiz({
           </View>
         )}
 
-        <Pressable onPress={advance} style={{ marginTop: 20, alignItems: 'center' }}>
+        <Pressable
+          onPress={() => {
+            // Retire d'abord toute ancienne réponse pour CETTE question (consigne §1/§3 : y compris
+            // pour la dernière question, "Passer" doit aussi effacer avant de terminer), puis avance
+            // — jamais l'inverse, pour ne jamais laisser `advance()`/`onFinish()` s'exécuter sur un
+            // état pas encore nettoyé.
+            onSkip(question.id);
+            advance();
+          }}
+          style={{ marginTop: 20, alignItems: 'center' }}
+        >
           <Text style={{ color: theme.inkSoft, fontSize: 13 }}>{isLast ? 'Passer' : 'Passer cette question'}</Text>
         </Pressable>
       </View>

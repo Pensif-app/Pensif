@@ -301,6 +301,18 @@ export function QuizScreen() {
                   [activeAffinageTheme]: { ...(prev[activeAffinageTheme] ?? {}), [questionId]: value },
                 }))
               }
+              // CHANTIER "P0 Quiz Phase 1" (2026-09-22) — "Passer cette question" retire RÉELLEMENT
+              // la clé plutôt que d'y laisser une ancienne valeur (voir audit "réponse historique
+              // conservée silencieusement") : "absence de réponse = absence de clé", jamais
+              // `questionId: ''`. Si la question n'avait aucune réponse existante, ce retrait est un
+              // no-op strict (destructuration + suppression d'une clé déjà absente).
+              onSkip={(questionId) =>
+                setThemeAnswers((prev) => {
+                  const currentTheme = { ...(prev[activeAffinageTheme] ?? {}) };
+                  delete currentTheme[questionId];
+                  return { ...prev, [activeAffinageTheme]: currentTheme };
+                })
+              }
               onFinish={() => setActiveAffinageTheme(null)}
               onExit={() => setActiveAffinageTheme(null)}
             />
