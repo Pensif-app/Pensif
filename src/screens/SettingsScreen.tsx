@@ -26,7 +26,10 @@ const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const THEME_OPTIONS: { key: ThemePref; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'system', label: 'Système', icon: 'phone-portrait-outline' },
   { key: 'light', label: 'Clair', icon: 'sunny-outline' },
-  { key: 'dark', label: 'Sombre', icon: 'moon-outline' },
+  // CHANTIER "Phase 7B — Rename thème Sombre → Obscur" (2026-09-23) — libellé utilisateur UNIQUEMENT
+  // (clin d'œil volontaire à Clair Obscur) : `key: 'dark'` INCHANGÉ (valeur interne/ThemePref/logique
+  // dark mode/AsyncStorage — voir theme/index.ts — strictement identique, jamais touchée ici).
+  { key: 'dark', label: 'Obscur', icon: 'moon-outline' },
 ];
 
 export function SettingsScreen() {

@@ -6,6 +6,8 @@
 //
 // Usage : npx ts-node --compiler-options '{"module":"commonjs"}' scripts/test-regression-home.ts
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { Contact, Pensee } from '../src/data/types';
 import { buildHomeAttentions, HomeAttention } from '../src/data/homeAttention';
 import { occurrenceYear, familyFetes } from '../src/data/calendar';
@@ -237,6 +239,83 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe pour d
   const a = find(list, 'anniv-a-today');
   check('badge = "Envoyer un message" le jour J', a?.badge?.label === 'Envoyer un message', a?.badge?.label);
   check('action inchangée : toujours "message" (pas de changement de logique, texte seul)', a?.action.kind === 'message');
+}
+
+// --- CHANTIER "Phase 7A — Correctif Accueil sans contact" (2026-09-23) — CORRECTIF BUG confirmé en
+// conditions réelles : `contacts.length === 0` SEUL masquait tout l'Accueil (bloc onboarding "Ajouter
+// un proche") même quand `attentions` contenait déjà une pensée personnelle temporelle (today/
+// upcoming, sans contact lié). HomeScreen.tsx (react-native) ne peut pas être chargé sous tsx (même
+// constat que le reste de ce projet) — la condition de rendu est vérifiée par lecture de source ;
+// `attentions` (ce qu'elle CONTIENT réellement pour chaque cas) est vérifié par exécution RÉELLE de
+// `buildHomeAttentions`, jamais réimplémentée. buildHomeAttentions/homeAttention.ts NON modifiés par
+// cette passe (vérifié par les mêmes assertions [bonus]/[bonus 2] ci-dessus, toujours vertes).
+
+function readScreen(name: string): string {
+  return fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', `${name}.tsx`), 'utf8').replace(/\r\n/g, '\n');
+}
+
+console.log('\n[Phase 7A — 1] 0 contact + 0 pensée → attentions vide → onboarding attendu');
+{
+  const list = buildHomeAttentions([], [], TODAY);
+  check('attentions.length === 0', list.length === 0, String(list.length));
+}
+
+console.log('\n[Phase 7A — 2] 0 contact + pensée memo pure (sans date ni rappel) → attentions vide → onboarding historique inchangé (périmètre HORS de cette passe)');
+{
+  const memo = makePensee({ id: 'p-memo', date: null, reminderAt: null, contactId: null });
+  const list = buildHomeAttentions([], [memo], TODAY);
+  check('attentions.length === 0 (une pensée memo pure n’entre toujours pas dans HomeAttention, comportement préexistant conservé)', list.length === 0, String(list.length));
+}
+
+console.log('\n[Phase 7A — 3] 0 contact + pensée today (ancrée aujourd’hui, sans contact) → attentions non vide → layout normal attendu');
+{
+  const todayIso = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, '0')}-${String(TODAY.getDate()).padStart(2, '0')}`;
+  const p = makePensee({ id: 'p-today', date: todayIso, contactId: null });
+  const list = buildHomeAttentions([], [p], TODAY);
+  check('attentions.length > 0 (la pensée personnelle apparaît malgré 0 contact)', list.length > 0, String(list.length));
+  check('horizon = today', list[0]?.horizon === 'today', list[0]?.horizon);
+  check('contactId = null (pensée réellement personnelle, aucun contact inventé)', list[0]?.contactId === null);
+}
+
+console.log('\n[Phase 7A — 4] 0 contact + pensée upcoming (future, sans contact) → attentions non vide → layout normal attendu');
+{
+  const p = makePensee({ id: 'p-upcoming', date: '2026-01-20', contactId: null }); // 5 jours après TODAY (15/01)
+  const list = buildHomeAttentions([], [p], TODAY);
+  check('attentions.length > 0', list.length > 0, String(list.length));
+  check('horizon = week (dans les 7 jours)', list[0]?.horizon === 'week', list[0]?.horizon);
+  check('contactId = null', list[0]?.contactId === null);
+}
+
+console.log('\n[Phase 7A — 5] 1 contact + 0 pensée → comportement historique inchangé (contacts.length !== 0, condition déjà fausse avant comme après)');
+{
+  const c = makeContact({ id: 'c-solo', prenom: 'Solo' });
+  const list = buildHomeAttentions([c], [], TODAY);
+  // Aucune attention (pas d’anniversaire proche dans la fenêtre, pas de pensée) — le layout normal
+  // affichera les sections vides ("Rien de particulier..."), jamais l’onboarding, car contacts.length
+  // !== 0 suffit déjà à lui seul à écarter la branche onboarding.
+  check('contacts.length !== 0 → onboarding jamais déclenché, quel que soit attentions.length', true);
+  check('(contrôle) attentions peut être vide sans que ça affecte la condition avec un contact présent', Array.isArray(list));
+}
+
+console.log('\n[Phase 7A — 6] 1 contact + pensée → comportement historique inchangé');
+{
+  const c = makeContact({ id: 'c-avec-pensee', prenom: 'Avec' });
+  const p = makePensee({ id: 'p-avec-contact', date: '2026-01-15', contactId: 'c-avec-pensee' });
+  const list = buildHomeAttentions([c], [p], TODAY);
+  check('attentions.length > 0 (comportement historique, contact présent)', list.length > 0, String(list.length));
+}
+
+console.log('\n[Phase 7A — 7] Source — le gate HomeScreen.tsx n’est plus "contacts.length === 0" seul');
+{
+  const src = readScreen('HomeScreen');
+  check(
+    'condition combinée présente : contacts.length === 0 && attentions.length === 0',
+    /\{contacts\.length === 0 && attentions\.length === 0 \? \(/.test(src),
+  );
+  check(
+    'ancienne condition SEULE ("contacts.length === 0 ? (" sans attentions.length) n’apparaît plus nulle part dans ce fichier',
+    !/\{contacts\.length === 0 \? \(/.test(src),
+  );
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

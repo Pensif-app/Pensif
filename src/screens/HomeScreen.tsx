@@ -86,10 +86,21 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {contacts.length === 0 ? (
-        // Sans aucun proche, les trois sections n'auraient rien d'autre à montrer que trois
-        // messages "rien de prévu" à la suite — un seul état vide avec un CTA direct est plus clair
-        // (voir CHANTIER PRÉ-BÊTA 1 §4). Volontairement minimal : pas de carrousel ni de tutoriel.
+      {/* CHANTIER "Phase 7A — Correctif Accueil sans contact" (2026-09-23) — CORRECTIF BUG confirmé
+          en conditions réelles : `contacts.length === 0` SEUL masquait tout l'Accueil, y compris
+          quand `attentions` contenait déjà une pensée personnelle temporelle (today/upcoming, sans
+          contact lié) — une pensée personnelle ne doit jamais dépendre de l'existence d'un contact.
+          `attentions` (déjà calculé ci-dessus, aucune nouvelle donnée) fait maintenant foi en plus :
+          onboarding UNIQUEMENT si aucun contact ET aucune attention à montrer. Périmètre HORS de
+          cette passe (délibérément inchangé, voir consigne §3) : une pensée `memo` pure (sans date ni
+          rappel) n'entre déjà pas dans `attentions` (buildHomeAttentions, homeAttention.ts, non
+          modifié) — "0 contact + uniquement memo" continue donc de montrer l'onboarding, exactement
+          comme avant cette passe. */}
+      {contacts.length === 0 && attentions.length === 0 ? (
+        // Sans aucun proche NI aucune attention à montrer, les trois sections n'auraient rien
+        // d'autre à afficher que trois messages "rien de prévu" à la suite — un seul état vide avec
+        // un CTA direct est plus clair (voir CHANTIER PRÉ-BÊTA 1 §4). Volontairement minimal : pas
+        // de carrousel ni de tutoriel.
         <View style={[styles.card, styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
           <Text style={[styles.emptyTitle, { color: theme.ink }]}>Ajouter un proche</Text>
           <Text style={[styles.emptyBody, { color: theme.inkSoft }]}>
