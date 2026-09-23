@@ -274,14 +274,29 @@ export function penseeAnchor(p: Pensee): { date: string; endDate: string | null 
   return null;
 }
 
-/** Une pensée (ponctuelle ou de période) est-elle "active" un jour ISO donné ? Même définition
+/** Une pensée (ponctuelle ou de période) est-elle "active" AUJOURD'HUI (`now`) ? Même définition
  *  utilisée par l'Accueil (homeAttention.ts) et l'écran Pensées — centralisée ici pour ne pas être
  *  recodée séparément à chaque endroit qui doit le savoir. Toujours `false` pour une pensée sans
- *  ancre (voir penseeAnchor) : elle n'est "active" aucun jour en particulier. */
-export function isPenseeActiveOn(p: Pensee, iso: string): boolean {
+ *  ancre (voir penseeAnchor) : elle n'est "active" aucun jour en particulier.
+ *
+ *  CHANTIER "Post-TestFlight Phase 6 — P0 Récurrences bucket" (2026-09-23) — CORRECTIF BUG confirmé
+ *  en conditions réelles (daily ET weekly) : cette fonction comparait `iso` à l'ancre BRUTE/figée
+ *  (`anchor.date`, jour de la 1ère occurrence historique, jamais mis à jour par la récurrence) —
+ *  un rappel récurrent dont l'occurrence du jour venait de sonner restait donc "actif aujourd'hui"
+ *  jusqu'à minuit, alors que sa prochaine occurrence réelle (`nextPenseeReminderOccurrence`) était
+ *  déjà demain/vendredi. Signature changée de `iso: string` à `now: Date` (même pattern que
+ *  `isPenseeEnded`/`effectivePenseeAnchorDate` ci-dessous, dont chaque appelant avait déjà un `Date`
+ *  sous la main). Réutilise directement `effectivePenseeAnchorDate` (primitive EXISTANTE, elle-même
+ *  corrigée ci-dessous) — aucune seconde implémentation du calcul de récurrence.
+ *
+ *  Période (`endDate`) INCHANGÉE : une période n'est pas un rappel récurrent, la comparaison reste
+ *  la plage brute `anchor.date`..`anchor.endDate`, jamais recouverte par une occurrence de rappel. */
+export function isPenseeActiveOn(p: Pensee, now: Date): boolean {
   const anchor = penseeAnchor(p);
   if (!anchor) return false;
-  return anchor.endDate ? anchor.date <= iso && iso <= anchor.endDate : anchor.date === iso;
+  const iso = dIso(now);
+  if (anchor.endDate) return anchor.date <= iso && iso <= anchor.endDate;
+  return effectivePenseeAnchorDate(p, now) === iso;
 }
 
 /** Une pensée (ponctuelle ou de période) est-elle définitivement terminée à l'instant `now` ?
@@ -318,13 +333,31 @@ export function isPenseeEnded(p: Pensee, now: Date): boolean {
  * devient le jour effectif — jamais l'inverse : une ancre encore valide n'est JAMAIS recouverte par
  * une occurrence de rappel (voir consigne §6 — ne pas mélanger date d'événement et calendrier de
  * notification au-delà du strict nécessaire pour corriger le bug). Le Calendrier (getDayEvents plus
- * bas) continue d'utiliser `penseeAnchor`/`p.date` directement, jamais cette fonction. */
+ * bas) continue d'utiliser `penseeAnchor`/`p.date` directement, jamais cette fonction.
+ *
+ * CHANTIER "Post-TestFlight Phase 6 — P0 Récurrences bucket" (2026-09-23) — CORRECTIF : la garde
+ * `rawEnded` ci-dessous ne comparait que des JOURS civils (`anchor.date < todayIso`) — sur le jour
+ * même de l'ancre (`anchor.date === todayIso`, vrai toute la journée où une série a été créée, ou
+ * tout jour où l'ancre brute retombe sur aujourd'hui), `rawEnded` restait `false` toute la journée
+ * et `nextPenseeReminderOccurrence` (pourtant déjà HEURE-aware) n'était jamais consultée : un rappel
+ * qui venait de sonner aujourd'hui, dont la prochaine occurrence est demain/vendredi, restait
+ * "effectivement aujourd'hui" jusqu'à minuit. Pour une ancre SANS `endDate` (jour unique — le seul
+ * cas concerné par une récurrence de RAPPEL), on consulte désormais TOUJOURS `nextPenseeReminderOccurrence`
+ * en premier (elle gère déjà correctement heure/récurrence/règle absente ou épuisée) ; seul un
+ * résultat `null` (aucune occurrence future — récurrence absente/épuisée, ou rappel ponctuel déjà
+ * passé) retombe sur l'ancre brute historique, EXACTEMENT comme avant (aucun changement pour ces
+ * cas — vérifié : un rappel ponctuel futur, un rappel ponctuel déjà passé, et une récurrence épuisée
+ * produisent tous la même valeur qu'avant cette correction). Période (`endDate`) INCHANGÉE. */
 export function effectivePenseeAnchorDate(p: Pensee, now: Date): string | null {
   const anchor = penseeAnchor(p);
   if (!anchor) return null;
-  const todayIso = dIso(now);
-  const rawEnded = anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
-  if (!rawEnded) return anchor.date;
+  if (anchor.endDate) {
+    const todayIso = dIso(now);
+    const rawEnded = anchor.endDate < todayIso;
+    if (!rawEnded) return anchor.date;
+    const next = nextPenseeReminderOccurrence(p, now);
+    return next ? dIso(next) : anchor.date;
+  }
   const next = nextPenseeReminderOccurrence(p, now);
   return next ? dIso(next) : anchor.date;
 }

@@ -38,6 +38,7 @@ import { ContactPicker } from '../components/ContactPicker';
 import { RecurrenceEditorMode, RecurrenceEditorSheet } from '../components/RecurrenceEditorSheet';
 import { useTheme } from '../theme';
 import { useStore } from '../data/store';
+import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';
 import { RootStackParamList } from '../navigation/types';
 import { uploadAudioForCapture, reextractCapture, CaptureApiError } from '../lib/captureApi';
 import { matchContactByHeardName } from '../data/contactMatching';
@@ -239,7 +240,7 @@ export function CaptureScreen() {
   // trop près du bord (voir retour utilisateur).
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { contacts, addPensee } = useStore();
+  const { contacts, addPensee, setNotificationsEnabled } = useStore();
 
   // `isMeteringEnabled: true` — sans ce réglage explicite, `RecorderState.metering` reste toujours
   // `undefined` (voir expo-audio/utils/options.ts, défaut false). Avec, expo-audio expose un niveau
@@ -503,6 +504,15 @@ export function CaptureScreen() {
       setPhase('error');
       return;
     }
+
+    // CHANTIER "Post-TestFlight Phase 6 — Notifications première utilisation" (2026-09-23) — point
+    // le plus naturel du flow existant (juste après la permission micro accordée, premier usage réel
+    // de l'app) pour demander la permission notifications, SANS nouvel écran d'onboarding (voir
+    // requestNotificationPermissionIfUndetermined, notifications.ts : ne redemande jamais si déjà
+    // tranchée). Fire-and-forget, ne bloque jamais la capture en cours.
+    void requestNotificationPermissionIfUndetermined().then((granted) => {
+      if (granted !== null) setNotificationsEnabled(granted);
+    });
 
     try {
       // 2) activer la session audio iOS si nécessaire — sans effet sur Android (champ iOS-only).

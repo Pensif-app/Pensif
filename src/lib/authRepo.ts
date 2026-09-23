@@ -144,6 +144,18 @@ export function describeAuthErrorCode(code: string | undefined, fallbackMessage:
     case 'identity_already_exists':
     case 'email_conflict_identity_not_deletable':
       return 'Un compte Pensif existe déjà avec cet email.';
+    // CHANTIER "Post-TestFlight Phase 6 — Recovery erreur email inconnu" (2026-09-23) — CORRECTIF :
+    // `requestExistingAccountOtp` (`shouldCreateUser: false` explicite) renvoyait, sur un email ne
+    // correspondant à AUCUN compte, une erreur dont le `code` ne figurait dans AUCUN cas ci-dessous —
+    // elle retombait donc sur `fallbackMessage` (le texte anglais brut de Supabase, ex. observé en
+    // test physique), affiché tel quel à l'utilisateur. `otp_disabled` est le code officiel confirmé
+    // dans `@supabase/auth-js` (voir error-codes.ts, ErrorCode — "Sign in with OTP is disabled",
+    // renvoyé notamment quand la création est refusée pour un email inconnu). Vérifié dans le SDK
+    // installé (2.116.0), pas supposé arbitrairement — à reconfirmer par un test physique sur Build 2
+    // (aucun appel réseau réel possible dans cette passe) : si un autre code apparaissait en
+    // conditions réelles, ce `case` devra être complété, jamais remplacé par une supposition.
+    case 'otp_disabled':
+      return "Aucun compte Pensif n'est associé à cette adresse. Vérifie l'adresse saisie ou continue avec un nouveau compte.";
     case 'email_address_invalid':
       return 'Cette adresse email ne semble pas valide.';
     case 'otp_expired':

@@ -31,6 +31,7 @@ import {
   validatePenseeRecurrenceEdit,
 } from '../data/penseeReminderRecurrence';
 import { canScheduleExactAlarms, openExactAlarmSettings } from 'expo-exact-alarm';
+import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';
 
 // CHANTIER POLISH PICKER ÉVÉNEMENT (2026-09-18) — locale explicite pour les pickers iOS inline de cet
 // écran (`@react-native-community/datetimepicker` 9.1.0, prop `locale` IOSNativeProps UNIQUEMENT,
@@ -78,7 +79,7 @@ export function PenseeDetailScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'PenseeDetail'>>();
-  const { pensees, contacts, addPensee, updatePensee, deletePensee } = useStore();
+  const { pensees, contacts, addPensee, updatePensee, deletePensee, setNotificationsEnabled } = useStore();
 
   const penseeId = route.params?.penseeId;
   const existing = penseeId ? pensees.find((p) => p.id === penseeId) : undefined;
@@ -146,6 +147,14 @@ export function PenseeDetailScreen() {
   const [recurrenceDraft, setRecurrenceDraft] = useState<PenseeRecurrenceDraft>(() =>
     buildPenseeRecurrenceDraft(existing?.reminderRecurrence ?? null),
   );
+  // CHANTIER "Phase 6 Addendum — Correctif rappel ponctuel + clavier" (2026-09-23) — snapshot du
+  // dernier draft VALIDE juste avant d'ouvrir la feuille RÉPÉTITION/FIN (RecurrenceEditorSheet) :
+  // permet à `closeRecurrenceEditor` (plus bas) de restaurer ce draft si la fermeture survient sur
+  // un état incomplet (ex. 'weekly' sans aucun jour coché) — jamais un draft `{enabled:true,
+  // frequency:'weekly', daysOfWeek:[]}` ne doit survivre à la fermeture de la feuille (voir consigne
+  // §3). `useRef` (pas un state) : pure mémoire technique pour la fermeture, ne doit jamais
+  // déclencher de re-render ni être lue par le rendu lui-même.
+  const recurrenceDraftBeforeEditRef = useRef<PenseeRecurrenceDraft | null>(null);
   const [recurrenceEditorMode, setRecurrenceEditorMode] = useState<RecurrenceEditorMode | null>(null);
   // CHANTIER "Cohérence Capture / création manuelle + erreur récurrence visible" (2026-09-20) — état
   // UX local, jamais persisté, jamais lu par save() pour décider quoi que ce soit (uniquement de
@@ -158,15 +167,22 @@ export function PenseeDetailScreen() {
     setAnchorMismatchHighlight(false);
   }, [reminderDate, recurrenceDraft]);
   /** PROPOSÉ — valeur purement visuelle pour positionner le picker (et calculer les libellés) quand
-   *  aucun rappel n'est encore confirmé : "demain 9h" (comportement historique conservé comme
-   *  PROPOSITION seulement — voir docstring de `reminderDate` ci-dessus). Ne modifie jamais l'état ;
-   *  quand `reminderDate` est déjà confirmé, le retourne TEL QUEL (idempotent). */
+   *  aucun rappel n'est encore confirmé — voir docstring de `reminderDate` ci-dessus. Ne modifie
+   *  jamais l'état ; quand `reminderDate` est déjà confirmé (nouveau rappel en cours d'édition, OU
+   *  rappel existant chargé depuis `existing.reminderAt` — voir la déclaration de `reminderDate`),
+   *  le retourne TEL QUEL (idempotent) — CETTE fonction ne concerne QUE le cas "aucune valeur du
+   *  tout encore confirmée".
+   *
+   *  CHANTIER "Post-TestFlight Phase 6 — Reminder seed = maintenant" (2026-09-23) — CORRECTIF : la
+   *  seed "demain 9h" (comportement historique) ne correspond plus à l'usage réel observé — un
+   *  nouveau rappel sans date existante propose désormais `new Date()` (date/heure LOCALES actuelles
+   *  du téléphone), conformément à la consigne. Aucun changement pour l'édition d'un rappel déjà
+   *  enregistré (`reminderDate` non-null dès le montage dans ce cas, ce `if` court-circuite avant
+   *  d'atteindre `new Date()`) ni pour l'ancre historique d'une récurrence existante (même chemin,
+   *  jamais recalculée ici). */
   function reminderDateSeed(): Date {
     if (reminderDate) return reminderDate;
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 0, 0, 0);
-    return d;
+    return new Date();
   }
   /**
    * CHANTIER SEEDS TEMPORELS 1 (2026-09-18) — confirme MAINTENANT la valeur ACTUELLEMENT AFFICHÉE
@@ -307,6 +323,53 @@ export function PenseeDetailScreen() {
         ],
       );
     }
+    // CHANTIER "Post-TestFlight Phase 6 — Notifications première utilisation" (2026-09-23) — protège
+    // l'utilisateur qui crée son tout premier rappel SANS jamais être passé par le micro (voir
+    // requestNotificationPermissionIfUndetermined, notifications.ts) : au moment même où un rappel
+    // est activé, si la permission iOS n'a encore jamais été tranchée, la demander MAINTENANT plutôt
+    // que de laisser le rappel se sauvegarder en prétendant être actif. `null` = déjà tranchée avant
+    // cet appel (rien à synchroniser, comportement des réglages déjà cohérent). Fire-and-forget
+    // (comme le prompt Android ci-dessus) — ne bloque jamais l'interaction du switch lui-même.
+    if (value && Platform.OS !== 'web') {
+      void requestNotificationPermissionIfUndetermined().then((granted) => {
+        if (granted !== null) setNotificationsEnabled(granted);
+      });
+    }
+  }
+
+  // CHANTIER "Phase 6 Addendum — Correctif rappel ponctuel + clavier" (2026-09-23) — ouvre la feuille
+  // RÉPÉTITION/FIN en mémorisant D'ABORD le draft ACTUEL (déjà valide par construction : soit
+  // `NEVER_PENSEE_RECURRENCE_DRAFT`, soit une règle complète chargée depuis `existing` ou confirmée
+  // lors d'un aller-retour précédent dans cette même session — jamais un état incomplet, garanti par
+  // `closeRecurrenceEditor` ci-dessous) — c'est ce snapshot qui sera restauré si l'utilisateur ferme
+  // la feuille sur un état incomplet.
+  function openRecurrenceEditor(mode: RecurrenceEditorMode) {
+    recurrenceDraftBeforeEditRef.current = recurrenceDraft;
+    setRecurrenceEditorMode(mode);
+  }
+
+  /**
+   * CHANTIER "Phase 6 Addendum — Correctif rappel ponctuel + clavier" (2026-09-23) — CORRECTIF : un
+   * draft `{enabled:true, frequency:'weekly', daysOfWeek:[]}` (ou tout autre état incomplet que
+   * `toPenseeReminderRecurrence` ne sait pas normaliser) ne doit JAMAIS survivre à la fermeture de la
+   * feuille — jusqu'ici rien ne l'empêchait, laissant l'utilisateur bloqué à la sauvegarde avec
+   * "Répétition incomplète" pour un rappel qu'il voulait simplement ponctuel (voir audit dédié).
+   *
+   * Règle : `enabled:false` (Aucune) est TOUJOURS valide, jamais restauré. Sinon, si
+   * `toPenseeReminderRecurrence` produit une règle réelle (daily, ou weekly avec >= 1 jour), le
+   * changement est conservé tel quel — jamais écrasé alors que l'utilisateur a fait un choix complet
+   * et volontaire. Seul un draft `enabled:true` mais INCOMPLET restaure le snapshot pris à
+   * l'ouverture (`recurrenceDraftBeforeEditRef`) — jamais `NEVER_PENSEE_RECURRENCE_DRAFT` en dur, qui
+   * détruirait silencieusement une récurrence valide préexistante (ex. "Tous les jours" déjà actif
+   * avant l'ouverture de la feuille, voir consigne §3 exemple "récurrence existante").
+   */
+  function closeRecurrenceEditor() {
+    setRecurrenceDraft((d) => {
+      if (!d.enabled) return d;
+      if (toPenseeReminderRecurrence(d)) return d;
+      return recurrenceDraftBeforeEditRef.current ?? NEVER_PENSEE_RECURRENCE_DRAFT;
+    });
+    setRecurrenceEditorMode(null);
   }
 
   function save() {
@@ -647,7 +710,7 @@ export function PenseeDetailScreen() {
           Terminé, la roulette n'est plus affichée en permanence dès l'activation) ; Android garde ses
           deux dialogs natifs séparés, strictement inchangés visuellement. CHANTIER SEEDS TEMPORELS 1
           (2026-09-18) — `reminderDate` (CONFIRMÉ) est désormais nullable : voir sa déclaration plus
-          haut, `reminderDateSeed()` (PROPOSÉ, "demain 9h" inchangée), et `confirmReminderSeed()`/
+          haut, `reminderDateSeed()` (PROPOSÉ, `new Date()` depuis Phase 6 — voir sa docstring), et `confirmReminderSeed()`/
           `openReminderDateTimePicker()` pour la confirmation À LA FERMETURE (plus à l'ouverture). */}
       {reminderEnabled && (
         <View style={{ marginTop: 10 }}>
@@ -722,7 +785,7 @@ export function PenseeDetailScreen() {
               "Jamais" passe par l'action dédiée "Ne plus répéter" ci-dessous, jamais par la feuille
               elle-même. FIN n'apparaît que si un motif a réellement été choisi. */}
           <Pressable
-            onPress={() => setRecurrenceEditorMode('frequency')}
+            onPress={() => openRecurrenceEditor('frequency')}
             style={[
               styles.recurrenceRow,
               { marginTop: 18 },
@@ -741,14 +804,22 @@ export function PenseeDetailScreen() {
               La date de début ne correspond pas aux jours sélectionnés.{'\n'}Choisis une date correspondant à l’un des jours de répétition.
             </Text>
           ) : null}
-          {recurrenceDraft.enabled ? (
+          {/* CHANTIER "Phase 6 Addendum — Correctif rappel ponctuel + clavier" (2026-09-23) — CORRECTIF :
+              FIN n'apparaît désormais que pour une récurrence RÉELLEMENT valide (daily, ou weekly avec
+              au moins un jour) — `toPenseeReminderRecurrence` fait autorité (même primitive que
+              closeRecurrenceEditor/validatePenseeRecurrenceEdit, jamais une 2e condition réinventée).
+              Avant ce correctif, `recurrenceDraft.enabled` seul suffisait à afficher FIN, y compris
+              pour un 'weekly' encore sans aucun jour (état transitoire) — désormais impossible de
+              toute façon grâce à closeRecurrenceEditor, mais cette condition reste la garantie
+              structurelle : FIN n'existe QUE pour une récurrence qui a réellement un sens. */}
+          {toPenseeReminderRecurrence(recurrenceDraft) ? (
             <>
               {/* CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) —
                   BUG CORRIGÉ : `penseeRecurrenceEndLabel` ne renvoie plus jamais `null` tant que la
                   récurrence est active (voir penseeReminderRecurrence.ts) — "Jamais" est désormais une
                   valeur affichée explicitement, exactement comme Capture Review le fait pour
                   RÉPÉTITION elle-même. La ligne FIN est donc TOUJOURS présente ici. */}
-              <Pressable onPress={() => setRecurrenceEditorMode('end')} style={[styles.recurrenceRow, { marginTop: 18 }]}>
+              <Pressable onPress={() => openRecurrenceEditor('end')} style={[styles.recurrenceRow, { marginTop: 18 }]}>
                 <Text style={[styles.label, { color: theme.inkSoft, marginTop: 0, marginBottom: 0 }]}>FIN</Text>
                 <Text style={{ color: theme.ink, fontSize: 13, fontWeight: '700' }}>{penseeRecurrenceEndLabel(recurrenceDraft)}</Text>
               </Pressable>
@@ -757,7 +828,7 @@ export function PenseeDetailScreen() {
                   RÉPÉTITION (marginTop 18) : lisible comme une action secondaire RATTACHÉE à FIN, pas
                   une 5e ligne indépendante du bloc. */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
-                <Pressable onPress={() => setRecurrenceEditorMode('end')} hitSlop={8}>
+                <Pressable onPress={() => openRecurrenceEditor('end')} hitSlop={8}>
                   <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Modifier la fin</Text>
                 </Pressable>
                 <Pressable onPress={() => setRecurrenceDraft(NEVER_PENSEE_RECURRENCE_DRAFT)} hitSlop={8}>
@@ -778,7 +849,7 @@ export function PenseeDetailScreen() {
         occurrenceCount={recurrenceDraft.occurrenceCount}
         untilDate={recurrenceDraft.untilDate ? isoToLocalDate(recurrenceDraft.untilDate) : null}
         startDate={reminderDate ? dateToLocalDate(reminderDate) : null}
-        onClose={() => setRecurrenceEditorMode(null)}
+        onClose={closeRecurrenceEditor}
         onChooseFrequency={(frequency) => setRecurrenceDraft((d) => setPenseeRecurrenceFrequency(d, frequency))}
         onToggleDay={(day) => setRecurrenceDraft((d) => togglePenseeRecurrenceDay(d, day))}
         onChooseNever={() => setRecurrenceDraft((d) => setPenseeRecurrenceNever(d))}

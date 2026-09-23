@@ -421,7 +421,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ]);
         if (u) setUserNameState(u);
         if (t === 'light' || t === 'dark' || t === 'system') setThemePrefState(t);
-        if (n === '0') setNotificationsEnabledState(false);
+        // CHANTIER "Post-TestFlight Phase 6 — Notifications permission sync" (2026-09-23) — CORRECTIF
+        // BUG confirmé en conditions réelles : `notificationsEnabled` démarrait à `true` (voir sa
+        // déclaration) et cette clé absente sur une installation fraîche (`n === null`) ne changeait
+        // jamais rien — le toggle restait "ON" sans que la permission iOS n'ait jamais été demandée
+        // (undetermined), donc sans qu'aucun rappel ne puisse réellement être programmé. Uniquement
+        // quand AUCUNE préférence n'a encore été explicitement choisie (`n === null` — un flip manuel
+        // du toggle écrit TOUJOURS '0'/'1', voir setNotificationsEnabled plus bas, donc ce cas ne
+        // concerne que le tout premier lancement) : dériver l'état initial de la permission SYSTÈME
+        // réelle plutôt que d'un booléen arbitraire — `granted` → true, `denied`/`undetermined` →
+        // false (jamais représenté comme actif tant que rien n'est confirmé, voir consigne). Ne
+        // redemande JAMAIS la permission ici (lecture seule, `getNotificationPermissionStatus` ne
+        // fait qu'interroger l'OS) — seule une action utilisateur explicite (toggle, ou premier
+        // rappel créé, voir store.tsx `setReminderPreferenceFromFirstUse`) peut déclencher un prompt.
+        // Si `n` est déjà '0'/'1' (préférence déjà choisie explicitement par le passé), comportement
+        // STRICTEMENT inchangé : cette branche n'est jamais atteinte.
+        if (n === null) {
+          const status = await getNotificationPermissionStatus();
+          if (status === 'granted') setNotificationsEnabledState(true);
+          else setNotificationsEnabledState(false);
+        } else if (n === '0') {
+          setNotificationsEnabledState(false);
+        }
 
         if (!isSupabaseConfigured) {
           // Mode 100% local — AUCUNE notion de session/auth gate n'existe dans ce mode (comportement

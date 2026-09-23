@@ -16,7 +16,9 @@ import {
   occurrenceYear,
   penseeAnchor,
   penseeSubtitle,
+  reminderAtLabel,
 } from './calendar';
+import { nextPenseeReminderOccurrence } from './reminderRecurrence';
 
 /**
  * Représentation commune de tout ce que l'Accueil peut afficher — un seul type, une seule fonction
@@ -50,6 +52,11 @@ export type HomeAttention = {
   contactId: string | null;
   title: string;
   subtitle: string;
+  /** CHANTIER "Post-TestFlight Phase 6 — Accueil reminderLabel" (2026-09-23) — `null` pour tout type
+   *  autre que 'pensee' (anniversaire/fête de prénom/fête familiale n'ont pas de "rappel" au sens
+   *  `reminderAt`, seulement un `badge` CTA) ou pour une pensée sans rappel programmé. Même valeur/
+   *  format que `PenseeCard.reminderLabel` (penseesView.ts) — jamais une 2e implémentation. */
+  reminderLabel: string | null;
   horizon: HomeHorizon;
   daysUntil: number;
   /** Sert de 2e clé de tri (voir compareHomeAttentions) : une attention qui attend encore un geste
@@ -144,6 +151,7 @@ function birthdayAttention(c: Contact, today: Date): HomeAttention | null {
     contactId: c.id,
     title: name,
     subtitle,
+    reminderLabel: null,
     horizon: horizonForDays(daysUntil),
     daysUntil,
     needsAction: !hasQuiz || !giftPrepared || c.birthdayReminderDays == null,
@@ -154,7 +162,6 @@ function birthdayAttention(c: Contact, today: Date): HomeAttention | null {
 }
 
 function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAttention | null {
-  const todayIso = dIso(today);
   // Une pensée purement mémorisée (aucune ancre calendrier ni rappel — voir penseeAnchor,
   // CHANTIER PENSÉES V2) n'a rien de "temporel" à afficher sur l'Accueil, qui reste une fenêtre
   // glissante sur ce qui se passe maintenant/bientôt — elle n'apparaît donc que dans l'onglet
@@ -178,11 +185,19 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
   // sans qu'aucune logique de scoring n'ait été touchée — voir effectivePenseeAnchorDate,
   // calendar.ts).
   const effectiveDay = effectivePenseeAnchorDate(p, today) ?? anchor.date;
-  const activeToday = isPenseeActiveOn(p, todayIso);
+  const activeToday = isPenseeActiveOn(p, today);
   const daysUntil = activeToday ? 0 : daysBetween(effectiveDay, today);
   if (daysUntil > HOME_WINDOW_DAYS) return null;
 
   const subtitle = penseeSubtitle(p, contacts);
+  // CHANTIER "Post-TestFlight Phase 6 — Accueil reminderLabel" (2026-09-23) — mêmes primitives que
+  // `buildPenseeCards` (penseesView.ts), jamais une 2e implémentation : la prochaine occurrence
+  // EFFECTIVE (récurrence comprise) pour l'heure affichée, `effectiveDay` (déjà calculé ci-dessus,
+  // lui-même corrigé par la même passe) comme jour de référence pour éviter un préfixe de date
+  // redondant quand le rappel tombe le jour affiché.
+  const nextOccurrence = nextPenseeReminderOccurrence(p, today);
+  const effectiveReminderAt = p.reminderRecurrence ? (nextOccurrence ? nextOccurrence.toISOString() : p.reminderAt) : p.reminderAt;
+  const reminderLabel = effectiveReminderAt ? `Rappel ${reminderAtLabel(effectiveReminderAt, effectiveDay)}` : null;
 
   return {
     id: `pensee-${p.id}`,
@@ -192,6 +207,7 @@ function penseeAttention(p: Pensee, contacts: Contact[], today: Date): HomeAtten
     contactId: p.contactId,
     title: p.texte,
     subtitle,
+    reminderLabel,
     horizon: horizonForDays(daysUntil),
     daysUntil,
     // Une pensée est par nature un rappel qu'on n'a pas encore "traité" — pas d'état "terminé" dans
@@ -227,6 +243,7 @@ function namedayAttentions(contacts: Contact[], today: Date): HomeAttention[] {
       contactId: c.id,
       title: `Fête de ${c.prenom}`,
       subtitle: daysUntil === 0 ? 'Aujourd’hui · petite attention possible 🎉' : `Dans ${daysUntil} j · petite attention possible 🎉`,
+      reminderLabel: null,
       horizon: horizonForDays(daysUntil),
       daysUntil,
       needsAction: false,
@@ -261,6 +278,7 @@ function familyFeteAttentions(contacts: Contact[], today: Date): HomeAttention[]
           contactId: c.id,
           title: `${label} — pense à ${c.prenom}`,
           subtitle: offset === 0 ? "Aujourd'hui" : `Dans ${offset} j`,
+          reminderLabel: null,
           horizon: horizonForDays(offset),
           daysUntil: offset,
           needsAction: false,

@@ -311,9 +311,14 @@ export function MessageScreen() {
             `drafts[tone].text`). Repositionné DANS la bulle, sous le texte, avec un séparateur très
             discret — jamais au-dessus du composer, pour associer visuellement l'avertissement à LA
             suggestion affichée sans lui donner plus de poids que le message lui-même. */}
+        {/* CHANTIER "Post-TestFlight Phase 6 — Disclaimer Messages" (2026-09-23) — COPY uniquement,
+            aucun changement de logique/condition d'affichage. Pas d'apprentissage de style, pas de
+            mémoire des mimiques, pas de personnalisation progressive automatique (V2, hors scope) —
+            uniquement un texte qui rappelle honnêtement que Pensif s'appuie sur ce qu'il connaît déjà
+            de l'utilisateur (voir le contexte réellement transmis, messageSuggestion.ts). */}
         {currentAiGenerated && (
           <Text style={[styles.aiLabel, { color: theme.inkSoft, borderTopColor: theme.line }]}>
-            Pensif peut se tromper, pense à relire avant d'envoyer.
+            {"Pensif s'appuie sur ce qu'il connaît de vous.\nRelis toujours avant d'envoyer."}
           </Text>
         )}
       </View>

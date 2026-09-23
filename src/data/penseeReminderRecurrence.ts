@@ -227,10 +227,15 @@ export function describePenseeRecurrenceValidationError(reason: PenseeRecurrence
 const PENSEE_WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const PENSEE_WEEKDAY_SHORT_FR: Record<number, string> = { 0: 'Dim', 1: 'Lun', 2: 'Mar', 3: 'Mer', 4: 'Jeu', 5: 'Ven', 6: 'Sam' };
 
-/** Libellé de la ligne "RÉPÉTITION" — "Jamais" si désactivée, "À préciser" pour un 'weekly' sans
- *  aucun jour encore coché (état incomplet, jamais un motif deviné à la place de l'utilisateur). */
+/** Libellé de la ligne "RÉPÉTITION" — "Aucune" si désactivée (CHANTIER "Phase 6 Addendum — Correctif
+ *  rappel ponctuel + clavier", 2026-09-23 : "Aucune répétition", à ne jamais confondre avec "aucun
+ *  rappel" — le rappel ponctuel reste défini uniquement par `reminderAt`, jamais par cette ligne),
+ *  "À préciser" pour un 'weekly' sans aucun jour encore coché (état transitoire UNIQUEMENT visible
+ *  pendant que la feuille RÉPÉTITION est ouverte — voir PenseeDetailScreen.tsx `closeRecurrenceEditor`,
+ *  qui empêche désormais cet état de survivre à la fermeture de la feuille, jamais un motif deviné à
+ *  la place de l'utilisateur). */
 export function penseeRecurrenceFrequencyLabel(draft: PenseeRecurrenceDraft): string {
-  if (!draft.enabled || draft.frequency === null) return 'Jamais';
+  if (!draft.enabled || draft.frequency === null) return 'Aucune';
   if (draft.frequency === 'daily') return 'Tous les jours';
   if (draft.daysOfWeek.length === 0) return 'À préciser';
   return PENSEE_WEEK_DISPLAY_ORDER.filter((d) => draft.daysOfWeek.includes(d))

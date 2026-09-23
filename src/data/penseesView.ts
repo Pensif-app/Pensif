@@ -5,7 +5,7 @@
 // calculs de base (pensée active aujourd'hui, pensée terminée, sous-titre) sont partagés via
 // calendar.ts plutôt que recodés une 2e fois.
 import { Contact, Pensee } from './types';
-import { daysBetween, dIso, effectivePenseeAnchorDate, isPenseeActiveOn, isPenseeEnded, penseeAnchor, penseeSubtitle, reminderAtLabel } from './calendar';
+import { daysBetween, effectivePenseeAnchorDate, isPenseeActiveOn, isPenseeEnded, penseeAnchor, penseeSubtitle, reminderAtLabel } from './calendar';
 import { nextPenseeReminderOccurrence } from './reminderRecurrence';
 
 // 'memo' — CHANTIER PENSÉES V2 : une pensée sans aucune ancre calendrier ni rappel (voir
@@ -29,7 +29,6 @@ export type PenseeCard = {
 /** Construit une carte par pensée, sans filtrer ni trier — voir groupPenseeCards pour la répartition
  *  en groupes attendue par l'écran. */
 export function buildPenseeCards(pensees: Pensee[], contacts: Contact[], today: Date): PenseeCard[] {
-  const todayIso = dIso(today);
   return pensees.map((p) => {
     const anchor = penseeAnchor(p);
     // CHANTIER "P0 Récurrence Phase 1" (2026-09-21) — BUG D corrigé : pour une pensée récurrente,
@@ -50,7 +49,7 @@ export function buildPenseeCards(pensees: Pensee[], contacts: Contact[], today: 
       // Purement mémorisée : jamais "passée", triée par date de création (voir groupPenseeCards).
       return { id: p.id, pensee: p, subtitle: penseeSubtitle(p, contacts), reminderLabel, bucket: 'memo' as const, daysFromToday: 0 };
     }
-    const activeToday = isPenseeActiveOn(p, todayIso);
+    const activeToday = isPenseeActiveOn(p, today);
     // BUG A corrigé : isPenseeEnded (calendar.ts) est désormais récurrence-aware — une pensée dont
     // l'ancre brute est révolue mais dont le rappel récurrent a encore une occurrence future n'est
     // plus jamais classée "passée". penseeAnchor lui-même reste INCHANGÉ (consigne §1).

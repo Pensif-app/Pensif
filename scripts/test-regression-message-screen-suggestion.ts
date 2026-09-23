@@ -97,10 +97,13 @@ console.log('\n[§J — source] aucune génération automatique — uniquement u
 check('aucun useEffect n’appelle handleGenerate/requestMessageSuggestion automatiquement', !/useEffect\([^)]*\{[\s\S]*?(handleGenerate|requestMessageSuggestion)/.test(screenSrc));
 check('requestMessageSuggestion n’est appelé que dans handleGenerate (un seul point d’appel)', (screenSrc.match(/requestMessageSuggestion\(/g) ?? []).length === 1);
 
-console.log('\n[§K — source] libellé après génération IA (2026-09-17) — affiché seulement après une génération réussie');
-check('nouveau libellé exact présent', screenSrc.includes("Pensif peut se tromper, pense à relire avant d'envoyer."));
+console.log('\n[§K — source] libellé après génération IA (2026-09-17, texte mis à jour Post-TestFlight Phase 6) — affiché seulement après une génération réussie');
+// CHANTIER "Post-TestFlight Phase 6 — Disclaimer Messages" (2026-09-23) — COPY uniquement, le texte a
+// changé mais la structure/condition d'affichage vérifiée ici reste strictement la même.
+check('nouveau libellé exact présent', screenSrc.includes("Pensif s'appuie sur ce qu'il connaît de vous.\\nRelis toujours avant d'envoyer."));
 check('ancien libellé "Suggestion IA" a bien disparu', !screenSrc.includes('Suggestion IA'));
-check('conditionné à currentAiGenerated — dérivé du ton actif (jamais affiché sur une simple édition manuelle, ni pour un autre ton)', /\{currentAiGenerated && \([\s\S]{0,150}Pensif peut se tromper/.test(screenSrc));
+check('ancien texte "Pensif peut se tromper" a bien disparu', !screenSrc.includes('Pensif peut se tromper'));
+check('conditionné à currentAiGenerated — dérivé du ton actif (jamais affiché sur une simple édition manuelle, ni pour un autre ton)', /\{currentAiGenerated && \([\s\S]{0,150}Pensif s'appuie/.test(screenSrc));
 
 console.log('\n[§L — source] titre et "Cadeau déjà envoyé" adaptés à l’occasion (non-régression du flux birthday existant)');
 check('titre dépend de l’occasion (plus jamais "Joyeux anniversaire" figé pour thinking_of_you/event)', screenSrc.includes('OCCASION_TITLES[occasion]') && screenSrc.includes("birthday: 'Joyeux anniversaire'"));
@@ -222,7 +225,7 @@ console.log('\n[§W — source] avertissement IA repositionné DANS la bulle, so
   const bubbleBlock = bubbleMatch ? bubbleMatch[0] : '';
   check('bloc `bubble` trouvé', bubbleBlock.length > 0);
   check('le TextInput reste le PREMIER enfant de la bulle (avertissement APRÈS, jamais avant)', /<TextInput[\s\S]*?\/>[\s\S]*?\{currentAiGenerated && \(/.test(bubbleBlock));
-  check('l’avertissement est DANS le même conteneur visuel que le message (à l’intérieur de styles.bubble, pas au-dessus)', bubbleBlock.includes("Pensif peut se tromper, pense à relire avant d'envoyer."));
+  check('l’avertissement est DANS le même conteneur visuel que le message (à l’intérieur de styles.bubble, pas au-dessus)', bubbleBlock.includes("Pensif s'appuie sur ce qu'il connaît de vous.\\nRelis toujours avant d'envoyer."));
   check('un <Text> séparé du <TextInput> — jamais fusionné dans le composer', /<\/TextInput>|\/>\s*\{currentAiGenerated/.test(bubbleBlock.replace(/\n/g, ' ')) || bubbleBlock.includes('<Text style={[styles.aiLabel,'));
 }
 check('l’ancien emplacement (juste au-dessus de la bulle, avant `<View style={[styles.bubble`) a bien disparu', !/\{currentAiGenerated && \([\s\S]{0,40}<Text style=\{\[styles\.aiLabel,[\s\S]{0,60}\)\}\s*\n\s*<View style=\{\[styles\.bubble/.test(screenSrc));
@@ -267,7 +270,7 @@ console.log('\n[§Z — source] composer à hauteur dynamique — CORRECTIF (202
   check(
     'le disclaimer IA reste un <Text> APRÈS le TextInput dans la bulle, jamais À L’INTÉRIEUR du TextInput lui-même',
     /<\/View>\s*$/.test(bubbleBlock.trim()) &&
-      bubbleBlock.indexOf('<TextInput') < bubbleBlock.indexOf("Pensif peut se tromper, pense à relire avant d'envoyer."),
+      bubbleBlock.indexOf('<TextInput') < bubbleBlock.indexOf("Pensif s'appuie sur ce qu'il connaît de vous.\\nRelis toujours avant d'envoyer."),
   );
 }
 

@@ -45,7 +45,7 @@ const weeklyInfinite: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [1
 const dailyFinite5 = (from: Date): ReminderRecurrence => ({ frequency: 'daily', daysOfWeek: [], occurrenceCount: 5, untilDate: null });
 const weeklyFiniteUntil: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [1], occurrenceCount: null, untilDate: '2026-09-21' };
 
-console.log('\n[1] Cas réel du bug — daily infini, avant l’occurrence du jour → upcoming');
+console.log('\n[1] Cas réel du bug — daily infini, avant l’occurrence du jour → today (CORRECTIF Phase 6 : la prochaine occurrence tombe encore aujourd’hui)');
 {
   // reminderAt = 20/09/2026 21:40, now = 21/09/2026 20:36 (avant 21:40)
   const reminderAt = new Date(2026, 8, 20, 21, 40, 0).toISOString();
@@ -53,7 +53,11 @@ console.log('\n[1] Cas réel du bug — daily infini, avant l’occurrence du jo
   const now = new Date(2026, 8, 21, 20, 36, 0);
   check('isPenseeEnded = false (BUG A corrigé)', isPenseeEnded(p, now) === false);
   const cards = buildPenseeCards([p], [], now);
-  check('bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+  // CORRECTIF "Post-TestFlight Phase 6 — P0 Récurrences bucket" (2026-09-23) : avant cette passe,
+  // isPenseeActiveOn comparait à l'ancre BRUTE (20/09) au lieu de la prochaine occurrence effective
+  // (21/09 21:40, pas encore sonnée à 20:36) — donnait 'upcoming' à tort. La prochaine occurrence
+  // tombant aujourd'hui (21/09), le bucket correct est désormais 'today'.
+  check('bucket = today', cards[0].bucket === 'today', cards[0].bucket);
   check('reminderLabel = "Rappel 21h40" (pas de jour préfixé)', cards[0].reminderLabel === 'Rappel 21h40', cards[0].reminderLabel ?? 'null');
   const attentions = buildHomeAttentions([], [p], now);
   check('apparaît dans Accueil (BUG B corrigé)', attentions.some((a) => a.type === 'pensee' && a.id === 'pensee-p1'));
@@ -71,6 +75,36 @@ console.log('\n[2] daily infini, après l’occurrence du jour → prochaine occ
   check('bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
 }
 
+console.log('\n[2bis] weekly mercredi+vendredi — avant l’occurrence de mercredi → today (CORRECTIF Phase 6, cas exact du smoke test)');
+{
+  // mercredi 2026-09-23, vendredi 2026-09-25 (daysOfWeek: 3=mercredi, 5=vendredi, convention JS getDay())
+  const weeklyMerVen: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5], occurrenceCount: null, untilDate: null };
+  const reminderAt = new Date(2026, 8, 16, 18, 0, 0).toISOString(); // ancre historique, mercredi 16/09, 18h
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVen });
+  const now = new Date(2026, 8, 23, 17, 0, 0); // mercredi 23/09, avant 18h
+  const cards = buildPenseeCards([p], [], now);
+  check('bucket = today (occurrence de mercredi encore à venir)', cards[0].bucket === 'today', cards[0].bucket);
+}
+
+console.log('\n[2ter] weekly mercredi+vendredi — après l’occurrence de mercredi → upcoming vendredi (CORRECTIF Phase 6, cas exact du smoke test)');
+{
+  const weeklyMerVen: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5], occurrenceCount: null, untilDate: null };
+  const reminderAt = new Date(2026, 8, 16, 18, 0, 0).toISOString();
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVen });
+  const now = new Date(2026, 8, 23, 19, 0, 0); // mercredi 23/09, après 18h (notification reçue)
+  const cards = buildPenseeCards([p], [], now);
+  check('bucket = upcoming (mercredi sonné, prochaine = vendredi 25/09)', cards[0].bucket === 'upcoming', cards[0].bucket);
+  check('jour effectif = vendredi 25/09', cards[0].pensee && effectivePenseeAnchorDate(p, now) === '2026-09-25', effectivePenseeAnchorDate(p, now) ?? 'null');
+
+  // Cohérence Home/Pensées — même prochaine occurrence des deux côtés (consigne §1 "Vérifier sur
+  // Pensées ET Accueil").
+  const attentions = buildHomeAttentions([], [p], now);
+  const homeAttention = attentions.find((a) => a.type === 'pensee' && a.id === 'pensee-p1');
+  check('apparaît dans Accueil avec horizon "week" (vendredi, dans la fenêtre 7 jours)', homeAttention?.horizon === 'week', homeAttention?.horizon ?? 'absent');
+  check('Home affiche la même date effective que Pensées (vendredi 25/09)', homeAttention?.date === '2026-09-25', homeAttention?.date ?? 'absent');
+  check('Home reminderLabel = "Rappel 18h" (même prochaine occurrence que Pensées)', homeAttention?.reminderLabel === 'Rappel 18h', homeAttention?.reminderLabel ?? 'null');
+}
+
 console.log('\n[3] weekly infini (lundi), entre deux occurrences → upcoming');
 {
   const reminderAt = new Date(2026, 8, 21, 21, 40, 0).toISOString(); // 21/09/2026 = lundi
@@ -83,14 +117,24 @@ console.log('\n[3] weekly infini (lundi), entre deux occurrences → upcoming');
   check('prochaine occurrence = lundi suivant (28/09/2026)', next?.getTime() === new Date(2026, 8, 28, 21, 40, 0).getTime(), next?.toString());
 }
 
-console.log('\n[4] daily fini, encore active → upcoming');
+console.log('\n[4] daily fini, encore active, occurrence du jour pas encore sonnée → today (CORRECTIF Phase 6)');
 {
   const reminderAt = new Date(2026, 8, 18, 21, 40, 0).toISOString(); // 5 occurrences à partir du 18/09
   const p = makePensee({ reminderAt, reminderRecurrence: dailyFinite5(new Date()) });
-  const now = new Date(2026, 8, 21, 20, 36, 0); // 4e jour de la série, pas encore épuisée
+  const now = new Date(2026, 8, 21, 20, 36, 0); // 4e jour de la série (21/09), pas encore sonnée (20:36 < 21:40)
   check('isPenseeEnded = false', isPenseeEnded(p, now) === false);
   const cards = buildPenseeCards([p], [], now);
-  check('bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+  check('bucket = today (occurrence du 21/09 encore à venir aujourd’hui)', cards[0].bucket === 'today', cards[0].bucket);
+}
+
+console.log('\n[4bis] daily fini, encore active, occurrence du jour déjà sonnée → upcoming demain (CORRECTIF Phase 6)');
+{
+  const reminderAt = new Date(2026, 8, 18, 21, 40, 0).toISOString();
+  const p = makePensee({ reminderAt, reminderRecurrence: dailyFinite5(new Date()) });
+  const now = new Date(2026, 8, 21, 22, 0, 0); // même jour, APRÈS 21:40
+  check('isPenseeEnded = false', isPenseeEnded(p, now) === false);
+  const cards = buildPenseeCards([p], [], now);
+  check('bucket = upcoming (prochaine occurrence = 22/09)', cards[0].bucket === 'upcoming', cards[0].bucket);
 }
 
 console.log('\n[5] daily fini, épuisée → past');

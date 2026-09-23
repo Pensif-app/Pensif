@@ -191,6 +191,10 @@ function AttentionCard({
       <View style={{ alignItems: 'flex-end', gap: 5 }}>
         {attention.favorite && <Ionicons name="star" size={14} color={theme.plum} />}
         {attention.badge && <Pill label={attention.badge.label} tone={attention.badge.tone} theme={theme} />}
+        {/* CHANTIER "Post-TestFlight Phase 6 — Accueil reminderLabel" (2026-09-23) — `badge` reste
+            toujours null pour une pensée (voir homeAttention.ts), donc jamais affiché en même temps
+            que ce Pill — même slot visuel, sans jamais se superposer. */}
+        {attention.reminderLabel && <Pill label={attention.reminderLabel} tone="muted" theme={theme} />}
       </View>
     </Pressable>
   );

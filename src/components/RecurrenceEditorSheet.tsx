@@ -10,7 +10,7 @@
 // jamais recalculée ici.
 import React, { useState } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Palette } from '../theme/colors';
 import { LocalDate, RecurrenceDraftFrequency, recurrenceDateLabel } from '../data/captureReview';
@@ -97,8 +97,40 @@ export function RecurrenceEditorSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+      {/* CHANTIER "Phase 6 Addendum — Correctif rappel ponctuel + clavier" (2026-09-23) — même pattern
+          keyboard-aware déjà utilisé par AuthGateScreen.tsx/CalendarScreen.tsx (Modal + carte ancrée
+          en bas) : sans lui, le clavier numérique du champ "Après X fois" recouvrait la carte et son
+          bouton OK, sans qu'aucun ajustement de layout ne se produise. `behavior="padding"` iOS
+          uniquement (Android gère nativement le redimensionnement de fenêtre) — mêmes valeurs
+          exactes, aucun nouveau package.
+          CHANTIER "Phase 6 Addendum UI.1 — Coller la sheet au clavier" (2026-09-23) — CORRECTIF
+          FINAL : la version précédente mettait le fond (dim OU opaque) sur le KeyboardAvoidingView
+          EXTERNE (flex:1, plein écran) — mais `behavior="padding"` ajoute son paddingBottom à CE
+          MÊME élément, donc CE fond (quel qu'il soit) remplit aussi la zone de padding, entre le bas
+          de la carte et le clavier. Avec le fond opaque de la carte, ce serait correct ; avec le fond
+          semi-transparent de l'assombrissement, cette bande reste semi-transparente → l'écran parent
+          ("Enregistrer") reste visible en dessous. Restructuration : le KeyboardAvoidingView
+          n'enveloppe plus que la CARTE (pas tout l'écran) et porte DIRECTEMENT le fond opaque de la
+          carte (`theme.card` + coins arrondis, voir styles.card ci-dessous, `backgroundColor` retiré
+          du Pressable interne) — sa zone de padding clavier est donc automatiquement remplie de CE
+          MÊME opaque, qui rejoint directement le clavier, sans bande. L'assombrissement semi-
+          transparent, lui, reste sur le Pressable EXTERNE (`styles.overlay`, flex:1, tap-pour-fermer)
+          qui n'est plus concerné par le padding clavier — il garde donc son assombrissement plein
+          écran normal, inchangé, au-dessus de la sheet. */}
       <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={[styles.card, { backgroundColor: theme.card }]} onPress={() => {}}>
+        {/* CORRECTIF précis : le KeyboardAvoidingView (`behavior="padding"`) réécrit TOUJOURS son
+            PROPRE `paddingBottom` via `StyleSheet.compose` (0 clavier fermé, hauteur clavier ouvert —
+            voir react-native/Libraries/Components/Keyboard/KeyboardAvoidingView.js) : lui donner le
+            `padding`/`paddingBottom:34` de `styles.card` aurait donc PERDU ce padding une fois le
+            clavier fermé (rendu ≠ identique, régression). Ce wrapper ne porte donc QUE fond+coins
+            (jamais de padding propre à lui) ; `styles.card` (padding INCHANGÉ, 34 compris) reste sur
+            le Pressable interne, jamais touché par ce mécanisme. */}
+        <KeyboardAvoidingView
+          style={{ backgroundColor: theme.card, borderTopLeftRadius: 22, borderTopRightRadius: 22 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+        >
+        <Pressable style={styles.card} onPress={() => {}}>
           {mode === 'frequency' ? (
             <>
               <Text style={[styles.title, { color: theme.ink }]}>Répétition</Text>
@@ -220,14 +252,23 @@ export function RecurrenceEditorSheet({
             <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>OK</Text>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  // CHANTIER "Phase 6 Addendum UI.1 — Coller la sheet au clavier" (2026-09-23) — `overlay` (Pressable
+  // EXTERNE) reste le SEUL porteur de l'assombrissement semi-transparent plein écran, désormais en
+  // dehors du KeyboardAvoidingView : jamais concerné par son padding clavier, garde donc son
+  // assombrissement normal inchangé au-dessus de la sheet, clavier ouvert ou fermé.
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  card: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 34 },
+  // Fond opaque (`theme.card`) + coins arrondis portés par le KeyboardAvoidingView lui-même (voir
+  // point d'usage) — SEULE façon que sa propre zone de padding clavier (ajoutée par
+  // `behavior="padding"`) soit remplie de cet opaque plutôt que rester vide/transparente. `card`
+  // (Pressable interne) ne garde que le padding de contenu, jamais touché par ce mécanisme.
+  card: { padding: 20, paddingBottom: 34 },
   title: { fontWeight: '700', fontSize: 15, marginBottom: 12 },
   optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderTopWidth: 1 },
   dayChipsRow: { flexDirection: 'row', gap: 6, marginTop: 10, marginBottom: 4 },

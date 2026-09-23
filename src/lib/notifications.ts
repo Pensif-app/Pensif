@@ -71,6 +71,27 @@ export async function getNotificationPermissionStatus(): Promise<'granted' | 'de
   return 'undetermined';
 }
 
+/**
+ * CHANTIER "Post-TestFlight Phase 6 — Notifications première utilisation" (2026-09-23) — point
+ * d'entrée UNIQUE et OPPORTUNISTE pour demander la permission au moment le plus naturel du flow
+ * existant (pas de nouvel écran d'onboarding, voir consigne) : appelée à la fois juste après la
+ * permission micro accordée (CaptureScreen, premier usage réel) ET au moment où l'utilisateur active
+ * explicitement un rappel (PenseeDetailScreen `onReminderToggle`) — protège aussi l'utilisateur qui
+ * crée son tout premier rappel sans jamais être passé par le micro.
+ *
+ * `undetermined` UNIQUEMENT : si la permission a déjà été tranchée (`granted`/`denied`), ne redemande
+ * jamais (iOS ne réafficherait de toute façon aucun prompt système dans ces cas) — jamais de
+ * sollicitation répétée à chaque capture/rappel. Retourne `null` si rien n'a changé (déjà tranchée
+ * avant cet appel, aucune action à synchroniser côté appelant) ou le résultat `granted`/refusé sinon,
+ * pour que l'appelant puisse synchroniser `notificationsEnabled` (store.tsx) EN CONSÉQUENCE — jamais
+ * prétendre qu'un rappel est actif tant que cette décision n'a pas été prise.
+ */
+export async function requestNotificationPermissionIfUndetermined(): Promise<boolean | null> {
+  const status = await getNotificationPermissionStatus();
+  if (status !== 'undetermined') return null;
+  return ensureNotificationPermissions();
+}
+
 export async function cancelAllReminders() {
   if (Platform.OS === 'web') return;
   await Notifications.cancelAllScheduledNotificationsAsync();
