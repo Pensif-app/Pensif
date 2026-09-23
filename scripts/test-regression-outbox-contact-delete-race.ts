@@ -117,9 +117,21 @@ async function main() {
   );
   check('insertContactRemote toujours appelé (juste sans réécriture locale du résultat)', storeSrc.includes('await insertContactRemote(userIdRef.current, rest);'));
   check('insertPenseeRemote toujours appelé (juste sans réécriture locale du résultat)', storeSrc.includes('await insertPenseeRemote(userIdRef.current, op.payload);'));
+  // Réaligné (maintenance tests Phase 6, 2026-09-23) : updateContactRemote a depuis reçu un 2e
+  // argument userIdRef.current (scoping user_id, non modifié ici) — updatePenseeRemote reste inchangée
+  // à un seul argument (vérifié dans store.tsx, aucun fichier src touché par cette maintenance).
   check(
-    'la modification (update, pas insert) d’une pensée/contact existant ne réécrivait DÉJÀ pas l’état local — non-régression, toujours le cas',
-    storeSrc.includes('await updateContactRemote(op.payload);') && storeSrc.includes('await updatePenseeRemote(op.payload);'),
+    'update contact passe bien par updateContactRemote(op.payload, userIdRef.current) — signature actuelle',
+    storeSrc.includes('await updateContactRemote(op.payload, userIdRef.current);'),
+  );
+  check(
+    'update pensée passe bien par updatePenseeRemote(op.payload) — signature actuelle',
+    storeSrc.includes('await updatePenseeRemote(op.payload);'),
+  );
+  check(
+    'la modification (update, pas insert) d’une pensée/contact existant ne réécrit PAS l’état local ensuite (pas de setContacts/setPensees juste après ces appels, contrairement à l’ancien pattern insert)',
+    !/await updateContactRemote\(op\.payload, userIdRef\.current\);\s*\n\s*setContacts/.test(storeSrc) &&
+      !/await updatePenseeRemote\(op\.payload\);\s*\n\s*setPensees/.test(storeSrc),
   );
 
   console.log('\n[§C — source] deleteContact détache toujours optimistement les pensées liées AVANT enqueue (non-régression)');

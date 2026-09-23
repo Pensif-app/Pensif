@@ -140,7 +140,10 @@ console.log('\n[§PenseeDetailScreen.tsx — câblage source] DATE DE DÉBUT / H
   check('DATE DE DÉBUT affichée en ligne labellisée (toujours, pas seulement en récurrence)', src.includes('DATE DE DÉBUT'));
   check('HEURE affichée en ligne labellisée séparée', /<Text[^>]*>HEURE<\/Text>/.test(src));
   check('RÉPÉTITION toujours présente', src.includes('RÉPÉTITION'));
-  check('FIN conditionnée à recurrenceDraft.enabled', /recurrenceDraft\.enabled \? \(/.test(src));
+  // Réaligné (maintenance tests Phase 6, 2026-09-23) : FIN ne dépend plus de recurrenceDraft.enabled
+  // seul (état transitoire possible) mais de toPenseeReminderRecurrence(recurrenceDraft), qui fait
+  // autorité sur la validité RÉELLE de la récurrence — voir PenseeDetailScreen.tsx (non modifié ici).
+  check('FIN conditionnée à toPenseeReminderRecurrence(recurrenceDraft), jamais à recurrenceDraft.enabled seul', /toPenseeReminderRecurrence\(recurrenceDraft\) \? \(/.test(src) && !/recurrenceDraft\.enabled \? \(/.test(src));
   check('state anchorMismatchHighlight présent', /anchorMismatchHighlight/.test(src));
   check('effet qui efface le highlight dès que reminderDate/recurrenceDraft changent', /\[reminderDate, recurrenceDraft\]/.test(src));
   check('save() active le highlight UNIQUEMENT sur anchor_not_matching_weekly', /validation\.reason === 'anchor_not_matching_weekly'/.test(src));
