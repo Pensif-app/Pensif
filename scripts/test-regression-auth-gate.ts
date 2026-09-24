@@ -476,6 +476,11 @@ async function main() {
       delete asyncStorage['pensif.pensees'];
       delete asyncStorage['pensif.outbox'];
       delete asyncStorage['pensif.cacheOwnerUserId'];
+      // DEV — vraie première installation (2026-09-24) : prénom, préférences internes et flag tutoriel remis à neuf.
+      delete asyncStorage['pensif.userName'];
+      delete asyncStorage['pensif.themePref'];
+      delete asyncStorage['pensif.notificationsEnabled'];
+      delete asyncStorage['pensif.tutorialSeen'];
       order.push('cachePurged');
       await clearAllLocalDraftsFake();
 
@@ -542,18 +547,21 @@ async function main() {
     check('isAnonymous réinitialisé à false', h.isAnonymous === false);
   }
 
-  console.log('\n[Dev reset] les préférences device-scoped sont conservées (jamais purgées)');
+  console.log('\n[Dev reset] MISE À JOUR 2026-09-24 — vraie première installation : prénom, préférences et flag tutoriel remis à neuf');
   {
     const h = createDevReinstallHarness({
       'pensif.userName': 'Marie',
       'pensif.themePref': 'dark',
       'pensif.notificationsEnabled': '1',
+      'pensif.tutorialSeen': '1',
       'pensif.contacts': JSON.stringify([{ id: 'c-1' }]),
     });
     await h.devSimulateReinstall();
-    check('pensif.userName conservé', h.asyncStorage['pensif.userName'] === 'Marie');
-    check('pensif.themePref conservé', h.asyncStorage['pensif.themePref'] === 'dark');
-    check('pensif.notificationsEnabled conservé', h.asyncStorage['pensif.notificationsEnabled'] === '1');
+    check('pensif.userName supprimé (la saisie du prénom redevient nécessaire)', h.asyncStorage['pensif.userName'] === undefined);
+    check('pensif.themePref supprimé', h.asyncStorage['pensif.themePref'] === undefined);
+    check('pensif.notificationsEnabled supprimé', h.asyncStorage['pensif.notificationsEnabled'] === undefined);
+    check('pensif.tutorialSeen supprimé (le tutoriel redevient éligible)', h.asyncStorage['pensif.tutorialSeen'] === undefined);
+    check('données locales vidées (contacts)', h.asyncStorage['pensif.contacts'] === undefined);
   }
 
   console.log('\n[Dev reset] aucune ancienne outbox n’est drainée pendant/après le reset');
@@ -583,7 +591,9 @@ async function main() {
     check('garde-fou __DEV__ explicite, retour immédiat sinon (impossible en build production)', /if \(!__DEV__\) return;/.test(devFnBlock));
     check('signOut Supabase déclenché via authRepo.ts (jamais un appel supabase.auth direct dans store.tsx)', /devSignOutForReinstallSimulation\(\)/.test(devFnBlock));
     check('purge uniquement le cache account-scoped (contacts/pensees/outbox/cacheOwnerUserId)', /KEYS\.contacts/.test(devFnBlock) && /KEYS\.pensees/.test(devFnBlock) && /KEYS\.outbox/.test(devFnBlock) && /KEYS\.cacheOwnerUserId/.test(devFnBlock));
-    check('ne touche JAMAIS les préférences device-scoped (userName/themePref/notificationsEnabled absents de cette fonction)', !/KEYS\.userName/.test(devFnBlock) && !/KEYS\.themePref/.test(devFnBlock) && !/KEYS\.notificationsEnabled/.test(devFnBlock));
+    check('remet à neuf prénom/thème/rappels + flag tutoriel (vraie première installation, mise à jour 2026-09-24)', /removeItem\(KEYS\.userName\)/.test(devFnBlock) && /removeItem\(KEYS\.themePref\)/.test(devFnBlock) && /removeItem\(KEYS\.notificationsEnabled\)/.test(devFnBlock) && /removeItem\(TUTORIAL_SEEN_KEY\)/.test(devFnBlock));
+    check('état mémoire remis à neuf : userName null, thème system, rappels true, modale prénom fermée', /setUserNameState\(null\)/.test(devFnBlock) && /setThemePrefState\('system'\)/.test(devFnBlock) && /setNotificationsEnabledState\(true\)/.test(devFnBlock) && /setNamePromptOpen\(false\)/.test(devFnBlock));
+    check('aucune donnée SERVEUR touchée : aucun appel deleteContactRemote/deletePenseeRemote/.delete( dans le reset', !/deleteContactRemote|deletePenseeRemote|\.delete\(|\.from\(/.test(devFnBlock));
     check('brouillons locaux purgés (clearAllLocalDrafts)', /clearAllLocalDrafts\(\)/.test(devFnBlock));
     check('authGate remis à \'choice\' (ré-affiche l’écran de choix, comme un premier lancement)', /setAuthGate\('choice'\)/.test(devFnBlock));
     check('aucun drainNow() appelé dans cette fonction (aucun drain avant/pendant/après purge)', !/drainNow\(\)/.test(devFnBlock));

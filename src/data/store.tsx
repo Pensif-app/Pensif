@@ -16,6 +16,7 @@ import {
   migrateLegacyPendingDeletes,
 } from './outbox';
 import { generateId } from '../lib/id';
+import { TUTORIAL_SEEN_KEY } from './tutorial';
 import { rescheduleAllReminders, cancelAllReminders, clearAppBadge, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { subscribeToConnectivityRestored } from '../lib/netInfo';
@@ -364,8 +365,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    *      ici, à aucun moment.
    *   4. `authGate = 'choice'` — ré-affiche l'écran de choix, exactement comme un premier lancement
    *      sans session.
-   * Préférences device-scoped (`pensif.themePref`/`pensif.notificationsEnabled`/`pensif.userName`)
-   * jamais touchées — ni en mémoire, ni dans AsyncStorage.
+   * MISE À JOUR 2026-09-24 : les préférences device-scoped (userName/themePref/notificationsEnabled) ET le
+   * flag tutoriel sont désormais REMIS À NEUF (voir plus bas) pour reproduire une vraie 1re installation.
    */
   async function devSimulateReinstall() {
     if (!__DEV__) return;
@@ -377,6 +378,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.removeItem(KEYS.pensees),
       AsyncStorage.removeItem(KEYS.outbox),
       AsyncStorage.removeItem(KEYS.cacheOwnerUserId),
+      // CHANTIER "DEV — Simuler une vraie première installation" (2026-09-24) : le reset reproduit désormais
+      // TOUT l'état local d'un nouvel utilisateur — prénom, préférences internes (thème, rappels) et flag
+      // tutoriel (sinon : plus de saisie de prénom ni de tutoriel après "Commencer"). Les permissions
+      // SYSTÈME iOS (micro/notifications) ne sont pas réinitialisables par l'app. AUCUNE donnée serveur n'est
+      // touchée (signOut local uniquement, voir devSignOutForReinstallSimulation).
+      AsyncStorage.removeItem(KEYS.userName),
+      AsyncStorage.removeItem(KEYS.themePref),
+      AsyncStorage.removeItem(KEYS.notificationsEnabled),
+      AsyncStorage.removeItem(TUTORIAL_SEEN_KEY),
     ]).catch(() => {});
     await clearAllLocalDrafts();
 
@@ -384,6 +394,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setOutbox([]);
     setContacts([]);
     setPensees([]);
+    setUserNameState(null);
+    setNamePromptOpen(false);
+    setThemePrefState('system');
+    setNotificationsEnabledState(true);
     userIdRef.current = null;
     setUserId(null);
     setIsAnonymousState(false);

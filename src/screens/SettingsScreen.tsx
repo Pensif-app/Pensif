@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore, ThemePref } from '../data/store';
 import { useTheme } from '../theme';
+import { navigationRef } from '../navigation/navigationRef';
 import { countScheduledReminders } from '../data/penseeReminderRecurrence';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
@@ -186,10 +187,21 @@ export function SettingsScreen() {
   function confirmSimulateReinstall() {
     Alert.alert(
       '[Dev] Simuler une réinstallation ?',
-      "Déconnecte la session et efface le cache local (contacts/pensées/outbox) de cet appareil, comme après une réinstallation. Tes données restent sauvegardées sur ton compte — testé via \"J'ai déjà un compte\".",
+      "Déconnecte la session et remet cet appareil à neuf côté Pensif (contacts, pensées, prénom, préférences, tutoriel), comme une première installation. Rien n'est supprimé côté serveur — l'ancien compte reste récupérable via \"J'ai déjà un compte\".",
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Simuler', style: 'destructive', onPress: () => { void devSimulateReinstall(); } },
+        {
+          text: 'Simuler',
+          style: 'destructive',
+          // CHANTIER "DEV — Simuler une vraie première installation" (2026-09-24) : sans reset de navigation,
+          // Réglages restait EMPILÉ sous l'auth gate — "Commencer" retombait donc dans Réglages. La pile est
+          // reconstruite depuis l'état neuf (Tabs seul) une fois le reset applicatif terminé.
+          onPress: () => {
+            void devSimulateReinstall().then(() => {
+              if (navigationRef.isReady()) navigationRef.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+            });
+          },
+        },
       ],
     );
   }
@@ -304,6 +316,9 @@ export function SettingsScreen() {
                   <Ionicons name="refresh-circle-outline" size={16} color={theme.danger} style={{ marginRight: 10 }} />
                   <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13, flex: 1 }}>[Dev] Simuler une réinstallation</Text>
                 </Pressable>
+                <Text style={[styles.privacyText, { color: theme.inkSoft, paddingBottom: 10 }]}>
+                  [Dev] Les permissions système iOS déjà accordées ou refusées ne peuvent pas être réinitialisées par Pensif.
+                </Text>
               </>
             )}
             {/* CHANTIER "Data Safety P0-1" (2026-09-20) — visible UNIQUEMENT pour une session anonyme

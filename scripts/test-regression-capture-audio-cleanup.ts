@@ -105,7 +105,10 @@ function fakeFile(exists: boolean, log: string[], throwOnDelete = false): Deleta
     const api = read('src', 'lib', 'captureApi.ts');
     check('captureApi.ts inchangé fonctionnellement (fetch(uri) → Blob → FormData audio)', /const audioResponse = await fetch\(input\.uri\);/.test(api) && /form\.append\('audio', audioBlob, input\.filename\);/.test(api));
     const tuto = read('src', 'data', 'tutorial.ts');
-    check('tutoriel : « Ta voix sert uniquement à transformer ta capture en pensée. » conservé', tuto.includes('Ta voix sert uniquement à transformer ta capture en pensée.'));
+    // Tutoriel simplifié (2026-09-24) : les textes sont dans les images (assets/tutorial/tuto-capture.png, bulle
+    // « Ta voix sert uniquement à transformer ta capture en pensée. », vérifiée visuellement) ; le code ne porte
+    // plus aucune promesse de confidentialité.
+    check('tutoriel : le code ne contient plus aucun texte de confidentialité (les textes vivent dans les images)', !/supprimé|stocké|sécurité|voix/i.test(tuto.replace(/^\s*\/\/.*$/gm, '')));
     check('tutoriel : aucune promesse "supprimé juste après / jamais stocké / reste en sécurité"', !/supprimé juste après|jamais stocké|reste en sécurité/i.test(tuto));
     const pkg = JSON.parse(read('package.json'));
     check('expo-file-system ajouté en dépendance directe (version choisie par expo install)', /^~57\./.test(pkg.dependencies['expo-file-system'] ?? ''), String(pkg.dependencies['expo-file-system']));
