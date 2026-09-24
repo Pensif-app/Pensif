@@ -16,7 +16,7 @@ import {
   migrateLegacyPendingDeletes,
 } from './outbox';
 import { generateId } from '../lib/id';
-import { rescheduleAllReminders, cancelAllReminders, getNotificationPermissionStatus } from '../lib/notifications';
+import { rescheduleAllReminders, cancelAllReminders, clearAppBadge, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { subscribeToConnectivityRestored } from '../lib/netInfo';
 import { clearAllLocalDrafts, clearMessageDraftForEvent, clearMessageDraftsForContact } from './messageDraftStorage';
@@ -117,6 +117,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // et un ticker centralisé aligné sur la frontière de minute — AUCUNE logique de récurrence/bucket
   // touchée ici (reminderRecurrence.ts/calendar.ts/homeAttention.ts/penseesView.ts inchangés).
   const [today, setToday] = useState<Date>(() => new Date());
+  // Badge binaire (2026-09-24) — cold start : un lancement peut démarrer directement en 'active' (aucun
+  // changement AppState observé), donc le badge est aussi remis à 0 UNE fois au montage du Store.
+  useEffect(() => {
+    void clearAppBadge();
+  }, []);
   // Un véritable nouvel utilisateur commence à zéro — les seeds ne servent plus que de données de
   // démo explicites (bouton Réglages en mode local) ou de fixtures pour les scripts de test, jamais
   // d'état initial implicite (voir CHANTIER PRÉ-BÊTA 1 §2).
@@ -570,6 +575,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // IMMÉDIATEMENT au retour au premier plan, avant même que restoreSessionThenDrain() ne
         // termine (celui-ci reste réseau/best-effort, jamais un prérequis à l'affichage temporel).
         setToday(new Date());
+        // Badge binaire (2026-09-24) : dès que l'utilisateur revient dans Pensif, plus aucun rappel "non consulté".
+        void clearAppBadge();
         void restoreSessionThenDrain();
       }
     });

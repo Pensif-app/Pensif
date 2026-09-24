@@ -22,6 +22,11 @@ import { HomeAttentionAction, birthdayCTA } from '../data/homeAttention';
  *  limite mais respecte le même budget par simplicité (un seul chiffre à faire évoluer). */
 export const MAX_SCHEDULED_NOTIFICATIONS = 56;
 
+/** CHANTIER "Badge binaire" (2026-09-24) — valeur ABSOLUE et CONSTANTE du badge de l'icône posée sur toute
+ *  notification de rappel : 1 = "au moins un rappel non consulté". Jamais 2/3/… (un trigger DAILY/WEEKLY
+ *  infini ne peut pas porter un compteur exact app fermée) ; remis à 0 à l'ouverture (clearAppBadge). */
+export const REMINDER_BADGE_VALUE = 1;
+
 /** Payload attaché à chaque notification pour la navigation au tap (voir resolveNotificationAction)
  *  — volontairement minimal (juste de quoi retrouver le contact/la pensée), la décision de
  *  navigation elle-même est recalculée avec l'état LIVE au moment du tap, jamais figée à la

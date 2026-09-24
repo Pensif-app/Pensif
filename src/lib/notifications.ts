@@ -6,6 +6,7 @@ import { navigateToAttention } from '../data/homeAttention';
 import {
   MAX_SCHEDULED_NOTIFICATIONS,
   NotificationCandidate,
+  REMINDER_BADGE_VALUE,
   buildCandidates,
   consumeNotificationResponseOnce,
   createPendingOnce,
@@ -90,6 +91,20 @@ export async function requestNotificationPermissionIfUndetermined(): Promise<boo
   const status = await getNotificationPermissionStatus();
   if (status !== 'undetermined') return null;
   return ensureNotificationPermissions();
+}
+
+/**
+ * CHANTIER "Badge binaire" (2026-09-24) — remet le badge de l'icône à 0 (cold start + retour au premier plan,
+ * voir store.tsx). Ne fait JAMAIS planter l'app : `setBadgeCountAsync` résout `false` si les pastilles sont
+ * refusées (iOS) ou non supportées par le launcher (Android) — ignoré silencieusement, comme toute exception.
+ */
+export async function clearAppBadge(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.setBadgeCountAsync(0);
+  } catch {
+    // aucune action : le badge est purement cosmétique
+  }
 }
 
 export async function cancelAllReminders() {
@@ -234,7 +249,7 @@ async function scheduleOneCandidate(c: NotificationCandidate, androidChannelId: 
         };
   await Notifications.scheduleNotificationAsync({
     identifier: c.identifier,
-    content: { title: c.title, body: c.body, sound: true, data: c.data as unknown as Record<string, unknown> },
+    content: { title: c.title, body: c.body, sound: true, badge: REMINDER_BADGE_VALUE, data: c.data as unknown as Record<string, unknown> },
     trigger,
   });
 }
