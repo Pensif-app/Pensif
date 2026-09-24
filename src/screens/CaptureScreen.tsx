@@ -36,7 +36,7 @@ import { Pill } from '../components/Pill';
 import { ContactAssociationField } from '../components/ContactAssociationField';
 import { ContactPicker } from '../components/ContactPicker';
 import { RecurrenceEditorMode, RecurrenceEditorSheet } from '../components/RecurrenceEditorSheet';
-import { useTheme } from '../theme';
+import { useIsDark, useTheme } from '../theme';
 import { useStore } from '../data/store';
 import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';
 import { RootStackParamList } from '../navigation/types';
@@ -77,6 +77,7 @@ import {
   recurrenceStartDateLabel,
   recurrenceTimeLabel,
   reminderHasPendingTimeSeed,
+  reminderIncompleteMessage,
   reminderPickerSeedParts,
   setRecurrenceFrequency,
   setRecurrenceOccurrenceCount,
@@ -235,6 +236,7 @@ function reminderPickerSeed(card: CaptureCard): Date {
  */
 export function CaptureScreen() {
   const theme = useTheme();
+  const isDark = useIsDark();
   // `Screen` n'insère la zone de sécurité qu'en haut (`edges:['top']`) — sans ça, le bas de cet
   // écran touche le bord physique (barre d'accueil comprise), collant le texte de confidentialité
   // trop près du bord (voir retour utilisateur).
@@ -1484,6 +1486,7 @@ export function CaptureScreen() {
                 {Platform.OS === 'ios' && openPicker?.cardId === card.cardId && openPicker.kind === 'event' ? (
                   <>
                     <DateTimePicker
+                      themeVariant={isDark ? 'dark' : 'light'}
                       value={card.eventHint.time ? eventTimePickerSeed(card) : eventDatePickerSeed(card)}
                       mode={card.eventHint.time ? 'datetime' : 'date'}
                       display="spinner"
@@ -1575,6 +1578,7 @@ export function CaptureScreen() {
                     {Platform.OS === 'ios' && openPicker?.cardId === card.cardId && openPicker.kind === 'reminderDateTime' ? (
                       <>
                         <DateTimePicker
+                          themeVariant={isDark ? 'dark' : 'light'}
                           value={reminderPickerSeed(card)}
                           mode="datetime"
                           display="spinner"
@@ -1711,6 +1715,7 @@ export function CaptureScreen() {
                               {isThisCardOpen ? (
                                 <>
                                   <DateTimePicker
+                                    themeVariant={isDark ? 'dark' : 'light'}
                                     value={reminderPickerSeed(card)}
                                     mode="datetime"
                                     display="spinner"
@@ -1765,7 +1770,7 @@ export function CaptureScreen() {
                         eventHint.time) ne doit jamais être présentée comme une erreur : masquée par
                         reminderHasPendingTimeSeed (captureReview.ts). La carte reste "À vérifier" via
                         needsReview (inchangé) — seul ce message d'erreur ROUGE spécifique disparaît. */}
-                    {!card.reminderTime && !reminderHasPendingTimeSeed(card) ? (
+                    {!card.reminderTime && !reminderHasPendingTimeSeed(card) && !(saveAttempted && reminderIncompleteMessage(card)) ? (
                       <Text style={[styles.warnHint, { color: theme.plum }]}>Choisis une heure pour activer ce rappel.</Text>
                     ) : null}
                     {/* CHANTIER UX RÉCURRENCE — incrément 4 (2026-09-18) : activation MANUELLE sur un
@@ -1777,6 +1782,13 @@ export function CaptureScreen() {
                     </Pressable>
                   </>
                 )}
+                {/* CHANTIER "Capture — heure sans date" (2026-09-24) — après un tap sur "Faire confiance à
+                    Pensif" qui a été bloqué, explique VISIBLEMENT pourquoi (date et/ou heure manquante), près
+                    du bloc rappel, en couleur d'alerte du design system (theme.plum, comme les autres
+                    avertissements) — jamais seulement un contour. Aucune décision de validité ici. */}
+                {saveAttempted && reminderIncompleteMessage(card) ? (
+                  <Text style={[styles.warnHint, { color: theme.plum, fontWeight: '700' }]}>{reminderIncompleteMessage(card)}</Text>
+                ) : null}
               </View>
             ) : null}
 
@@ -1956,6 +1968,8 @@ function DateTimePickerHost({
       ? 'time'
       : 'datetime';
 
+  const isDark = useIsDark();
+
   function handleChange(_: unknown, selected?: Date) {
     onClose();
     if (!selected) return;
@@ -1968,6 +1982,7 @@ function DateTimePickerHost({
 
   return (
     <DateTimePicker
+      themeVariant={isDark ? 'dark' : 'light'}
       value={seed}
       mode={mode}
       display={Platform.OS === 'ios' ? 'spinner' : mode === 'time' ? 'clock' : 'calendar'}

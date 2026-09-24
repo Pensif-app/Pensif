@@ -11,7 +11,7 @@ import { Screen } from '../components/Screen';
 import { Avatar } from '../components/Avatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
-import { useTheme } from '../theme';
+import { useIsDark, useTheme } from '../theme';
 import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
 import { birthdayCountdownLabel } from '../data/calendar';
 import { buildPenseeCards, groupPenseeCards } from '../data/penseesView';
@@ -118,6 +118,7 @@ function penseeSummaryLabel(total: number, todayCount: number, upcomingCount: nu
 
 export function FicheScreen() {
   const theme = useTheme();
+  const isDark = useIsDark();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Fiche'>>();
   const contactId = route.params?.contactId;
@@ -355,6 +356,7 @@ export function FicheScreen() {
 
       {showDatePicker && (
         <DateTimePicker
+          themeVariant={isDark ? 'dark' : 'light'}
           // Par défaut sur l'an 2000 plutôt que la date du jour — une naissance est bien plus
           // souvent proche de cette année-là, ça évite de faire défiler la molette très loin.
           value={date ? new Date(date) : new Date(2000, 0, 1)}

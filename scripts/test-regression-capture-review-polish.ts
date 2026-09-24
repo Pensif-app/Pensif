@@ -138,7 +138,9 @@ console.log('\n[§G — source] CORRECTIF UX Seeds (2026-09-18) — chip iOS pon
 
   check(
     'avertissement rouge "Choisis une heure..." masqué si reminderHasPendingTimeSeed(card) (seed complète valide, pas une erreur)',
-    /\{!card\.reminderTime && !reminderHasPendingTimeSeed\(card\) \? \(/.test(reminderBlock),
+    // Réaligné (2026-09-24, "Capture — heure sans date") : la garde d'origine reste INTACTE, un 3e terme
+    // évite seulement le doublon avec le nouveau message affiché après un tap bloqué.
+    /\{!card\.reminderTime && !reminderHasPendingTimeSeed\(card\) && !\(saveAttempted && reminderIncompleteMessage\(card\)\) \? \(/.test(reminderBlock),
   );
 }
 

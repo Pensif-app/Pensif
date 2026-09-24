@@ -182,7 +182,31 @@ export function normalizeHeardContactName(texte: string, heardContactName: strin
   return replaceContactNameOccurrence(texte, heardContactName, canonicalFirstName).texte;
 }
 
-function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: ContactMatchResult, contacts: Contact[]): CaptureCard {
+/**
+ * CHANTIER "Capture — heure sans date" (2026-09-24) — déduction DÉTERMINISTE (jamais confiée au LLM) :
+ * un rappel EXPLICITE (`reminderEnabled`) avec heure valide mais SANS date, non récurrent, prend la date
+ * d'AUJOURD'HUI uniquement si `aujourd'hui + HH:mm` est STRICTEMENT dans le futur par rapport à `now`
+ * (`candidateToday > now`, même convention stricte que le reste de l'app : dans la minute demandée, ou
+ * après, l'instant est déjà passé). Sinon la date reste `null` — JAMAIS "demain" choisi silencieusement,
+ * la carte reste invalide et l'utilisateur choisit (voir reminderIncompleteMessage). Une date déjà fournie
+ * (ex. "demain") n'est JAMAIS écrasée ; une récurrence garde sa propre règle (date null voulue, voir le
+ * prompt : jamais "aujourd'hui" arbitraire pour une série). PURE — `now` toujours injecté.
+ */
+export function resolveReminderDateForToday(
+  reminderEnabled: boolean,
+  recurrenceEnabled: boolean,
+  date: LocalDate | null,
+  time: LocalTime | null,
+  now: Date,
+): LocalDate | null {
+  if (date) return date;
+  if (!reminderEnabled || recurrenceEnabled || !time) return date;
+  const candidateToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), time.hour, time.minute, 0, 0);
+  if (candidateToday.getTime() > now.getTime()) return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() };
+  return null;
+}
+
+function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: ContactMatchResult, contacts: Contact[], now: Date = new Date()): CaptureCard {
   // CHANTIER MATCHING V2 : 'exact' ET 'fuzzy_high_confidence' pré-sélectionnent le proche — la
   // distinction (confirmation nécessaire ou non) est portée par `needsReview`, pas par ce choix
   // de pré-remplissage. 'exact_ambiguous'/'ambiguous'/'unmatched' ne pré-sélectionnent jamais rien.
@@ -218,7 +242,13 @@ function buildCardFromExtracted(extracted: ExtractedPensee, contactMatch: Contac
       ? { date: extracted.event.date, time: extracted.event.time ?? null, heardExpression: extracted.event.heardExpression }
       : null,
     reminderEnabled: extracted.reminder.hasReminder,
-    reminderDate: parseIsoDate(extracted.reminder.date),
+    reminderDate: resolveReminderDateForToday(
+      extracted.reminder.hasReminder,
+      buildRecurrenceDraftFromExtracted(extracted.reminder.recurrence ?? null).enabled,
+      parseIsoDate(extracted.reminder.date),
+      parseTime(extracted.reminder.time),
+      now,
+    ),
     reminderTime: parseTime(extracted.reminder.time),
     // `?? null` — traite `undefined` (backend pas encore redéployé) exactement comme `null` (aucune
     // récurrence détectée), voir captureTypes.ts.
@@ -242,6 +272,7 @@ export function buildInitialCards(
   result: CaptureResult,
   matchContact: (heardContactName: string | null) => ContactMatchResult,
   contacts: Contact[],
+  now: Date = new Date(),
 ): CaptureCard[] {
   if (result.parseError || result.pensees.length === 0) {
     return [
@@ -265,7 +296,7 @@ export function buildInitialCards(
       },
     ];
   }
-  return result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName), contacts));
+  return result.pensees.map((extracted) => buildCardFromExtracted(extracted, matchContact(extracted.heardContactName), contacts, now));
 }
 
 /**
@@ -741,6 +772,17 @@ export function pendingConfirmationHelpText(count: number): { headline: string; 
   const headline = count === 1 ? "1 élément à confirmer avant d'enregistrer." : `${count} éléments à confirmer avant d'enregistrer.`;
   const hint = count === 1 ? 'Appuie sur le champ surligné pour le valider.' : 'Appuie sur les champs surlignés pour les valider.';
   return { headline, hint };
+}
+
+/** Message d'erreur VISIBLE pour un rappel activé mais incomplet (date et/ou heure manquante) — affiché après
+ *  un tap sur "Faire confiance à Pensif" (voir CaptureScreen). `null` si le rappel est désactivé ou complet.
+ *  PURE, ne décide jamais de la validité (isCardValid reste l'unique source). */
+export function reminderIncompleteMessage(card: CaptureCard): string | null {
+  if (!card.reminderEnabled) return null;
+  if (!card.reminderDate && !card.reminderTime) return 'Choisis une date et une heure pour programmer ce rappel.';
+  if (!card.reminderDate) return 'Choisis une date pour programmer ce rappel.';
+  if (!card.reminderTime) return 'Choisis une heure pour programmer ce rappel.';
+  return null;
 }
 
 /** Construit la Pensee à sauvegarder via le flux normal (`addPensee`, voir store.tsx) — jamais

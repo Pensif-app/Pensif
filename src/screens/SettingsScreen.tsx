@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { useStore, ThemePref } from '../data/store';
 import { useTheme } from '../theme';
+import { countScheduledReminders } from '../data/penseeReminderRecurrence';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
 import {
@@ -39,6 +40,7 @@ export function SettingsScreen() {
     openNamePrompt,
     contacts,
     pensees,
+    today,
     themePref,
     setThemePref,
     notificationsEnabled,
@@ -184,7 +186,7 @@ export function SettingsScreen() {
   function confirmSimulateReinstall() {
     Alert.alert(
       '[Dev] Simuler une réinstallation ?',
-      "Déconnecte la session et efface le cache local (contacts/pensées/outbox) de cet appareil, comme après une réinstallation. Tes données restent sur Supabase — testé via \"J'ai déjà un compte\".",
+      "Déconnecte la session et efface le cache local (contacts/pensées/outbox) de cet appareil, comme après une réinstallation. Tes données restent sauvegardées sur ton compte — testé via \"J'ai déjà un compte\".",
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Simuler', style: 'destructive', onPress: () => { void devSimulateReinstall(); } },
@@ -275,53 +277,51 @@ export function SettingsScreen() {
         })}
       </View>
 
-      <SectionLabel theme={theme}>DONNÉES</SectionLabel>
+      {/* CHANTIER "Réglages V1" (2026-09-24) — compteurs produit regroupés. "Rappels programmés" :
+          pensées dont le rappel a encore ≥ 1 occurrence future (primitive canonique, voir
+          countScheduledReminders) — indépendant du switch global Notifications. */}
+      <SectionLabel theme={theme}>TON PENSIF</SectionLabel>
       <Card theme={theme}>
-        <Row
-          theme={theme}
-          icon={isSupabaseConfigured ? 'cloud-done-outline' : 'phone-portrait-outline'}
-          label="Stockage"
-          value={isSupabaseConfigured ? 'Connecté (Supabase)' : 'Local sur cet appareil'}
-        />
-        <View style={[styles.divider, { backgroundColor: theme.line }]} />
         <Row theme={theme} icon="people-outline" label="Proches suivis" value={String(contacts.length)} />
         <View style={[styles.divider, { backgroundColor: theme.line }]} />
         <Row theme={theme} icon="chatbubble-ellipses-outline" label="Pensées enregistrées" value={String(pensees.length)} />
-        {__DEV__ && isSupabaseConfigured && (
-          <>
-            <View style={[styles.divider, { backgroundColor: theme.line }]} />
-            <Pressable onPress={confirmSimulateReinstall} style={styles.row}>
-              <Ionicons name="refresh-circle-outline" size={16} color={theme.danger} style={{ marginRight: 10 }} />
-              <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13, flex: 1 }}>[Dev] Simuler une réinstallation</Text>
-            </Pressable>
-          </>
-        )}
+        <View style={[styles.divider, { backgroundColor: theme.line }]} />
+        <Row theme={theme} icon="alarm-outline" label="Rappels programmés" value={String(countScheduledReminders(pensees, today))} />
       </Card>
 
-      {!isSupabaseConfigured && (
-        <Pressable onPress={confirmReset} style={styles.dangerBtn}>
-          <Ionicons name="refresh-outline" size={15} color={theme.danger} />
-          <Text style={[styles.dangerText, { color: theme.danger }]}>Réinitialiser les données de démo</Text>
-        </Pressable>
-      )}
-
-      {/* CHANTIER "Data Safety P0-1" (2026-09-20) — visible UNIQUEMENT pour une session anonyme
-          (`session.user.is_anonymous === true`, voir store.tsx `isAnonymous`) sur un projet Supabase
-          configuré. Une session déjà sécurisée, ou le mode 100% local (`isAnonymous` reste `false`
-          par défaut, jamais mis à jour dans ce mode), ne l'affichent jamais. */}
-      {isSupabaseConfigured && isAnonymous && (
+      {/* Sauvegarde/synchronisation : "Active" = fonctionnalité de compte activée, JAMAIS un état réseau
+          temps réel. Aucun libellé technique (fournisseur/stockage) côté utilisateur. Le mode 100% local
+          (Supabase non configuré) est un cas dev uniquement : aucune ligne affichée. */}
+      {isSupabaseConfigured && (
         <>
-          <SectionLabel theme={theme}>COMPTE</SectionLabel>
+          <SectionLabel theme={theme}>DONNÉES ET CONFIDENTIALITÉ</SectionLabel>
           <Card theme={theme}>
+            <Row theme={theme} icon="cloud-done-outline" label="Sauvegarde et synchronisation" value="Active" />
+            {__DEV__ && (
+              <>
+                <View style={[styles.divider, { backgroundColor: theme.line }]} />
+                <Pressable onPress={confirmSimulateReinstall} style={styles.row}>
+                  <Ionicons name="refresh-circle-outline" size={16} color={theme.danger} style={{ marginRight: 10 }} />
+                  <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13, flex: 1 }}>[Dev] Simuler une réinstallation</Text>
+                </Pressable>
+              </>
+            )}
+            {/* CHANTIER "Data Safety P0-1" (2026-09-20) — visible UNIQUEMENT pour une session anonyme
+                (`session.user.is_anonymous === true`, voir store.tsx `isAnonymous`). Flux OTP INCHANGÉ,
+                seulement déplacé dans cette carte. Un compte sécurisé n'affiche aucun CTA. */}
+            {isAnonymous && (
+              <>
+                <View style={[styles.divider, { backgroundColor: theme.line }]} />
+                <View style={{ paddingVertical: 12 }}>
             {securityStep === 'idle' && (
               <>
                 <Text style={[styles.privacyText, { color: theme.inkSoft, marginBottom: 12 }]}>
-                  Tes données sont pour l’instant liées uniquement à cet appareil. Ajoute un email pour
-                  pouvoir les récupérer si tu changes de téléphone.
+                  Sécurise ton compte pour pouvoir récupérer tes données sur un nouvel appareil.
                 </Text>
                 <Pressable onPress={startSecurityFlow} style={styles.securityBtn}>
                   <Ionicons name="shield-checkmark-outline" size={16} color={theme.accent} />
-                  <Text style={[styles.securityBtnText, { color: theme.accent }]}>SÉCURISER MES DONNÉES</Text>
+                  <Text style={[styles.securityBtnText, { color: theme.accent }]}>Sécuriser mes données</Text>
+                  <Ionicons name="chevron-forward" size={14} color={theme.accent} />
                 </Pressable>
               </>
             )}
@@ -392,20 +392,28 @@ export function SettingsScreen() {
 
             {securityLoading && <ActivityIndicator style={{ marginTop: 10 }} color={theme.accent} />}
             {securityError && <Text style={[styles.securityError, { color: theme.danger }]}>{securityError}</Text>}
+                </View>
+              </>
+            )}
           </Card>
         </>
       )}
 
+      {!isSupabaseConfigured && (
+        <Pressable onPress={confirmReset} style={styles.dangerBtn}>
+          <Ionicons name="refresh-outline" size={15} color={theme.danger} />
+          <Text style={[styles.dangerText, { color: theme.danger }]}>Réinitialiser les données de démo</Text>
+        </Pressable>
+      )}
+
       <SectionLabel theme={theme}>À PROPOS</SectionLabel>
       <Card theme={theme}>
-        <Row theme={theme} icon="information-circle-outline" label="Version" value={APP_VERSION} />
-        <View style={[styles.divider, { backgroundColor: theme.line }]} />
-        <View style={styles.row}>
-          <Text style={[styles.privacyText, { color: theme.inkSoft }]}>
-            {isSupabaseConfigured
-              ? 'Tes contacts et pensées sont stockés sur ton compte Supabase, accessibles uniquement depuis cet appareil.'
-              : "Tes données restent sur cet appareil — rien n'est envoyé à un serveur."}
-          </Text>
+        <View style={styles.aboutRow}>
+          <Image source={require('../../assets/icon.png')} style={styles.aboutLogo} resizeMode="contain" />
+          <View>
+            <Text style={[styles.aboutName, { color: theme.ink }]}>Pensif</Text>
+            <Text style={[styles.rowSub, { color: theme.inkSoft }]}>Version {APP_VERSION}</Text>
+          </View>
         </View>
       </Card>
     </Screen>
@@ -456,7 +464,10 @@ const styles = StyleSheet.create({
   segmentBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 9 },
   dangerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 16 },
   dangerText: { fontWeight: '700', fontSize: 13 },
-  privacyText: { fontSize: 12, lineHeight: 18, flex: 1 },
+  privacyText: { fontSize: 12, lineHeight: 18 },
+  aboutRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14 },
+  aboutLogo: { width: 60, height: 60, borderRadius: 14 },
+  aboutName: { fontSize: 16, fontWeight: '800' },
   // CHANTIER "Data Safety P0-1" (2026-09-20) — flux "SÉCURISER MES DONNÉES".
   securityBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12 },
   securityBtnText: { fontWeight: '700', fontSize: 13 },

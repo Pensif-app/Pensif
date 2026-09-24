@@ -5,7 +5,7 @@
 // anonyme temporaire n'est créé tant que l'utilisateur n'a pas explicitement choisi "Continuer" —
 // et le chemin "J'ai déjà un compte" n'en crée JAMAIS (shouldCreateUser:false, authRepo.ts).
 import React, { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Keyboard, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from './PrimaryButton';
 import { useStore } from '../data/store';
@@ -102,16 +102,27 @@ export function AuthGateScreen() {
             précis) — le champ OTP remonte au-dessus du clavier au lieu d'être masqué dessous. */}
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
         <View style={styles.content}>
+          {/* CHANTIER "UX — Première ouverture plus chaleureuse" (2026-09-24) — logo existant (même asset
+              que SplashOverlay.tsx, aucun nouvel asset), uniquement sur le 1er écran de choix. */}
+          {step === 'choice' && <Image source={require('../../assets/icon.png')} style={styles.logo} resizeMode="contain" />}
           <Text style={[styles.title, { color: theme.ink }]}>Pensif</Text>
 
           {step === 'choice' && (
             <>
+              <Text style={[styles.tagline, { color: theme.ink }]}>Les petites choses comptent.</Text>
               <Text style={[styles.subtitle, { color: theme.inkSoft }]}>
-                Garde tes pensées et tes proches en toute simplicité.
+                Garde en mémoire ce que les personnes qui comptent pour toi te confient, et retrouve-le au bon moment.
               </Text>
               <View style={styles.actions}>
-                <PrimaryButton label="Continuer" onPress={handleContinueAnonymously} />
-                <PrimaryButton label="J’ai déjà un compte" variant="secondary" onPress={() => { resetToChoice(); setStep('email'); }} />
+                <PrimaryButton label="Commencer" onPress={handleContinueAnonymously} />
+                <Pressable
+                  onPress={() => { resetToChoice(); setStep('email'); }}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}
+                  style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={[styles.linkText, { color: theme.accent }]}>J’ai déjà un compte</Text>
+                </Pressable>
               </View>
             </>
           )}
@@ -172,7 +183,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24, gap: 8 },
+  logo: { width: 112, height: 112, borderRadius: 26, alignSelf: 'center', marginBottom: 8 },
   title: { fontSize: 28, fontWeight: '800', textAlign: 'center', marginBottom: 4 },
+  tagline: { fontSize: 17, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+  linkBtn: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 8, marginTop: 4 },
+  linkText: { fontSize: 14, fontWeight: '600' },
   subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 20, lineHeight: 20 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, marginBottom: 16 },
   actions: { gap: 10 },

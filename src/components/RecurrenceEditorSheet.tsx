@@ -13,6 +13,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Palette } from '../theme/colors';
+import { useIsDark } from '../theme';
 import { LocalDate, RecurrenceDraftFrequency, recurrenceDateLabel } from '../data/captureReview';
 
 export type RecurrenceEditorMode = 'frequency' | 'end';
@@ -83,6 +84,7 @@ export function RecurrenceEditorSheet({
   const [endChoice, setEndChoice] = useState<'never' | 'count' | 'until'>(occurrenceCount !== null ? 'count' : untilDate ? 'until' : 'never');
   const [countText, setCountText] = useState(String(occurrenceCount ?? 5));
   const [showUntilPicker, setShowUntilPicker] = useState(false);
+  const isDark = useIsDark();
 
   function handleClose() {
     setShowUntilPicker(false);
@@ -229,6 +231,7 @@ export function RecurrenceEditorSheet({
                   </Pressable>
                   {showUntilPicker ? (
                     <DateTimePicker
+                      themeVariant={isDark ? 'dark' : 'light'}
                       value={untilDate ? localDateToJsDate(untilDate) : startDate ? localDateToJsDate(startDate) : new Date()}
                       mode="date"
                       display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}

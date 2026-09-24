@@ -10,7 +10,7 @@
 // null`) : réactiver ensuite le rappel avec une nouvelle date ressuscitait alors silencieusement
 // l'ANCIENNE récurrence, invisible et non voulue.
 import { Pensee, ReminderRecurrence } from './types';
-import { LocalDateParts, computeNextReminderOccurrences, normalizeReminderRecurrence, reminderRecurrenceMatchesDate } from './reminderRecurrence';
+import { LocalDateParts, computeNextReminderOccurrences, nextPenseeReminderOccurrence, normalizeReminderRecurrence, reminderRecurrenceMatchesDate } from './reminderRecurrence';
 import { isoOf } from './dateLocal';
 
 /**
@@ -264,4 +264,14 @@ export function penseeRecurrenceEndLabel(draft: PenseeRecurrenceDraft): string |
     return `Jusqu'au ${d}/${m}/${y}`;
   }
   return 'Jamais';
+}
+
+/**
+ * CHANTIER "Réglages V1" (2026-09-24) — "Rappels programmés" (SettingsScreen) : nombre de pensées
+ * dont le rappel a encore au moins une occurrence future. Une récurrence compte 1, quel que soit le
+ * nombre d'occurrences restantes. Réutilise `nextPenseeReminderOccurrence` (primitive canonique,
+ * aucune logique de récurrence dupliquée) ; `now` est toujours `store.today`.
+ */
+export function countScheduledReminders(pensees: Pensee[], now: Date): number {
+  return pensees.filter((p) => Boolean(p.reminderAt) && nextPenseeReminderOccurrence(p, now) !== null).length;
 }

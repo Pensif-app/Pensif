@@ -9,7 +9,7 @@ import { Pill } from '../components/Pill';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
-import { buildHomeAttentions, HomeAttention, HomeAttentionAction, navigateToAttention } from '../data/homeAttention';
+import { buildHomeAttentions, homeGreeting, HomeAttention, HomeAttentionAction, navigateToAttention } from '../data/homeAttention';
 import { Contact } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
 
@@ -54,7 +54,7 @@ export function HomeScreen() {
     <Screen>
       <View style={styles.headerRow}>
         <View>
-          <Text style={[styles.h1, { color: theme.ink }]}>Bonjour {userName ?? ''}</Text>
+          <Text style={[styles.h1, { color: theme.ink }]}>{homeGreeting(today)} {userName ?? ''}</Text>
           <Text style={[styles.sub, { color: theme.inkSoft }]}>
             {weekdayFull[today.getDay()]} {today.getDate()} {monthFull[today.getMonth()]}
           </Text>

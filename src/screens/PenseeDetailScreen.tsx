@@ -10,7 +10,7 @@ import { ContactAssociationField } from '../components/ContactAssociationField';
 import { ContactPicker } from '../components/ContactPicker';
 import { RecurrenceEditorSheet, RecurrenceEditorMode } from '../components/RecurrenceEditorSheet';
 import { useStore } from '../data/store';
-import { useTheme } from '../theme';
+import { useIsDark, useTheme } from '../theme';
 import { RootStackParamList } from '../navigation/types';
 import { Pensee } from '../data/types';
 import { LocalDate } from '../data/captureReview';
@@ -77,6 +77,7 @@ function localDateToIso(date: LocalDate): string {
  */
 export function PenseeDetailScreen() {
   const theme = useTheme();
+  const isDark = useIsDark();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'PenseeDetail'>>();
   const { pensees, contacts, addPensee, updatePensee, deletePensee, setNotificationsEnabled } = useStore();
@@ -559,6 +560,7 @@ export function PenseeDetailScreen() {
           seulement le picker. */}
       {Platform.OS === 'ios' && openPicker === 'event' ? (
         <DateTimePicker
+          themeVariant={isDark ? 'dark' : 'light'}
           value={eventDate ? new Date(`${eventDate}T${eventTime ?? '00:00'}:00`) : new Date()}
           mode={eventTime ? 'datetime' : 'date'}
           display="spinner"
@@ -749,6 +751,7 @@ export function PenseeDetailScreen() {
           {Platform.OS === 'ios' && openPicker === 'reminderDateTime' ? (
             <>
               <DateTimePicker
+                themeVariant={isDark ? 'dark' : 'light'}
                 value={reminderDateSeed()}
                 mode="datetime"
                 display="spinner"

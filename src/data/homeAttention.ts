@@ -305,6 +305,13 @@ export function compareHomeAttentions(a: HomeAttention, b: HomeAttention): numbe
 
 /** Point d'entrée unique : construit puis trie toutes les attentions Accueil, tous types confondus —
  *  HomeScreen.tsx n'a plus qu'à filtrer par `horizon` et rendre, sans recalculer de logique métier. */
+/** Salutation de l'Accueil selon l'heure LOCALE de `now` (toujours `store.today`, jamais une horloge
+ *  propre) : "Bonjour" de 05:00 à 17:59, "Bonsoir" de 18:00 à 04:59. */
+export function homeGreeting(now: Date): 'Bonjour' | 'Bonsoir' {
+  const hour = now.getHours();
+  return hour >= 5 && hour < 18 ? 'Bonjour' : 'Bonsoir';
+}
+
 export function buildHomeAttentions(contacts: Contact[], pensees: Pensee[], today: Date): HomeAttention[] {
   const list: HomeAttention[] = [];
   for (const c of contacts) {

@@ -409,6 +409,15 @@ async function main() {
     check('AuthGateScreen : le bouton "Vérifier" est désactivé tant que isOtpSubmittable(code) est faux', /PrimaryButton label="Vérifier" onPress=\{handleVerifyCode\} disabled=\{!isOtpSubmittable\(code\)\}/.test(gateSrc));
     check('AuthGateScreen : aucun auto-submit au 6e chiffre (handleVerifyCode jamais appelée depuis onChangeText)', !/onChangeText[\s\S]{0,120}handleVerifyCode/.test(gateSrc));
 
+    // CHANTIER "UX — Première ouverture plus chaleureuse" (2026-09-24) : hiérarchie/wording seulement.
+    check('1er écran : CTA principal "Commencer" (PrimaryButton primary) câblé sur handleContinueAnonymously (flux nouveau compte inchangé)', /<PrimaryButton label="Commencer" onPress=\{handleContinueAnonymously\} \/>/.test(gateSrc));
+    check('1er écran : ancien label "Continuer" absent de l’écran', !/label="Continuer"/.test(gateSrc));
+    check('1er écran : "J’ai déjà un compte" présent en lien secondaire (Pressable + Text), plus un PrimaryButton concurrent', /<Text style=\{\[styles\.linkText, \{ color: theme\.accent \}\]\}>J’ai déjà un compte<\/Text>/.test(gateSrc) && !/PrimaryButton label="J’ai déjà un compte"/.test(gateSrc));
+    check('1er écran : "J’ai déjà un compte" garde la même action (resetToChoice + setStep(\'email\'))', /onPress=\{\(\) => \{ resetToChoice\(\); setStep\('email'\); \}\}/.test(gateSrc));
+    check('1er écran : accroche + description chaleureuses présentes', gateSrc.includes('Les petites choses comptent.') && gateSrc.includes('Garde en mémoire ce que les personnes qui comptent pour toi te confient, et retrouve-le au bon moment.'));
+    check('1er écran : logo = asset existant assets/icon.png (aucun nouvel asset)', gateSrc.includes("require('../../assets/icon.png')"));
+    check('1er écran : couleurs via theme (aucune couleur en dur, thèmes Système/Clair/Obscur)', !/#[0-9A-Fa-f]{3,8}\b/.test(gateSrc));
+
     const settingsSrc = readSrc('screens', 'SettingsScreen.tsx');
     check('SettingsScreen : plus de maxLength={6} en dur — utilise OTP_MAX_LENGTH', !/maxLength=\{6\}/.test(settingsSrc) && /maxLength=\{OTP_MAX_LENGTH\}/.test(settingsSrc));
     check('SettingsScreen : la saisie OTP passe par sanitizeOtpInput', /onChangeText=\{\(text\) => setSecurityCode\(sanitizeOtpInput\(text\)\)\}/.test(settingsSrc));
@@ -588,7 +597,9 @@ async function main() {
     check('le métier auth réel reste inchangé : requestExistingAccountOtp/verifyExistingAccountOtp/updateUser toujours présents tels quels', /export async function requestExistingAccountOtp/.test(authRepoSrc) && /export async function verifyExistingAccountOtp/.test(authRepoSrc) && /updateUser\(\{\s*email\s*\}\)/.test(authRepoSrc));
 
     const settingsSrc = readSrc('screens', 'SettingsScreen.tsx');
-    check('le bouton "[Dev] Simuler une réinstallation" n’est rendu que sous __DEV__ (impossible en build production)', /\{__DEV__ && isSupabaseConfigured && \([\s\S]{0,500}Simuler une réinstallation/.test(settingsSrc));
+    check('le bouton "[Dev] Simuler une réinstallation" n’est rendu que sous __DEV__ (impossible en build production)', /\{isSupabaseConfigured && \(\s*<>[\s\S]{0,1200}\{__DEV__ && \(\s*<>[\s\S]{0,500}Simuler une réinstallation/.test(settingsSrc));
+    // Réglages V1 (2026-09-24) : le bouton vit désormais DANS le bloc `isSupabaseConfigured` de la carte
+    // "DONNÉES ET CONFIDENTIALITÉ", toujours sous `__DEV__` (mêmes 2 conditions qu'avant, autre forme JSX).
     check('une confirmation est demandée avant d’agir (Alert.alert, pas d’exécution directe au tap)', /confirmSimulateReinstall[\s\S]{0,400}Alert\.alert/.test(settingsSrc));
   }
 

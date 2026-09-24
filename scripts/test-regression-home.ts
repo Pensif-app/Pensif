@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Contact, Pensee } from '../src/data/types';
-import { buildHomeAttentions, HomeAttention } from '../src/data/homeAttention';
+import { buildHomeAttentions, homeGreeting, HomeAttention } from '../src/data/homeAttention';
 import { occurrenceYear, familyFetes } from '../src/data/calendar';
 
 let failures = 0;
@@ -316,6 +316,21 @@ console.log('\n[Phase 7A — 7] Source — le gate HomeScreen.tsx n’est plus "
     'ancienne condition SEULE ("contacts.length === 0 ? (" sans attentions.length) n’apparaît plus nulle part dans ce fichier',
     !/\{contacts\.length === 0 \? \(/.test(src),
   );
+}
+
+console.log('\n[Salutation] Bonjour 05:00–17:59, Bonsoir 18:00–04:59, basé sur store.today');
+{
+  const at = (h: number, m: number) => new Date(2026, 8, 24, h, m, 0);
+  check('04:59 → Bonsoir', homeGreeting(at(4, 59)) === 'Bonsoir');
+  check('05:00 → Bonjour', homeGreeting(at(5, 0)) === 'Bonjour');
+  check('17:59 → Bonjour', homeGreeting(at(17, 59)) === 'Bonjour');
+  check('18:00 → Bonsoir', homeGreeting(at(18, 0)) === 'Bonsoir');
+  check('23:30 → Bonsoir', homeGreeting(at(23, 30)) === 'Bonsoir');
+  check('00:30 → Bonsoir', homeGreeting(at(0, 30)) === 'Bonsoir');
+  const homeSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'HomeScreen.tsx'), 'utf8');
+  check('HomeScreen utilise homeGreeting(today) avec today issu de useStore()', /\{homeGreeting\(today\)\} \{userName \?\? ''\}/.test(homeSrc) && /const \{ contacts, pensees, userName, today \} = useStore\(\);/.test(homeSrc));
+  check('HomeScreen : aucune horloge indépendante (new Date / setInterval / setTimeout / useFocusEffect)', !/new Date\(|setInterval\(|setTimeout\(|useFocusEffect/.test(homeSrc));
+  check('"Bonjour" n’est plus codé en dur dans le JSX', !/>Bonjour \{/.test(homeSrc));
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
