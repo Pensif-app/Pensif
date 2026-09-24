@@ -1146,7 +1146,7 @@ export function CaptureScreen() {
           <View style={styles.privacyRow}>
             <Ionicons name="lock-closed-outline" size={13} color={theme.inkSoft} />
             <Text style={[styles.privacyText, { color: theme.inkSoft }]}>
-              Votre voix est en sécurité.{'\n'}Elle n’est utilisée que pour créer vos pensées.
+              Votre voix sert uniquement à transformer votre capture en pensée.
             </Text>
           </View>
         </View>
@@ -1198,7 +1198,7 @@ export function CaptureScreen() {
           <View style={styles.privacyRow}>
             <Ionicons name="lock-closed-outline" size={13} color={theme.inkSoft} />
             <Text style={[styles.privacyText, { color: theme.inkSoft }]}>
-              Votre voix est en sécurité.{'\n'}Elle n’est utilisée que pour créer vos pensées.
+              Votre voix sert uniquement à transformer votre capture en pensée.
             </Text>
           </View>
         </View>
