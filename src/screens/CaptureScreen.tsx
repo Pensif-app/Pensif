@@ -254,6 +254,17 @@ export function CaptureScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<string>('');
   const [cards, setCards] = useState<CaptureCard[]>([]);
+  // CHANTIER "UX — Timing permission Notifications" (2026-09-24) : demandée UNIQUEMENT une fois la
+  // Review rendue (effet exécuté après le commit de phase 'review' + cards, donc card déjà visible)
+  // ET si une card contient réellement un rappel. Jamais après la seule permission micro. Le helper
+  // ne redemande jamais si la permission est déjà tranchée (granted/denied).
+  useEffect(() => {
+    if (phase !== 'review' || !cards.some((c) => c.reminderEnabled)) return;
+    void requestNotificationPermissionIfUndetermined().then((granted) => {
+      if (granted !== null) setNotificationsEnabled(granted);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
   // CHANTIER SEEDS TEMPORELS — mise en évidence (2026-09-18). État UI PUR, jamais persisté, jamais
   // envoyé à Supabase/outbox, ne fait PAS partie de `CaptureCard`/`Pensee` : mémorise uniquement si
@@ -505,14 +516,10 @@ export function CaptureScreen() {
       return;
     }
 
-    // CHANTIER "Post-TestFlight Phase 6 — Notifications première utilisation" (2026-09-23) — point
-    // le plus naturel du flow existant (juste après la permission micro accordée, premier usage réel
-    // de l'app) pour demander la permission notifications, SANS nouvel écran d'onboarding (voir
-    // requestNotificationPermissionIfUndetermined, notifications.ts : ne redemande jamais si déjà
-    // tranchée). Fire-and-forget, ne bloque jamais la capture en cours.
-    void requestNotificationPermissionIfUndetermined().then((granted) => {
-      if (granted !== null) setNotificationsEnabled(granted);
-    });
+    // CHANTIER "UX — Timing permission Notifications" (2026-09-24) — la permission Notifications n'est
+    // PLUS demandée ici (juste après la permission micro) : utiliser le micro ne doit jamais, à lui
+    // seul, la déclencher. Elle n'est demandée qu'une fois une card Review contenant réellement un
+    // rappel affichée (voir l'effet `phase === 'review'` plus bas).
 
     try {
       // 2) activer la session audio iOS si nécessaire — sans effet sur Android (champ iOS-only).

@@ -190,7 +190,7 @@ export function RecurrenceEditorSheet({
                 }}
                 style={[styles.optionRow, { borderColor: theme.line }]}
               >
-                <Text style={{ color: theme.ink, fontSize: 14, fontWeight: '600' }}>Après X fois</Text>
+                <Text style={{ color: theme.ink, fontSize: 14, fontWeight: '600' }}>Après X rappels</Text>
                 {endChoice === 'count' ? <Ionicons name="checkmark" size={18} color={theme.accent} /> : null}
               </Pressable>
               {endChoice === 'count' ? (
@@ -201,7 +201,7 @@ export function RecurrenceEditorSheet({
                     keyboardType="number-pad"
                     style={[styles.countInput, { borderColor: theme.line, color: theme.ink }]}
                   />
-                  <Text style={{ color: theme.inkSoft, fontSize: 13 }}>fois</Text>
+                  <Text style={{ color: theme.inkSoft, fontSize: 13 }}>{countText === '1' ? 'rappel' : 'rappels'}</Text>
                 </View>
               ) : null}
 

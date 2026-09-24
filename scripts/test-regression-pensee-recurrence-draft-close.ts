@@ -287,5 +287,17 @@ console.log('\n[14] Clavier — la sheet touche directement le clavier (fond opa
   check('styles.card (padding:20, paddingBottom:34 — INCHANGÉ) reste sur le Pressable interne, jamais sur le KeyboardAvoidingView', /card: \{ padding: 20, paddingBottom: 34 \}/.test(src) && /<Pressable style=\{styles\.card\} onPress=\{\(\) => \{\}\}>/.test(src));
 }
 
+console.log('\n[UX — "Après X rappels"] wording seul : occurrenceCount = nombre TOTAL de rappels (logique inchangée)');
+{
+  const d = (n: number | null) => ({ ...NEVER_PENSEE_RECURRENCE_DRAFT, enabled: true, frequency: 'weekly' as const, daysOfWeek: [3, 5, 6], occurrenceCount: n });
+  check('occurrenceCount=1 → "Après 1 rappel"', penseeRecurrenceEndLabel(d(1)) === 'Après 1 rappel');
+  check('occurrenceCount=3 → "Après 3 rappels"', penseeRecurrenceEndLabel(d(3)) === 'Après 3 rappels');
+  check('ancien libellé "fois" disparu', !String(penseeRecurrenceEndLabel(d(3))).includes('fois'));
+  const sheetSrc = readSrc('src', 'components', 'RecurrenceEditorSheet.tsx');
+  check('sélecteur : "Après X rappels"', sheetSrc.includes('>Après X rappels</Text>'));
+  check('suffixe du champ : rappel/rappels selon la valeur saisie', sheetSrc.includes("{countText === '1' ? 'rappel' : 'rappels'}"));
+  check('plus de libellé UI "Après X fois" / suffixe "fois"', !sheetSrc.includes('>Après X fois<') && !sheetSrc.includes('>fois</Text>'));
+}
+
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
 if (failures > 0) throw new Error(`${failures} test(s) de non-régression ont échoué`);

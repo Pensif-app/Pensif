@@ -548,7 +548,7 @@ export function recurrenceFrequencyLabel(draft: RecurrenceDraft): string {
  *  setRecurrenceUntilDate, à appeler en paire pour nettoyer l'autre borne). */
 export function recurrenceEndLabel(draft: RecurrenceDraft): string | null {
   if (draft.occurrenceCount !== null) {
-    return draft.occurrenceCount === 1 ? 'Après 1 fois' : `Après ${draft.occurrenceCount} fois`;
+    return draft.occurrenceCount === 1 ? 'Après 1 rappel' : `Après ${draft.occurrenceCount} rappels`;
   }
   if (draft.untilDate) return `Jusqu'au ${recurrenceDateLabel(draft.untilDate)}`;
   return null;

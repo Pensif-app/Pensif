@@ -125,16 +125,28 @@ console.log('\n[3] Notifications — demande opportuniste "première utilisation
   const notifSrc = readSrc('src', 'lib', 'notifications.ts');
   check('requestNotificationPermissionIfUndetermined() existe : ne redemande QUE si undetermined', /export async function requestNotificationPermissionIfUndetermined\(\): Promise<boolean \| null> \{\s*const status = await getNotificationPermissionStatus\(\);\s*if \(status !== 'undetermined'\) return null;/.test(notifSrc));
 
+  check('granted → status "granted" → helper retourne null (aucune demande inutile)', /if \(settings\.granted\) return 'granted';/.test(notifSrc) && /if \(status !== 'undetermined'\) return null;/.test(notifSrc));
+  check('denied (canAskAgain === false) → status "denied" → helper retourne null (aucune redemande/boucle)', /if \(settings\.canAskAgain === false\) return 'denied';/.test(notifSrc));
+  check('undetermined → le helper délègue à ensureNotificationPermissions (unique point de demande iOS)', /if \(status !== 'undetermined'\) return null;\s*return ensureNotificationPermissions\(\);/.test(notifSrc));
+
   const captureSrc = readSrc('src', 'screens', 'CaptureScreen.tsx');
-  const micGrantedIdx = captureSrc.indexOf("Permission micro refusée définitivement");
+  // CHANTIER "UX — Timing permission Notifications" (2026-09-24) : plus AUCUN déclenchement après le
+  // micro ; uniquement une fois la Review visible ET contenant un rappel.
+  const hookCalls = captureSrc.match(/void requestNotificationPermissionIfUndetermined\(\)/g) ?? [];
   const captureHookIdx = captureSrc.indexOf('void requestNotificationPermissionIfUndetermined()');
+  const startIdx = captureSrc.indexOf('let status = await getRecordingPermissionsAsync();');
+  const audioIdx = captureSrc.indexOf('await setAudioModeAsync({ allowsRecording: true');
   check('CaptureScreen : import présent', captureSrc.includes("import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';"));
+  check('CaptureScreen : un seul appel au helper', hookCalls.length === 1, `appels=${hookCalls.length}`);
   check(
-    'CaptureScreen : le déclenchement suit de près (< 500 caractères) le bloc de refus micro — donc APRÈS le granted confirmé, avant setAudioModeAsync',
-    micGrantedIdx !== -1 && captureHookIdx !== -1 && captureHookIdx - micGrantedIdx > 0 && captureHookIdx - micGrantedIdx < 700,
-    `distance=${captureHookIdx - micGrantedIdx}`,
+    'CaptureScreen : AUCUN appel dans le flux micro (entre getRecordingPermissionsAsync et setAudioModeAsync)',
+    !captureSrc.slice(startIdx, audioIdx).includes('requestNotificationPermissionIfUndetermined'),
   );
-  check('CaptureScreen : déclenchement AVANT le try { ... setAudioModeAsync (donc bien après granted, pas dans un chemin d’erreur)', captureHookIdx !== -1 && captureHookIdx < captureSrc.indexOf('await setAudioModeAsync({ allowsRecording: true'));
+  check(
+    'CaptureScreen : l’appel vit dans un useEffect gardé par phase === \'review\' + ref armée',
+    /useEffect\(\(\) => \{\s*if \(phase !== 'review' \|\| !cards\.some\(\(c\) => c\.reminderEnabled\)\) return;\s*void requestNotificationPermissionIfUndetermined\(\)/.test(captureSrc) && /\}, \[phase\]\);/.test(captureSrc.slice(captureHookIdx, captureHookIdx + 400)),
+  );
+  check('CaptureScreen : garde "une card contient un rappel" (reminderEnabled) — un capture sans rappel ne déclenche aucune popup', captureSrc.includes('!cards.some((c) => c.reminderEnabled)'));
 
   const penseeDetailSrc = readSrc('src', 'screens', 'PenseeDetailScreen.tsx');
   const toggleIdx = penseeDetailSrc.indexOf('function onReminderToggle(value: boolean) {');

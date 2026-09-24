@@ -257,7 +257,7 @@ export function penseeRecurrenceFrequencyLabel(draft: PenseeRecurrenceDraft): st
 export function penseeRecurrenceEndLabel(draft: PenseeRecurrenceDraft): string | null {
   if (!draft.enabled) return null;
   if (draft.occurrenceCount !== null) {
-    return draft.occurrenceCount === 1 ? 'Après 1 fois' : `Après ${draft.occurrenceCount} fois`;
+    return draft.occurrenceCount === 1 ? 'Après 1 rappel' : `Après ${draft.occurrenceCount} rappels`;
   }
   if (draft.untilDate) {
     const [y, m, d] = draft.untilDate.split('-');

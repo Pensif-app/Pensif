@@ -45,10 +45,10 @@ check('frequency=null (unclear non résolu) → "À préciser"', recurrenceFrequ
 
 console.log('\n[recurrenceEndLabel]');
 check('aucune borne → null (pas de ligne "Fin" affichée)', recurrenceEndLabel(draft({})) === null);
-check('occurrenceCount=1 → "Après 1 fois" (singulier)', recurrenceEndLabel(draft({ occurrenceCount: 1 })) === 'Après 1 fois');
-check('occurrenceCount=5 → "Après 5 fois"', recurrenceEndLabel(draft({ occurrenceCount: 5 })) === 'Après 5 fois');
+check('occurrenceCount=1 → "Après 1 rappel" (singulier)', recurrenceEndLabel(draft({ occurrenceCount: 1 })) === 'Après 1 rappel');
+check('occurrenceCount=5 → "Après 5 rappels"', recurrenceEndLabel(draft({ occurrenceCount: 5 })) === 'Après 5 rappels');
 check('untilDate → "Jusqu\'au 25 septembre"', recurrenceEndLabel(draft({ untilDate: { year: 2026, month: 8, day: 25 } })) === "Jusqu'au 25 septembre");
-check('occurrenceCount prévaut si (anormalement) les deux étaient présents', recurrenceEndLabel(draft({ occurrenceCount: 3, untilDate: { year: 2026, month: 8, day: 25 } })) === 'Après 3 fois');
+check('occurrenceCount prévaut si (anormalement) les deux étaient présents', recurrenceEndLabel(draft({ occurrenceCount: 3, untilDate: { year: 2026, month: 8, day: 25 } })) === 'Après 3 rappels');
 
 console.log('\n[recurrenceStartDateLabel / recurrenceTimeLabel / recurrenceDateLabel]');
 check('date manquante → "À définir"', recurrenceStartDateLabel(null) === 'À définir');
