@@ -10,7 +10,7 @@
       "icon": "./assets/icon-ios.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.yomic.pensif",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "config": {
         "usesNonExemptEncryption": false
       }
