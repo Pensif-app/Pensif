@@ -9,6 +9,7 @@ import { navigationRef } from './src/navigation/navigationRef';
 import { NamePromptModal } from './src/components/NamePromptModal';
 import { SplashOverlay } from './src/components/SplashOverlay';
 import { AuthGateScreen } from './src/components/AuthGateScreen';
+import { TutorialGate } from './src/components/TutorialOverlay';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { useTheme } from './src/theme';
 import { registerNotificationTapHandler } from './src/lib/notifications';
@@ -89,6 +90,8 @@ function AppShell() {
           anonyme automatiquement dans ce cas). Rendu APRÈS SplashOverlay dans le JSX pour rester
           au-dessus une fois le splash retiré. */}
       {ready && authGate === 'choice' && <AuthGateScreen />}
+      {/* Mini tutoriel onboarding (2026-09-24) — one-shot, nouvel utilisateur seulement (voir TutorialGate). */}
+      <TutorialGate />
     </>
   );
 }
