@@ -41,6 +41,8 @@ import { useStore } from '../data/store';
 import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';
 import { RootStackParamList } from '../navigation/types';
 import { uploadAudioForCapture, reextractCapture, CaptureApiError } from '../lib/captureApi';
+import { deleteCaptureAudioFile } from '../lib/captureAudio';
+import { runWithAudioCleanup } from '../data/captureAudioCleanup';
 import { matchContactByHeardName } from '../data/contactMatching';
 import { toLocalDateTimeParts } from '../data/reminderDate';
 import { isPressTooShort } from '../data/pushToTalk';
@@ -592,7 +594,8 @@ export function CaptureScreen() {
 
     if (isPressTooShort(heldMs)) {
       // Tap trop court : annulation propre, retour à l'état repos, AUCUN envoi au backend — le
-      // fichier produit (s'il existe) est simplement abandonné, jamais uploadé.
+      // fichier produit (s'il existe) n'est jamais uploadé — et supprimé (Confidentialité V1, 2026-09-24).
+      deleteCaptureAudioFile(uri);
       setPhase('idle');
       return;
     }
@@ -615,6 +618,7 @@ export function CaptureScreen() {
       console.log('[Pensif][voice-guard]', voiceActivityRef.current.debugSnapshot());
     }
     if (!voiceActivityRef.current.hasLikelySpeech()) {
+      deleteCaptureAudioFile(uri); // jamais envoyé : supprimé (Confidentialité V1, 2026-09-24)
       setPhase('silence');
       return;
     }
@@ -627,7 +631,9 @@ export function CaptureScreen() {
     setPhase('processing');
     try {
       // 6) envoyer le fichier au backend comme aujourd'hui — chemin STT/LLM/matching inchangé.
-      const result = await uploadAudioForCapture({ uri, filename, mimeType });
+      // Confidentialité V1 (2026-09-24) : le fichier local est supprimé dans un `finally` APRÈS l'upload
+      // (lecture + envoi terminés), succès OU échec — jamais avant.
+      const result = await runWithAudioCleanup(uri, () => uploadAudioForCapture({ uri: uri!, filename, mimeType }), deleteCaptureAudioFile);
       // RÈGLE DE SÉCURITÉ (combine les deux niveaux) : si l'audio local n'a montré aucun pic franc
       // (ou si le metering n'était pas assez fiable pour trancher), le filtre texte devient plus
       // strict sur la langue — un unique marqueur français isolé ne suffit plus. Avec une vraie
