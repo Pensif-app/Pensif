@@ -296,6 +296,14 @@ export function isPenseeActiveOn(p: Pensee, now: Date): boolean {
   if (!anchor) return false;
   const iso = dIso(now);
   if (anchor.endDate) return anchor.date <= iso && iso <= anchor.endDate;
+  // CHANTIER "Correctif temporalité II — Fin de récurrence le jour même" (2026-09-23) — sans ce garde,
+  // une série épuisée LE JOUR MÊME de sa dernière occurrence (ex. occurrenceCount=1, occurrence
+  // consommée à 18h) restait "active aujourd'hui" : `effectivePenseeAnchorDate` retombe alors sur
+  // `anchor.date` (jour de la dernière occurrence, jamais mis à jour une fois épuisée) qui reste égal
+  // à `iso` jusqu'à minuit. `isPenseeEnded` est désormais la source de vérité UNIQUE de fin pour un
+  // rappel (voir ci-dessous, corrigée pour consulter `nextPenseeReminderOccurrence` immédiatement,
+  // sans attendre le changement de jour civil) — la réutiliser ici évite toute 2e logique de fin.
+  if (isPenseeEnded(p, now)) return false;
   return effectivePenseeAnchorDate(p, now) === iso;
 }
 
@@ -309,20 +317,54 @@ export function isPenseeActiveOn(p: Pensee, now: Date): boolean {
  *  BUG était que cette fonction s'arrêtait là, ignorant `reminderRecurrence`. Un rappel récurrent
  *  garde la pensée "non terminée" tant qu'il lui reste une occurrence future (voir
  *  `nextPenseeReminderOccurrence`, reminderRecurrence.ts) — même quand l'ancre BRUTE (première
- *  occurrence historique) est déjà révolue. Une pensée SANS récurrence (ou dont la récurrence est
- *  épuisée) garde EXACTEMENT le comportement d'avant (`nextPenseeReminderOccurrence` retourne alors
- *  `null`, donc aucun changement de résultat pour ce cas).
- *  Signature changée de `todayIso: string` à `now: Date` (les deux appelants, homeAttention.ts et
- *  penseesView.ts, avaient déjà un `Date` sous la main — aucun autre appelant dans le code, voir
- *  audit de chantier).
+ *  occurrence historique) est déjà révolue.
+ *
+ *  CHANTIER "Correctif temporalité II — Fin de récurrence le jour même" (2026-09-23) — BUG CORRIGÉ :
+ *  la version précédente commençait par une garde `rawEnded` comparant des JOURS CIVILS
+ *  (`anchor.date < todayIso`), qui court-circuitait `nextPenseeReminderOccurrence` tant que l'ancre
+ *  (jour de la dernière occurrence connue) n'était pas encore un jour révolu — une série épuisée le
+ *  JOUR MÊME de sa dernière occurrence (ex. `occurrenceCount=1`, occurrence consommée à 18h) restait
+ *  donc "non terminée" jusqu'à minuit. Pour un rappel SANS événement séparé (`p.date` absent),
+ *  `nextPenseeReminderOccurrence(p, now) !== null` ⇔ pas terminée — HEURE-aware immédiatement, jamais
+ *  un délai jusqu'au lendemain.
+ *
+ *  CHANTIER "Correctif temporalité III — Event futur protégé d'un rappel épuisé" (2026-09-23) — BUG
+ *  CORRIGÉ : la version précédente testait `p.reminderAt` (champ brut) pour décider de déléguer
+ *  ENTIÈREMENT à `nextPenseeReminderOccurrence`, y compris quand `penseeAnchor` avait choisi `p.date`
+ *  (événement) plutôt que `reminderAt` comme ancre — un événement FUTUR pouvait alors être marqué
+ *  "terminé" dès que son rappel (ponctuel ou récurrent) était épuisé, bien avant la date de
+ *  l'événement lui-même. Distingue désormais explicitement les 2 natures d'ancre :
+ *  - `p.date` présent (événement réel) : la date d'événement (jour civil, `eventTime` volontairement
+ *    IGNORÉ ici — hors périmètre de ce chantier, comportement historique "actif tout le jour, passé
+ *    le lendemain" préservé) reste la référence PRINCIPALE — un rappel épuisé ne peut jamais terminer
+ *    un événement pas encore révolu. Une fois l'événement révolu, un `reminderAt` encore attaché peut
+ *    "sauver" la pensée exactement comme avant (CHANTIER "P0 Récurrence Phase 1", inchangé) — sinon
+ *    elle est terminée.
+ *  - pas de `p.date` (rappel seul) : comportement STRICT de Temporalité II ci-dessus, inchangé.
  */
 export function isPenseeEnded(p: Pensee, now: Date): boolean {
   const anchor = penseeAnchor(p);
   if (!anchor) return false;
   const todayIso = dIso(now);
-  const rawEnded = anchor.endDate ? anchor.endDate < todayIso : anchor.date < todayIso;
-  if (!rawEnded) return false;
-  return nextPenseeReminderOccurrence(p, now) === null;
+
+  if (anchor.endDate) {
+    // Période : jamais un rappel récurrent (voir penseeAnchor) — comparaison civile INCHANGÉE.
+    return anchor.endDate < todayIso;
+  }
+
+  if (p.date) {
+    // Événement réel — sa propre date (jour civil, `eventTime` non consulté) prime : un rappel épuisé
+    // ne termine jamais un événement pas encore révolu (voir consigne §1 point 2).
+    if (p.date >= todayIso) return false;
+    // Événement révolu : un rappel encore attaché peut sauver la pensée, comme avant (P0 Phase 1).
+    if (p.reminderAt) return nextPenseeReminderOccurrence(p, now) === null;
+    return true;
+  }
+
+  // Pas d'événement (`p.date` absent) — ancre = `reminderAt` seul (ou aucune ancre, déjà exclu
+  // ci-dessus via `if (!anchor) return false`). Comportement Temporalité II INCHANGÉ : HEURE-aware.
+  if (p.reminderAt) return nextPenseeReminderOccurrence(p, now) === null;
+  return anchor.date < todayIso;
 }
 
 /**

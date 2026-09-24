@@ -217,5 +217,121 @@ console.log('\n[10] Non-régression — pensée memo pure (aucune ancre) : compo
   check('reminderLabel = null', cards[0].reminderLabel === null);
 }
 
+console.log('\n[11] CHANTIER "Correctif temporalité II — Fin de récurrence le jour même" (2026-09-23) — occurrenceCount=1, weekly mer/ven/sam : ended IMMÉDIATEMENT le jour même, quelques minutes après la dernière occurrence (plus de contournement au lendemain)');
+{
+  const weeklyMerVenSamOnce: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5, 6], occurrenceCount: 1, untilDate: null };
+  const reminderAt = new Date(2026, 8, 23, 18, 0, 0).toISOString(); // mercredi 23/09, 18h — 1ère et SEULE occurrence
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVenSamOnce });
+
+  const beforeNow = new Date(2026, 8, 23, 17, 59, 0); // mercredi, avant 18h
+  check('avant l’heure : nextPenseeReminderOccurrence non null', nextPenseeReminderOccurrence(p, beforeNow) !== null);
+  check('avant l’heure : isPenseeEnded = false', isPenseeEnded(p, beforeNow) === false);
+  const beforeCards = buildPenseeCards([p], [], beforeNow);
+  check('avant l’heure : bucket = today', beforeCards[0].bucket === 'today', beforeCards[0].bucket);
+  const beforeAttentions = buildHomeAttentions([], [p], beforeNow);
+  check('avant l’heure : présente à l’Accueil', beforeAttentions.some((a) => a.type === 'pensee' && a.id === 'pensee-p1'));
+
+  const afterNow = new Date(2026, 8, 23, 18, 1, 0); // mercredi, quelques minutes APRÈS 18h — LE JOUR MÊME
+  check('après l’heure, le JOUR MÊME : nextPenseeReminderOccurrence = null (série épuisée dès mercredi, jamais vendredi)', nextPenseeReminderOccurrence(p, afterNow) === null);
+  check('après l’heure, le JOUR MÊME : isPenseeEnded = true IMMÉDIATEMENT (plus besoin d’attendre le lendemain)', isPenseeEnded(p, afterNow) === true);
+  const afterCards = buildPenseeCards([p], [], afterNow);
+  check('après l’heure, le JOUR MÊME : bucket Pensées = past', afterCards[0].bucket === 'past', afterCards[0].bucket);
+  const afterAttentions = buildHomeAttentions([], [p], afterNow);
+  check('après l’heure, le JOUR MÊME : absente de l’Accueil', !afterAttentions.some((a) => a.type === 'pensee' && a.id === 'pensee-p1'));
+}
+
+console.log('\n[12] occurrenceCount=3, weekly mer/ven/sam : mercredi→vendredi→samedi→ended le jour même du samedi, jamais un délai jusqu’au lendemain');
+{
+  const weeklyMerVenSam3: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5, 6], occurrenceCount: 3, untilDate: null };
+  const reminderAt = new Date(2026, 8, 23, 18, 0, 0).toISOString(); // mercredi 23/09, 18h — 1ère de 3 occurrences
+
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVenSam3 });
+
+  const afterMer = new Date(2026, 8, 23, 18, 30, 0); // mercredi, après 18h — 1re consommée, il en reste 2
+  {
+    const next = nextPenseeReminderOccurrence(p, afterMer);
+    check('après mercredi : prochaine = vendredi 25/09 18h', next?.getTime() === new Date(2026, 8, 25, 18, 0, 0).getTime(), next?.toString());
+    check('après mercredi : isPenseeEnded = false (2 occurrences restantes)', isPenseeEnded(p, afterMer) === false);
+    const cards = buildPenseeCards([p], [], afterMer);
+    check('après mercredi : bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+  }
+
+  const afterVen = new Date(2026, 8, 25, 18, 30, 0); // vendredi, après 18h — 2e consommée, il en reste 1
+  {
+    const next = nextPenseeReminderOccurrence(p, afterVen);
+    check('après vendredi : prochaine = samedi 26/09 18h', next?.getTime() === new Date(2026, 8, 26, 18, 0, 0).getTime(), next?.toString());
+    check('après vendredi : isPenseeEnded = false (1 occurrence restante)', isPenseeEnded(p, afterVen) === false);
+    const cards = buildPenseeCards([p], [], afterVen);
+    check('après vendredi : bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+  }
+
+  const afterSam = new Date(2026, 8, 26, 18, 30, 0); // samedi, après 18h — 3e et dernière consommée
+  {
+    check('après samedi, LE JOUR MÊME : nextPenseeReminderOccurrence = null (série des 3 épuisée)', nextPenseeReminderOccurrence(p, afterSam) === null);
+    check('après samedi, LE JOUR MÊME : isPenseeEnded = true IMMÉDIATEMENT', isPenseeEnded(p, afterSam) === true);
+    const cards = buildPenseeCards([p], [], afterSam);
+    check('après samedi, LE JOUR MÊME : bucket = past', cards[0].bucket === 'past', cards[0].bucket);
+  }
+}
+
+console.log('\n[12bis] Daily fini (occurrenceCount=1) : ended LE JOUR MÊME, juste après l’heure du seul jour de la série');
+{
+  const dailyOnce: ReminderRecurrence = { frequency: 'daily', daysOfWeek: [], occurrenceCount: 1, untilDate: null };
+  const reminderAt = new Date(2026, 8, 23, 18, 0, 0).toISOString(); // mercredi 23/09, 18h — unique occurrence
+  const p = makePensee({ reminderAt, reminderRecurrence: dailyOnce });
+
+  const before = new Date(2026, 8, 23, 17, 59, 0);
+  check('avant l’heure : isPenseeEnded = false', isPenseeEnded(p, before) === false);
+  const cardsBefore = buildPenseeCards([p], [], before);
+  check('avant l’heure : bucket = today', cardsBefore[0].bucket === 'today', cardsBefore[0].bucket);
+
+  const after = new Date(2026, 8, 23, 18, 1, 0);
+  check('après l’heure, LE JOUR MÊME : isPenseeEnded = true (plus de délai jusqu’au lendemain)', isPenseeEnded(p, after) === true);
+  const cardsAfter = buildPenseeCards([p], [], after);
+  check('après l’heure, LE JOUR MÊME : bucket = past', cardsAfter[0].bucket === 'past', cardsAfter[0].bucket);
+}
+
+console.log('\n[12ter] untilDate — sur la DERNIÈRE occurrence autorisée : avant heure = active, après heure = ended immédiatement (pas de délai au lendemain)');
+{
+  const weeklyUntilLastOccurrence: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3], occurrenceCount: null, untilDate: '2026-09-23' }; // mercredi 23/09 = dernière occurrence autorisée
+  const reminderAt = new Date(2026, 8, 16, 18, 0, 0).toISOString(); // ancre historique, mercredi 16/09
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyUntilLastOccurrence });
+
+  const before = new Date(2026, 8, 23, 17, 59, 0); // mercredi 23/09 (= untilDate), avant 18h
+  check('avant l’heure de la dernière occurrence : isPenseeEnded = false', isPenseeEnded(p, before) === false);
+  const cardsBefore = buildPenseeCards([p], [], before);
+  check('avant l’heure de la dernière occurrence : bucket = today', cardsBefore[0].bucket === 'today', cardsBefore[0].bucket);
+
+  const after = new Date(2026, 8, 23, 18, 1, 0); // mercredi 23/09, après 18h — untilDate atteinte ET heure dépassée
+  check('après l’heure de la dernière occurrence, LE JOUR MÊME : isPenseeEnded = true immédiatement', isPenseeEnded(p, after) === true);
+  const cardsAfter = buildPenseeCards([p], [], after);
+  check('après l’heure de la dernière occurrence, LE JOUR MÊME : bucket = past', cardsAfter[0].bucket === 'past', cardsAfter[0].bucket);
+}
+
+console.log('\n[13] weekly infini mer/ven/sam — après vendredi → samedi (pas de saut à mercredi suivant)');
+{
+  const weeklyMerVenSam: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5, 6], occurrenceCount: null, untilDate: null };
+  const reminderAt = new Date(2026, 8, 16, 18, 0, 0).toISOString(); // ancre historique, mercredi 16/09
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVenSam });
+  const now = new Date(2026, 8, 25, 19, 0, 0); // vendredi 25/09, après 18h
+  const next = nextPenseeReminderOccurrence(p, now);
+  check('prochaine occurrence = samedi 26/09 18h', next?.getTime() === new Date(2026, 8, 26, 18, 0, 0).getTime(), next?.toString());
+  check('infini : jamais ended (§3 consigne — une prochaine occurrence existe toujours)', isPenseeEnded(p, now) === false);
+  const cards = buildPenseeCards([p], [], now);
+  check('bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+}
+
+console.log('\n[14] weekly infini mer/ven/sam — après samedi → mercredi suivant (nouveau cycle)');
+{
+  const weeklyMerVenSam: ReminderRecurrence = { frequency: 'weekly', daysOfWeek: [3, 5, 6], occurrenceCount: null, untilDate: null };
+  const reminderAt = new Date(2026, 8, 16, 18, 0, 0).toISOString();
+  const p = makePensee({ reminderAt, reminderRecurrence: weeklyMerVenSam });
+  const now = new Date(2026, 8, 26, 19, 0, 0); // samedi 26/09, après 18h
+  const next = nextPenseeReminderOccurrence(p, now);
+  check('prochaine occurrence = mercredi 30/09 18h (semaine suivante)', next?.getTime() === new Date(2026, 8, 30, 18, 0, 0).getTime(), next?.toString());
+  const cards = buildPenseeCards([p], [], now);
+  check('bucket = upcoming', cards[0].bucket === 'upcoming', cards[0].bucket);
+}
+
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
 if (failures > 0) throw new Error(`${failures} test(s) de non-régression ont échoué`);

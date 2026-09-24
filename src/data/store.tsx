@@ -109,6 +109,14 @@ const StoreContext = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  // CHANTIER "Horloge UI fraîche" (2026-09-23) — `today` était auparavant recréé à l'intérieur du
+  // `useMemo<Store>` ci-dessous (`new Date()` à chaque recalcul de ce memo), donc figé tant qu'aucune
+  // dépendance MÉTIER (contacts/pensees/session/...) ne changeait — une occurrence de rappel pouvait
+  // sonner et passer sans que Home/Pensées ne changent jamais de bucket. `today` est désormais un
+  // state React explicite, rafraîchi par 2 mécanismes SEULS (voir plus bas) : retour AppState→active,
+  // et un ticker centralisé aligné sur la frontière de minute — AUCUNE logique de récurrence/bucket
+  // touchée ici (reminderRecurrence.ts/calendar.ts/homeAttention.ts/penseesView.ts inchangés).
+  const [today, setToday] = useState<Date>(() => new Date());
   // Un véritable nouvel utilisateur commence à zéro — les seeds ne servent plus que de données de
   // démo explicites (bouton Réglages en mode local) ou de fixtures pour les scripts de test, jamais
   // d'état initial implicite (voir CHANTIER PRÉ-BÊTA 1 §2).
@@ -556,7 +564,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!ready) return;
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void restoreSessionThenDrain();
+      if (state === 'active') {
+        // CHANTIER "Horloge UI fraîche" (2026-09-23) — même listener que le drain outbox ci-dessous
+        // (consigne explicite : ne pas créer un 2e listener AppState) : `today` doit être à jour
+        // IMMÉDIATEMENT au retour au premier plan, avant même que restoreSessionThenDrain() ne
+        // termine (celui-ci reste réseau/best-effort, jamais un prérequis à l'affichage temporel).
+        setToday(new Date());
+        void restoreSessionThenDrain();
+      }
     });
     const unsubscribeNetInfo = subscribeToConnectivityRestored(() => void restoreSessionThenDrain());
     return () => {
@@ -565,9 +580,62 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [ready]);
 
+  // CHANTIER "Horloge UI fraîche" (2026-09-23) — ticker CENTRAL unique (jamais un timer par écran,
+  // voir consigne §3/§4 : Home/Pensées consomment déjà la même source `today` via useStore(), aucun
+  // useFocusEffect ajouté). Les rappels Pensif étant à la minute (HH:mm, voir reminderAt), se réveiller
+  // à CHAQUE frontière de minute suffit — jamais un polling à la seconde. `setTimeout` aligné sur la
+  // prochaine frontière (+ petite marge, voir ci-dessous) plutôt qu'un `setInterval` démarré à un
+  // instant arbitraire, qui dériverait au fil des réveils (setInterval n'est pas garanti précis à la
+  // milliseconde en JS/RN). Actif UNIQUEMENT quand l'app est au premier plan — arrêté en
+  // background/inactive (aucun réveil timer inutile hors foreground), redémarre au retour actif via
+  // le même effet (dépendance `ready` + état AppState interne), et nettoyé au unmount.
+  useEffect(() => {
+    if (!ready) return;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let appActive = AppState.currentState === 'active';
+
+    function clearTick() {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    }
+
+    function scheduleNextMinuteTick() {
+      clearTick();
+      if (!appActive) return;
+      const now = new Date();
+      // +50ms de marge après la frontière de minute — évite de se réveiller une milliseconde AVANT
+      // 18:00:00.000 à cause de l'imprécision de setTimeout, ce qui redonnerait l'ancienne minute.
+      const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50;
+      timeoutId = setTimeout(() => {
+        setToday(new Date());
+        scheduleNextMinuteTick();
+      }, msUntilNextMinute);
+    }
+
+    scheduleNextMinuteTick();
+
+    const sub = AppState.addEventListener('change', (state) => {
+      const nowActive = state === 'active';
+      if (nowActive === appActive) return;
+      appActive = nowActive;
+      if (appActive) {
+        setToday(new Date());
+        scheduleNextMinuteTick();
+      } else {
+        clearTick();
+      }
+    });
+
+    return () => {
+      clearTick();
+      sub.remove();
+    };
+  }, [ready]);
+
   const value = useMemo<Store>(
     () => {
-      const today = new Date();
       return {
       ready,
       today,
@@ -689,7 +757,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       devSimulateReinstall,
       };
     },
-    [ready, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
+    [ready, today, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
