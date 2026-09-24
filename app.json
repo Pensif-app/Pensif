@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "icon": "./assets/icon-ios.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.yomic.pensif",
       "buildNumber": "3",
