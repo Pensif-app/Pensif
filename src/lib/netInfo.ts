@@ -27,3 +27,11 @@ export function subscribeToConnectivityRestored(onRestored: () => void): () => v
   });
   return unsubscribe;
 }
+
+/** `true` si Internet est joignable MAINTENANT (même critère que Capture : connecté ET pas explicitement
+ *  injoignable). Utilisé avant toute opération qui ne doit jamais faire croire qu'elle a réussi hors ligne
+ *  (ex. suppression définitive du compte). */
+export async function isOnlineNow(): Promise<boolean> {
+  const net = await NetInfo.fetch();
+  return net.isConnected === true && net.isInternetReachable !== false;
+}

@@ -8,6 +8,7 @@ import { useTheme } from '../theme';
 import { navigationRef } from '../navigation/navigationRef';
 import { countScheduledReminders } from '../data/penseeReminderRecurrence';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { describeDeletionFailure, getAccountDeletionCopy, getBackupSectionCopy } from '../data/accountDeletion';
 import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
 import {
   OTP_MAX_LENGTH,
@@ -50,7 +51,40 @@ export function SettingsScreen() {
     isAnonymous,
     markAccountSecured,
     devSimulateReinstall,
+    deleteAllUserData,
   } = useStore();
+
+  // CHANTIER "Suppression des données / du compte" (2026-09-26) — `deleting` désactive la ligne et affiche un
+  // loader (double tap impossible ; le store est en plus single-flight). Le libellé dépend de l'état du compte :
+  // anonyme → "Supprimer mes données", sécurisé par e-mail → "Supprimer mon compte".
+  const [deleting, setDeleting] = useState(false);
+  const deletionCopy = getAccountDeletionCopy(isAnonymous);
+  const backupCopy = getBackupSectionCopy(isAnonymous);
+
+  function confirmDeleteAllData() {
+    if (deleting) return;
+    Alert.alert(deletionCopy.alertTitle, deletionCopy.alertBody, [
+      { text: deletionCopy.cancelLabel, style: 'cancel' },
+      {
+        text: deletionCopy.confirmLabel,
+        style: 'destructive',
+        onPress: () => {
+          setDeleting(true);
+          void deleteAllUserData()
+            .then((result) => {
+              if (result.ok) {
+                // Retour à l'écran initial : la pile est reconstruite (sinon Réglages resterait empilé sous l'auth gate).
+                if (navigationRef.isReady()) navigationRef.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+                return;
+              }
+              if (result.reason === 'busy') return;
+              Alert.alert(result.reason === 'NETWORK_UNCERTAIN' ? 'Suppression non confirmée' : 'Suppression impossible', describeDeletionFailure(result.reason));
+            })
+            .finally(() => setDeleting(false));
+        },
+      },
+    ]);
+  }
 
   const [permStatus, setPermStatus] = useState<'granted' | 'denied' | 'undetermined' | 'unsupported'>('undetermined');
 
@@ -308,7 +342,15 @@ export function SettingsScreen() {
         <>
           <SectionLabel theme={theme}>DONNÉES ET CONFIDENTIALITÉ</SectionLabel>
           <Card theme={theme}>
-            <Row theme={theme} icon="cloud-done-outline" label="Sauvegarde et synchronisation" value="Active" />
+            {/* Statut positif : coche + "Active" en vert doux (`theme.sage`, couleur d'ÉTAT uniquement). Titre et sous-texte
+                forment un seul bloc (espace vertical réduit entre les deux). */}
+            <View style={[styles.row, { paddingBottom: 4 }]}>
+              <Ionicons name="cloud-done-outline" size={18} color={theme.inkSoft} style={{ marginRight: 10 }} />
+              <Text style={[styles.rowLabel, { color: theme.ink, flex: 1 }]}>{backupCopy.rowLabel}</Text>
+              <Ionicons name="checkmark-circle" size={16} color={theme.sage} style={{ marginRight: 5 }} />
+              <Text style={[styles.rowValue, { color: theme.sage, fontWeight: '600' }]}>{backupCopy.rowValue}</Text>
+            </View>
+            <Text style={[styles.privacyText, { color: theme.inkSoft, paddingBottom: 10 }]}>{backupCopy.explanation}</Text>
             {__DEV__ && (
               <>
                 <View style={[styles.divider, { backgroundColor: theme.line }]} />
@@ -331,7 +373,7 @@ export function SettingsScreen() {
             {securityStep === 'idle' && (
               <>
                 <Text style={[styles.privacyText, { color: theme.inkSoft, marginBottom: 12 }]}>
-                  Sécurise ton compte pour pouvoir récupérer tes données sur un nouvel appareil.
+                  {backupCopy.securitySubtitle}
                 </Text>
                 <Pressable onPress={startSecurityFlow} style={styles.securityBtn}>
                   <Ionicons name="shield-checkmark-outline" size={16} color={theme.accent} />
@@ -410,6 +452,16 @@ export function SettingsScreen() {
                 </View>
               </>
             )}
+            {/* Action destructive légèrement détachée du bloc de sauvegarde (marge avant le séparateur). */}
+            <View style={[styles.divider, { backgroundColor: theme.line, marginTop: 8 }]} />
+            <Pressable onPress={confirmDeleteAllData} disabled={deleting} style={[styles.row, { opacity: deleting ? 0.6 : 1 }]} accessibilityRole="button" accessibilityState={{ disabled: deleting }}>
+              <Ionicons name="trash-outline" size={18} color={theme.danger} style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 14 }}>{deletionCopy.rowTitle}</Text>
+                <Text style={[styles.privacyText, { color: theme.inkSoft, marginTop: 2 }]}>{deletionCopy.rowSubtitle}</Text>
+              </View>
+              {deleting && <ActivityIndicator color={theme.danger} />}
+            </Pressable>
           </Card>
         </>
       )}

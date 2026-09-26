@@ -59,12 +59,13 @@ check('Proches suivis = contacts.length', /label="Proches suivis" value=\{String
 check('Pensées enregistrées = pensees.length', /label="Pensées enregistrées" value=\{String\(pensees\.length\)\}/.test(code));
 check('Rappels programmés = countScheduledReminders(pensees, today) avec today du Store', /label="Rappels programmés" value=\{String\(countScheduledReminders\(pensees, today\)\)\}/.test(code) && /\n\s+today,\n/.test(src));
 check('Rappels programmés indépendant du switch global (notificationsEnabled absent du calcul)', !/countScheduledReminders\([^)]*notificationsEnabled/.test(code));
-check('Sauvegarde et synchronisation = "Active"', /label="Sauvegarde et synchronisation" value="Active"/.test(code));
+check('ligne sauvegarde = backupCopy.rowLabel / rowValue (voir data/accountDeletion.ts, getBackupSectionCopy)', code.includes('{backupCopy.rowLabel}') && code.includes('{backupCopy.rowValue}') && code.includes('getBackupSectionCopy(isAnonymous)'));
+check('statut "Active" : coche checkmark-circle + texte en vert doux theme.sage', code.includes('<Ionicons name="checkmark-circle" size={16} color={theme.sage}') && code.includes("{ color: theme.sage, fontWeight: '600' }]}>{backupCopy.rowValue}"));
 check('aucun lien Confidentialité/Conditions/Contact inventé', !/Conditions d.utilisation|Nous contacter|Confidentialité >/.test(code));
 
 console.log('\n[Compte anonyme / sécurisé] flux OTP inchangé, CTA seulement si anonyme');
 check('CTA "Sécuriser mes données" câblé sur startSecurityFlow', /onPress=\{startSecurityFlow\}[\s\S]{0,300}Sécuriser mes données/.test(code));
-check('texte explicatif "Sécurise ton compte pour pouvoir récupérer tes données sur un nouvel appareil."', code.includes('Sécurise ton compte pour pouvoir récupérer tes données sur un nouvel appareil.'));
+check('sous-texte de "Sécuriser mes données" = backupCopy.securitySubtitle', code.includes('{backupCopy.securitySubtitle}'));
 check('bloc de sécurisation gardé par isAnonymous (compte sécurisé → aucun CTA)', /\{isAnonymous && \(\s*<>\s*<View style=\{\[styles\.divider[\s\S]{0,200}securityStep === 'idle'/.test(code));
 check('flux OTP conservé : requestAccountSecurityEmail / verifyAccountSecurityOtp / markAccountSecured', /requestAccountSecurityEmail\(trimmed\)/.test(code) && /verifyAccountSecurityOtp\(securityEmail\.trim\(\), trimmed\)/.test(code) && /markAccountSecured\(\)/.test(code));
 check('vérification user.id avant/après conservée', /securityIdBefore && result\.userId !== securityIdBefore/.test(code));

@@ -12,6 +12,7 @@
 // arrière-plan. Le chemin "J'ai déjà un compte" (requestExistingAccountOtp/verifyExistingAccountOtp)
 // ne crée JAMAIS de compte (`shouldCreateUser:false` explicite).
 import { supabase } from './supabase';
+import { AccountProbe, classifyProbeResult } from '../data/accountDeletion';
 
 export type ExistingSession = { userId: string; isAnonymous: boolean };
 
@@ -169,5 +170,36 @@ export function describeAuthErrorCode(code: string | undefined, fallbackMessage:
       return 'Cette fonctionnalité est momentanément indisponible.';
     default:
       return fallbackMessage || 'Une erreur est survenue. Réessaie.';
+  }
+}
+
+/**
+ * Déconnexion LOCALE (production) — CHANTIER "Suppression des données / du compte" (2026-09-26).
+ * `scope:'local'` ne révoque que la session de CET appareil et efface le jeton persisté, sans appel serveur
+ * bloquant : à utiliser APRÈS la suppression serveur du compte (un signOut global échouerait, l'utilisateur
+ * n'existant plus). Jamais appelée avant que le serveur ait confirmé la suppression.
+ */
+export async function signOutLocalSession(): Promise<void> {
+  if (!supabase) return;
+  await supabase.auth.signOut({ scope: 'local' });
+}
+
+/**
+ * Sondage de l'existence du compte courant (réconciliation d'une suppression au résultat ambigu) — CHANTIER
+ * "Suppression durcie" (2026-09-26). `auth.getUser()` SANS argument : le SDK lit la session locale, rafraîchit
+ * d'abord un jeton expiré mais rafraîchissable (un simple jeton expiré n'est donc jamais confondu avec un compte
+ * supprimé), puis interroge GoTrue (`GET /user`). Le classement du résultat vit dans `classifyProbeResult`
+ * (data/accountDeletion.ts, pur et testé) : seul le code `user_not_found` prouve l'absence du compte.
+ */
+export async function probeAccountExistence(): Promise<AccountProbe> {
+  if (!supabase) return 'indeterminate';
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    return classifyProbeResult({
+      hasUser: Boolean(data?.user),
+      error: error ? { code: (error as { code?: string }).code, status: (error as { status?: number }).status, name: error.name } : null,
+    });
+  } catch {
+    return 'indeterminate';
   }
 }

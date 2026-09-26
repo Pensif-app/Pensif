@@ -19,7 +19,16 @@ import { generateId } from '../lib/id';
 import { TUTORIAL_SEEN_KEY } from './tutorial';
 import { rescheduleAllReminders, cancelAllReminders, clearAppBadge, getNotificationPermissionStatus } from '../lib/notifications';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { subscribeToConnectivityRestored } from '../lib/netInfo';
+import { isOnlineNow, subscribeToConnectivityRestored } from '../lib/netInfo';
+import {
+  AccountDeletionResult,
+  LocalCleanupDeps,
+  PendingMarker,
+  createAccountDeletionRunner,
+  reconcilePendingDeletion,
+  selectKeysToPurge,
+} from './accountDeletion';
+import { deleteAccountRemote } from '../lib/accountDeletionApi';
 import { clearAllLocalDrafts, clearMessageDraftForEvent, clearMessageDraftsForContact } from './messageDraftStorage';
 import {
   deleteContactRemote,
@@ -30,7 +39,7 @@ import {
   updateContactRemote,
   updatePenseeRemote,
 } from '../lib/supabaseRepo';
-import { ExistingSession, devSignOutForReinstallSimulation, getExistingSession, startAnonymousSession } from '../lib/authRepo';
+import { ExistingSession, devSignOutForReinstallSimulation, getExistingSession, probeAccountExistence, signOutLocalSession, startAnonymousSession } from '../lib/authRepo';
 
 const KEYS = {
   contacts: 'pensif.contacts',
@@ -48,6 +57,9 @@ const KEYS = {
   // chantier) OU jamais aucune session — jamais interprété comme "aucun propriétaire" au sens d'un
   // effacement, voir la logique dédiée.
   cacheOwnerUserId: 'pensif.cacheOwnerUserId',
+  // CHANTIER "Suppression durcie" (2026-09-26) — suppression de compte demandée mais dont le résultat n'a jamais
+  // été confirmé ('in_flight' | 'uncertain'). Préfixe `pensif.` : purgé avec tout le reste au nettoyage final.
+  accountDeletionPending: 'pensif.accountDeletionPending',
 };
 
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -104,6 +116,13 @@ type Store = {
    * bouton dans SettingsScreen, `{__DEV__ && ...}`).
    */
   devSimulateReinstall: () => Promise<void>;
+  /**
+   * CHANTIER "Suppression des données / du compte" (2026-09-26) — suppression DÉFINITIVE (production) : serveur
+   * d'abord (Edge Function `delete-account`), puis, SEULEMENT après confirmation serveur, notifications
+   * annulées, session locale supprimée, état + AsyncStorage remis à neuf et retour à l'écran initial.
+   * Single-flight (double tap). Voir data/accountDeletion.ts pour l'ordre exact et les échecs.
+   */
+  deleteAllUserData: () => Promise<AccountDeletionResult>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -404,6 +423,62 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAuthGate('choice');
   }
 
+  // Nettoyage local partagé entre la suppression réussie et la réconciliation au lancement (voir
+  // data/accountDeletion.ts : runLocalCleanup). N'est appelé QU'APRÈS confirmation (directe ou indirecte
+  // fiable) que le compte n'existe plus côté serveur.
+  const localCleanupDeps: LocalCleanupDeps = {
+    // outboxRef AVANT tout (voir commentaire de `outboxRef`) : plus aucun drain ne peut partir avec l'ancien user.
+    detachSession: () => {
+      outboxRef.current = [];
+      userIdRef.current = null;
+    },
+    cancelNotifications: async () => {
+      await cancelAllReminders();
+      await clearAppBadge();
+    },
+    signOutLocal: signOutLocalSession,
+    resetToOnboarding: () => {
+      setOutbox([]);
+      setContacts([]);
+      setPensees([]);
+      setUserNameState(null);
+      setNamePromptOpen(false);
+      setThemePrefState('system');
+      setNotificationsEnabledState(true);
+      setUserId(null);
+      setIsAnonymousState(false);
+      setAuthGate('choice');
+    },
+    purgeLocalStorage: async () => {
+      const keys = await AsyncStorage.getAllKeys();
+      const toRemove = selectKeysToPurge(keys);
+      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+      await clearAllLocalDrafts();
+    },
+  };
+  const pendingDeletionDeps = {
+    isOnline: isOnlineNow,
+    readPending: async (): Promise<PendingMarker | null> => {
+      const raw = await AsyncStorage.getItem(KEYS.accountDeletionPending);
+      return raw === 'in_flight' || raw === 'uncertain' ? raw : null;
+    },
+    writePending: (marker: PendingMarker) => AsyncStorage.setItem(KEYS.accountDeletionPending, marker),
+    clearPending: () => AsyncStorage.removeItem(KEYS.accountDeletionPending),
+    probeAccount: probeAccountExistence,
+  };
+
+  const deletionRunnerRef = useRef<(() => Promise<AccountDeletionResult>) | null>(null);
+  function deleteAllUserData(): Promise<AccountDeletionResult> {
+    if (!deletionRunnerRef.current) {
+      deletionRunnerRef.current = createAccountDeletionRunner({
+        ...localCleanupDeps,
+        ...pendingDeletionDeps,
+        deleteRemote: deleteAccountRemote,
+      });
+    }
+    return deletionRunnerRef.current();
+  }
+
   /**
    * BUG SYNC OFFLINE — COLD START : un cold start hors ligne peut échouer à charger `loadRemoteData`
    * (réseau requis) alors qu'une session PERSISTÉE LOCALEMENT existe déjà (voir supabase.ts
@@ -507,6 +582,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // résout `null`, c'est qu'AUCUNE session n'existe sur cet appareil — l'auth gate doit être
           // affiché, jamais un compte anonyme créé à sa place.
           try {
+            // CHANTIER "Suppression durcie" (2026-09-26) — une suppression de compte dont le résultat n'a jamais été
+            // confirmé (réponse perdue, app tuée pendant l'appel) est réconciliée AVANT tout boot normal : compte
+            // existant → marqueur retiré ; compte absent (confirmé, ou session disparue avec suppression demandée)
+            // → nettoyage local complet et retour à l'écran de choix ; hors ligne/indéterminé → RIEN n'est supprimé.
+            const reconciled = await reconcilePendingDeletion({ ...localCleanupDeps, ...pendingDeletionDeps });
+            if (reconciled === 'finalized') return;
             const session = await getExistingSession();
             if (session) {
               await initializeForSession(session);
@@ -776,6 +857,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setIsAnonymousState(false);
       },
       devSimulateReinstall,
+      deleteAllUserData,
       };
     },
     [ready, today, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
