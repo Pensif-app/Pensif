@@ -71,6 +71,28 @@ check('IMPORTANT : suppression utilise deleteContact existant, UN appel par proc
 check('linkedCount calculé sur les pensées des proches sélectionnés (pour le texte de confirmation)', contactsSrc.includes('pensees.filter((p) => p.contactId && selectedIds.has(p.contactId))'));
 check('coche de sélection visible uniquement en mode sélection (même langage visuel que PenseeRow)', contactsSrc.includes("selectionMode && (") && contactsSrc.includes('checkmark-circle'));
 
+console.log('\n[§9 — ContactRow (2026-09-28) — tap/scroll/swipe distingués par une vraie reconnaissance de geste]');
+check(
+  'la carte Proche n’utilise plus un simple Pressable.onPress (bug device : swipe/scroll ouvrait la fiche) — un vrai Gesture.Tap()/LongPress() les distingue désormais',
+  !/<Pressable\s*\n\s*onPress=\{\(\) => handleRowPress/.test(contactsSrc),
+);
+check(
+  'tolérance de déplacement limitée (maxDistance) sur le tap ET le longPress de la carte — un vrai scroll/swipe le fait échouer rapidement',
+  (contactsSrc.match(/\.maxDistance\(10\)/g) ?? []).length >= 2,
+);
+check(
+  'la fiche ne s’ouvre que sur un tap RÉUSSI (onEnd success), jamais un simple relâchement quel que soit le mouvement précédent',
+  /\.onEnd\(\(_e, success\) => \{\s*'worklet';\s*if \(success\) runOnJS\(onPress\)\(\);/.test(contactsSrc),
+);
+check(
+  'tap et longPress de la carte sont en course (Gesture.Race), pas deux gestes indépendants qui pourraient se déclencher tous les deux',
+  contactsSrc.includes('return Gesture.Race(longPress, tap);'),
+);
+check(
+  'aucune modification des seuils du swipe global de changement d’onglet (activeOffsetX/failOffsetY inchangés)',
+  contactsSrc.includes('.activeOffsetX([-16, 16])') && contactsSrc.includes('.failOffsetY([-12, 12])'),
+);
+
 console.log('\n[§7 — MemorizedPenseesScreen.tsx — sélection multiple mutualisée]');
 const memoSrc = readSrc('screens', 'MemorizedPenseesScreen.tsx');
 check('état selectionMode/selectedIds ajouté', memoSrc.includes('selectionMode') && memoSrc.includes('selectedIds'));

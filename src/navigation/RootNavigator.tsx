@@ -39,7 +39,15 @@ function Tabs() {
       screenOptions={{ swipeEnabled: true, animationEnabled: true }}
     >
       <Tab.Screen name="Accueil" component={HomeScreen} />
-      <Tab.Screen name="Contacts" component={ContactsScreen} />
+      {/* Swipe latéral natif désactivé, comme Calendrier plus bas : ContactsScreen réimplémente
+          lui-même le changement d'onglet (voir pageSwipeGesture dans ce fichier), pour que la barre
+          de raccourcis alphabétique A-Z reste un simple SIBLING hors de la vue englobée par ce
+          geste — aucun toucher sur la barre ne l'atteint donc jamais, sans dépendre d'une relation
+          de gestes imbriqués (voir CHANTIER "Index alphabétique Proches" §2-3, 2026-09-27 : la
+          tentative avec `navigation.setOptions({ swipeEnabled })` dynamique laissait le swipe bloqué
+          en permanence — retour à la désactivation statique + réimplémentation, seule approche
+          fiabilisée dans ce projet, déjà utilisée par Calendrier). */}
+      <Tab.Screen name="Contacts" component={ContactsScreen} options={{ swipeEnabled: false }} />
       {/* Ce que l'utilisateur a confié à Pensif — remplace l'ancien onglet Cadeaux/"Pensée" à la
           même position (voir CHANTIER ONGLET PENSÉES V1). Les cadeaux sont désormais une
           destination contextuelle du Stack (voir Stack.Screen "Cadeaux" plus bas). */}

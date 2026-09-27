@@ -5,10 +5,14 @@
 // précédents) ; le comparateur de tri et le résumé de pensées sont donc extraits ici à l'identique
 // de leur implémentation réelle pour rester vérifiables. Lecture seule.
 //
+// §1-5 mis à jour pour CHANTIER "Index alphabétique Proches" (2026-09-27) : le tri par prochain
+// anniversaire a été retiré (déjà couvert par l'Accueil Aujourd'hui/Cette semaine/À anticiper) —
+// seul reste favoris d'abord (triés entre eux alphabétiquement), puis alphabétique pur.
+//
 // Usage : npx ts-node --compiler-options '{"module":"commonjs"}' scripts/test-regression-contacts-fiche.ts
 
 import { Contact, Pensee } from '../src/data/types';
-import { birthdayCountdownLabel, daysUntilNext } from '../src/data/calendar';
+import { birthdayCountdownLabel } from '../src/data/calendar';
 import { buildPenseeCards, groupPenseeCards } from '../src/data/penseesView';
 import { paramsForTabPress } from '../src/navigation/tabNavigationHelpers';
 
@@ -56,16 +60,9 @@ function makePensee(overrides: Partial<Pensee>): Pensee {
 
 // Reproduit EXACTEMENT le comparateur de src/screens/ContactsScreen.tsx (non exporté, composant
 // react-native non chargeable ici) — voir ce fichier pour l'original.
-function compareContacts(a: Contact, b: Contact, today: Date): number {
+function compareContacts(a: Contact, b: Contact): number {
   if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
-  const aHasDate = Boolean(a.date);
-  const bHasDate = Boolean(b.date);
-  if (aHasDate !== bHasDate) return aHasDate ? -1 : 1;
-  if (aHasDate && bHasDate) {
-    const diff = daysUntilNext(a.date, today) - daysUntilNext(b.date, today);
-    if (diff !== 0) return diff;
-  }
-  return `${a.prenom} ${a.nom}`.trim().localeCompare(`${b.prenom} ${b.nom}`.trim());
+  return `${a.prenom} ${a.nom}`.trim().localeCompare(`${b.prenom} ${b.nom}`.trim(), 'fr', { sensitivity: 'base' });
 }
 
 // Reproduit EXACTEMENT src/screens/FicheScreen.tsx::penseeSummaryLabel.
@@ -82,52 +79,52 @@ const TODAY = new Date(2026, 0, 15); // 15 janvier 2026, référence fixe
 // --- Tri : favori avant non-favori ------------------------------------------------------------
 {
   console.log('\n[1] Favori avant non-favori');
-  const fav = makeContact({ id: 'fav', prenom: 'Zoe', favorite: true, date: '1990-06-01' });
-  const nonFav = makeContact({ id: 'nonfav', prenom: 'Aaron', favorite: false, date: '1990-01-16' });
-  const sorted = [nonFav, fav].sort((a, b) => compareContacts(a, b, TODAY));
-  check('favori en premier malgré anniversaire plus lointain et nom postérieur', sorted[0].id === 'fav', sorted.map((c) => c.id).join(','));
+  const fav = makeContact({ id: 'fav', prenom: 'Zoe', favorite: true });
+  const nonFav = makeContact({ id: 'nonfav', prenom: 'Aaron', favorite: false });
+  const sorted = [nonFav, fav].sort((a, b) => compareContacts(a, b));
+  check('favori en premier malgré un nom alphabétiquement postérieur', sorted[0].id === 'fav', sorted.map((c) => c.id).join(','));
 }
 
-// --- Favoris triés ensuite par anniversaire -------------------------------------------------------
+// --- Favoris triés entre eux alphabétiquement ----------------------------------------------------
 {
-  console.log('\n[2] Favoris triés entre eux par prochain anniversaire');
-  const favFar = makeContact({ id: 'fav-far', prenom: 'A', favorite: true, date: '1990-06-01' });
-  const favNear = makeContact({ id: 'fav-near', prenom: 'Z', favorite: true, date: '1990-01-17' });
-  const sorted = [favFar, favNear].sort((a, b) => compareContacts(a, b, TODAY));
-  check('le favori dont l’anniversaire est le plus proche passe en premier', sorted[0].id === 'fav-near', sorted.map((c) => c.id).join(','));
+  console.log('\n[2] Favoris triés entre eux par ordre alphabétique (plus d’anniversaire)');
+  const favB = makeContact({ id: 'fav-b', prenom: 'Bernard', favorite: true });
+  const favA = makeContact({ id: 'fav-a', prenom: 'Alice', favorite: true });
+  const sorted = [favB, favA].sort((a, b) => compareContacts(a, b));
+  check('Alice avant Bernard', sorted[0].id === 'fav-a', sorted.map((c) => c.id).join(','));
 }
 
-// --- Non-favoris triés par anniversaire -------------------------------------------------------------
+// --- Non-favoris triés alphabétiquement (plus d'anniversaire) --------------------------------------
 {
-  console.log('\n[3] Non-favoris triés par prochain anniversaire');
-  const far = makeContact({ id: 'far', prenom: 'A', favorite: false, date: '1990-08-01' });
-  const near = makeContact({ id: 'near', prenom: 'Z', favorite: false, date: '1990-01-20' });
-  const sorted = [far, near].sort((a, b) => compareContacts(a, b, TODAY));
-  check('le plus proche passe en premier malgré l’ordre alphabétique inverse', sorted[0].id === 'near', sorted.map((c) => c.id).join(','));
+  console.log('\n[3] Non-favoris triés par ordre alphabétique (plus d’anniversaire)');
+  const z = makeContact({ id: 'z', prenom: 'Zoe', favorite: false });
+  const a = makeContact({ id: 'a', prenom: 'Aaron', favorite: false });
+  const sorted = [z, a].sort((x, y) => compareContacts(x, y));
+  check('Aaron avant Zoe', sorted[0].id === 'a', sorted.map((c) => c.id).join(','));
 }
 
-// --- Égalité → alphabétique --------------------------------------------------------------------------
+// --- Égalité de prénom → nom de famille départage -----------------------------------------------------
 {
-  console.log('\n[4] Égalité de favori et de date d’anniversaire → tri alphabétique');
-  const zoe = makeContact({ id: 'zoe', prenom: 'Zoe', nom: '', favorite: false, date: '1990-03-10' });
-  const aaron = makeContact({ id: 'aaron', prenom: 'Aaron', nom: '', favorite: false, date: '1985-03-10' });
-  const sorted = [zoe, aaron].sort((a, b) => compareContacts(a, b, TODAY));
-  check('Aaron avant Zoe (même occurrence annuelle, années de naissance différentes)', sorted[0].id === 'aaron', sorted.map((c) => c.id).join(','));
+  console.log('\n[4] Prénoms identiques → le nom de famille départage');
+  const zoe = makeContact({ id: 'zoe', prenom: 'Sam', nom: 'Zoe', favorite: false });
+  const aaron = makeContact({ id: 'aaron', prenom: 'Sam', nom: 'Aaron', favorite: false });
+  const sorted = [zoe, aaron].sort((a, b) => compareContacts(a, b));
+  check('Sam Aaron avant Sam Zoe', sorted[0].id === 'aaron', sorted.map((c) => c.id).join(','));
 }
 
-// --- Sans anniversaire après ceux avec anniversaire -------------------------------------------------
+// --- Absence de date d'anniversaire sans effet sur le tri (retiré du critère) --------------------
 {
-  console.log('\n[5] Contact sans date d’anniversaire relégué après ceux qui en ont une');
-  const withDate = makeContact({ id: 'with-date', prenom: 'Z', favorite: false, date: '1990-12-01' });
-  const noDate = makeContact({ id: 'no-date', prenom: 'A', favorite: false, date: '' });
-  const sorted = [noDate, withDate].sort((a, b) => compareContacts(a, b, TODAY));
-  check('celui avec une date passe en premier malgré l’ordre alphabétique inverse', sorted[0].id === 'with-date', sorted.map((c) => c.id).join(','));
+  console.log('\n[5] Contact sans date d’anniversaire : aucun effet sur le tri (retiré du critère)');
+  const withDate = makeContact({ id: 'with-date', prenom: 'A', favorite: false, date: '1990-12-01' });
+  const noDate = makeContact({ id: 'no-date', prenom: 'Z', favorite: false, date: '' });
+  const sorted = [noDate, withDate].sort((a, b) => compareContacts(a, b));
+  check('ordre purement alphabétique, la présence d’une date n’intervient plus', sorted[0].id === 'with-date', sorted.map((c) => c.id).join(','));
 
   // Reste vrai côté favoris aussi (même groupe, comparaison indépendante du statut favori).
   const favNoDate = makeContact({ id: 'fav-no-date', prenom: 'A', favorite: true, date: '' });
   const favWithDate = makeContact({ id: 'fav-with-date', prenom: 'Z', favorite: true, date: '1990-12-01' });
-  const sortedFav = [favNoDate, favWithDate].sort((a, b) => compareContacts(a, b, TODAY));
-  check('même règle à l’intérieur du groupe des favoris', sortedFav[0].id === 'fav-with-date', sortedFav.map((c) => c.id).join(','));
+  const sortedFav = [favWithDate, favNoDate].sort((a, b) => compareContacts(a, b));
+  check('même règle à l’intérieur du groupe des favoris', sortedFav[0].id === 'fav-no-date', sortedFav.map((c) => c.id).join(','));
 }
 
 // --- Libellé anniversaire : aujourd'hui / demain / futur --------------------------------------------
