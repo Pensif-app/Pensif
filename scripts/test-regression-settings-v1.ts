@@ -53,8 +53,8 @@ check('"uniquement depuis cet appareil" absent', !src.includes('uniquement depui
 check('ancien paragraphe "rien n’envoyé à un serveur" absent', !code.includes("rien n'est envoyé à un serveur"));
 
 console.log('\n[Structure] sections et compteurs');
-const order = ['>PROFIL<', '>NOTIFICATIONS<', '>APPARENCE<', '>TON PENSIF<', '>DONNÉES ET CONFIDENTIALITÉ<', '>À PROPOS<'].map((s) => code.indexOf(s));
-check('sections présentes dans l’ordre PROFIL → NOTIFICATIONS → APPARENCE → TON PENSIF → DONNÉES ET CONFIDENTIALITÉ → À PROPOS', order.every((i) => i !== -1) && order.every((v, i) => i === 0 || v > order[i - 1]), order.join(','));
+const order = ['>PROFIL<', '>NOTIFICATIONS<', '>APPARENCE<', '>TON PENSIF<', '>DONNÉES ET CONFIDENTIALITÉ<', '>LIENS UTILES<', '>À PROPOS<'].map((s) => code.indexOf(s));
+check('sections présentes dans l’ordre PROFIL → NOTIFICATIONS → APPARENCE → TON PENSIF → DONNÉES ET CONFIDENTIALITÉ → LIENS UTILES → À PROPOS', order.every((i) => i !== -1) && order.every((v, i) => i === 0 || v > order[i - 1]), order.join(','));
 check('Proches suivis = contacts.length', /label="Proches suivis" value=\{String\(contacts\.length\)\}/.test(code));
 check('Pensées enregistrées = pensees.length', /label="Pensées enregistrées" value=\{String\(pensees\.length\)\}/.test(code));
 check('Rappels programmés = countScheduledReminders(pensees, today) avec today du Store', /label="Rappels programmés" value=\{String\(countScheduledReminders\(pensees, today\)\)\}/.test(code) && /\n\s+today,\n/.test(src));

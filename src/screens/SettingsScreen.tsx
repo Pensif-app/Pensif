@@ -9,6 +9,7 @@ import { navigationRef } from '../navigation/navigationRef';
 import { countScheduledReminders } from '../data/penseeReminderRecurrence';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { describeDeletionFailure, getAccountDeletionCopy, getBackupSectionCopy } from '../data/accountDeletion';
+import { PUBLIC_LINKS, openPublicUrl } from '../data/publicLinks';
 import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
 import {
   OTP_MAX_LENGTH,
@@ -60,6 +61,12 @@ export function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const deletionCopy = getAccountDeletionCopy(isAnonymous);
   const backupCopy = getBackupSectionCopy(isAnonymous);
+
+  // Liens utiles : navigateur système (jamais une WebView interne) ; ouverture impossible → alerte minimale, aucun crash.
+  async function openUsefulLink(url: string) {
+    const opened = await openPublicUrl(url, (u) => Linking.openURL(u));
+    if (!opened) Alert.alert('Impossible d’ouvrir le lien', 'Réessayez plus tard ou ouvrez pensif-app.fr dans votre navigateur.');
+  }
 
   function confirmDeleteAllData() {
     if (deleting) return;
@@ -472,6 +479,16 @@ export function SettingsScreen() {
           <Text style={[styles.dangerText, { color: theme.danger }]}>Réinitialiser les données de démo</Text>
         </Pressable>
       )}
+
+      <SectionLabel theme={theme}>LIENS UTILES</SectionLabel>
+      <Card theme={theme}>
+        {PUBLIC_LINKS.map((item, index) => (
+          <React.Fragment key={item.id}>
+            {index > 0 && <View style={[styles.divider, { backgroundColor: theme.line }]} />}
+            <Row theme={theme} icon={item.icon} label={item.label} value="" onPress={() => void openUsefulLink(item.url)} />
+          </React.Fragment>
+        ))}
+      </Card>
 
       <SectionLabel theme={theme}>À PROPOS</SectionLabel>
       <Card theme={theme}>
