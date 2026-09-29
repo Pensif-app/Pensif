@@ -1415,6 +1415,7 @@ export function CaptureScreen() {
               onConfirmSuggestion={(id) => selectContact(card.cardId, id)}
               onClear={() => selectContact(card.cardId, null)}
               onOpenPicker={() => setContactPickerCardId(card.cardId)}
+              variant="compact"
             />
 
             {/* Événement (informatif, purement daté — indépendant du rappel). CHANTIER UNIFICATION UX

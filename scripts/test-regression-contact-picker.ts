@@ -173,6 +173,30 @@ console.log('\n[§C] Vérification du câblage réel (lecture de code — pas de
   check('"Aucun" appelle toujours selectContact(card.cardId, null) — comportement métier inchangé', /onClear=\{\(\) => selectContact\(card\.cardId, null\)\}/.test(captureSrc));
   check('UN SEUL ContactPicker partagé par toutes les cartes (pas un par carte)', (captureSrc.match(/<ContactPicker/g) ?? []).length === 1);
   check('aucun appel LLM/STT ajouté à proximité (uploadAudioForCapture toujours le seul point d’entrée réseau du flow)', (captureSrc.match(/uploadAudioForCapture\(/g) ?? []).length === 1);
+  check(
+    'CORRECTIF UX "État suggéré cohérent" (2026-09-29) — Capture Review passe désormais variant="compact" (même bloc visuel avatar+nom que l’état confirmé/manuel)',
+    /<ContactAssociationField[\s\S]{0,800}variant="compact"/.test(captureSrc),
+  );
+
+  console.log('  [ContactAssociationField.tsx — état "suggested" en variant compact, 2026-09-29]');
+  const contactAssociationFieldSrc = readFile('src/components/ContactAssociationField.tsx');
+  check(
+    'état "suggested" en variant compact réutilise EXACTEMENT le même bloc que "selected" compact (avatar + nom, Retirer/Changer à droite) — sans coche verte',
+    (contactAssociationFieldSrc.match(/<Avatar initials=\{state\.contact\.initials\} colorKey=\{state\.contact\.color\} theme=\{theme\} size=\{28\} \/>/g) ?? [])
+      .length === 2,
+  );
+  check(
+    'tap sur l’avatar/nom suggéré = confirmation (onConfirmSuggestion), pas un simple affichage passif',
+    /onPress=\{\(\) => onConfirmSuggestion\?\.\(state\.contact\.id\)\}\s*style=\{styles\.compactIdentity\}/.test(contactAssociationFieldSrc),
+  );
+  check(
+    'aucune coche verte (checkmark-circle) dans le bloc "suggested" compact — seulement à l’état confirmé',
+    !/onConfirmSuggestion\?\.\(state\.contact\.id\)\}\s*style=\{styles\.compactIdentity\}[\s\S]{0,400}checkmark-circle/.test(contactAssociationFieldSrc),
+  );
+  check(
+    '"Retirer"/"Changer" à la même position (même styles.compactRow) pour "suggested" et "selected" compact — pas de saut visuel à la confirmation',
+    (contactAssociationFieldSrc.match(/style=\{styles\.compactRow\}/g) ?? []).length === 2,
+  );
 
   console.log('  [MemorizedPenseesScreen.tsx — §8/§9]');
   check('jamais tous les contacts en chips (aucun availableContacts.map() de Pressable restant)', !/availableContacts\.map\(\(c\) => \(/.test(memorizedSrc));

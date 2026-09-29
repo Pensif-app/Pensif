@@ -42,15 +42,14 @@ export function ContactAssociationField({
   clearLabel?: string;
   associateLabel?: string;
   changeLabel?: string;
-  /** CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20) — `'default'`
-   *  (implicite, jamais passé par CaptureScreen.tsx — voir audit dédié avant cet ajout) = rendu
-   *  EXACTEMENT inchangé (pastille contour accent + "Aucun"/"Changer"), utilisé par Capture Review.
-   *  `'compact'` = rendu dédié à PenseeDetailScreen UNIQUEMENT (avatar/initiale + nom + coche verte,
-   *  sans contour ni "Aucun" à côté d'un contact déjà sélectionné) — une variante de présentation,
-   *  jamais une réécriture du composant partagé, pour ne risquer AUCUNE régression sur Capture Review
-   *  (déjà validé physiquement). Seul l'état `'selected'` diffère entre les deux variantes ; les
-   *  états `'orphaned'`/`'suggested'`/absence de contact restent le même rendu quel que soit `variant`
-   *  (aucun besoin identifié pour ces cas dans cette passe). */
+  /** CHANTIER "Polish PenseeDetail — FIN manquant + présentation contact" (2026-09-20), étendu par
+   *  "État suggéré cohérent avec un contact associé" (2026-09-29) — `'default'` = rendu pastille
+   *  contour accent + "Aucun"/"Changer" (états `'orphaned'`/absence de contact, et Capture Review
+   *  avant ce chantier). `'compact'` = avatar/initiale + nom, "Retirer"/"Changer" à droite, MÊME
+   *  position pour l'état `'selected'` (+ coche verte) et l'état `'suggested'` (sans coche, tap sur
+   *  l'avatar/nom = confirmation) — désormais utilisé par CaptureScreen (Capture Review) ET
+   *  PenseeDetailScreen. Les états `'orphaned'`/absence de contact restent le rendu `'default'` quel
+   *  que soit `variant` (aucun besoin identifié pour ces cas). */
   variant?: 'default' | 'compact';
 }) {
   const state = resolveContactAssociationState(contacts, selectedContactId, suggestedContactId);
@@ -121,6 +120,37 @@ export function ContactAssociationField({
     // Suggestion IA affichée directement (§3) — l'utilisateur confirme ou corrige, jamais besoin de
     // retrouver le contact dans une liste. `onConfirmSuggestion` rejoue EXACTEMENT le même chemin
     // qu'une sélection manuelle de ce contact (voir points d'usage) — aucune logique dupliquée.
+    if (variant === 'compact') {
+      // CORRECTIF UX "État suggéré cohérent avec un contact associé" (2026-09-29) — même bloc
+      // visuel que l'état 'selected' compact (avatar + nom), SANS la coche verte (pas encore
+      // confirmé) : tap sur l'avatar/nom = confirmation (reprend le geste "tap sur le chip du
+      // contact suggéré" déjà documenté plus haut), Retirer/Changer occupent EXACTEMENT la même
+      // position qu'à l'état confirmé (même styles.compactRow) pour ne jamais provoquer de saut
+      // visuel entre "suggéré" et "confirmé".
+      return (
+        <View style={styles.compactRow}>
+          <Pressable
+            disabled={disabled}
+            onPress={() => onConfirmSuggestion?.(state.contact.id)}
+            style={styles.compactIdentity}
+            hitSlop={8}
+          >
+            <Avatar initials={state.contact.initials} colorKey={state.contact.color} theme={theme} size={28} />
+            <Text style={[styles.compactName, { color: theme.ink }]} numberOfLines={1}>
+              {state.contact.prenom}
+            </Text>
+          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <Pressable disabled={disabled} onPress={onClear} style={styles.actionBtn} hitSlop={8}>
+              <Text style={[styles.actionText, { color: theme.inkSoft }]}>Retirer</Text>
+            </Pressable>
+            <Pressable disabled={disabled} onPress={onOpenPicker} style={styles.actionBtn} hitSlop={8}>
+              <Text style={[styles.actionText, { color: theme.accent }]}>{changeLabel}</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={styles.row}>
         <View style={[styles.pill, { borderColor: theme.line, backgroundColor: theme.paperDim }]}>
