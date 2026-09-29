@@ -101,15 +101,6 @@ export function ContactsScreen() {
   const sectionOffsetByTitleRef = useRef<Record<string, number>>({});
   const sectionHeaderNodesRef = useRef<Record<string, View | null>>({});
 
-  // Les offsets mesurés deviennent obsolètes UNIQUEMENT si le contenu change réellement (contacts
-  // ajoutés/supprimés déplacent les sections) — jamais sur un simple re-rendu, sinon le header
-  // actuellement sticky pourrait fausser une remesure pendant le scroll (voir measureSectionHeader,
-  // qui ne remesure jamais un titre déjà connu).
-  useEffect(() => {
-    sectionOffsetByTitleRef.current = {};
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts]);
-
   function measureSectionHeader(title: string) {
     // Mesure initiale valide uniquement : ne jamais écraser un offset déjà connu (un header devenu
     // sticky pendant le scroll donnerait une position fausse s'il était remesuré à ce moment-là).
@@ -131,6 +122,53 @@ export function ContactsScreen() {
   // que chaque en-tête de section soit mesuré via measureSectionHeader (onLayout) sans attendre un
   // scroll manuel — raisonnable pour un carnet de contacts personnel.
   const initialRenderCount = useMemo(() => sections.reduce((sum, s) => sum + 1 + s.data.length, 0), [sections]);
+
+  // CORRECTIF (2026-09-28) — régression : après suppression (ou ajout) d'un ou plusieurs proches
+  // sans changer d'onglet, l'index A-Z cessait de répondre. `sectionOffsetByTitleRef` était bien
+  // vidé à chaque changement de `sections`, mais rien ne redéclenchait ensuite une mesure : les
+  // headers déjà montés ne relancent pas forcément `onLayout` juste parce que le contenu a changé
+  // ailleurs dans la liste (une section supprimée au-dessus fait bouger les headers suivants sans
+  // que React ne considère leur propre layout comme "changé"). `remeasureAlphabetSections` force
+  // une remesure explicite de TOUS les headers alphabétiques actuellement montés, avec la même
+  // géométrie que measureSectionHeader (measureInWindow + listViewportRef + currentScrollYRef) —
+  // et nettoie au passage les refs/offsets des lettres qui ont disparu (ex. dernier proche d'une
+  // lettre supprimé), pour ne jamais garder une entrée obsolète. Couvre aussi le cas Favoris :
+  // ajouter/enlever un favori change `sections` (donc la hauteur de la section Favoris, qui décale
+  // tout ce qui suit), et déclenche la même remesure complète.
+  function remeasureAlphabetSections() {
+    const validTitles = new Set(sections.map((s) => (s.favorites ? 'Favoris' : s.title)));
+    Object.keys(sectionHeaderNodesRef.current).forEach((title) => {
+      if (!validTitles.has(title)) delete sectionHeaderNodesRef.current[title];
+    });
+    Object.keys(sectionOffsetByTitleRef.current).forEach((title) => {
+      if (!validTitles.has(title)) delete sectionOffsetByTitleRef.current[title];
+    });
+    Object.entries(sectionHeaderNodesRef.current).forEach(([title, node]) => {
+      if (!node) return;
+      node.measureInWindow((_headerX: number, headerWindowY: number) => {
+        listViewportRef.current?.measureInWindow((_listX: number, listWindowY: number) => {
+          sectionOffsetByTitleRef.current[title] = currentScrollYRef.current + (headerWindowY - listWindowY);
+        });
+      });
+    });
+  }
+
+  useEffect(() => {
+    sectionOffsetByTitleRef.current = {};
+    // Double rAF : laisse la SectionList (1) refléter la mutation puis (2) stabiliser son layout
+    // (headers repositionnés) avant de mesurer — un seul rAF mesurait parfois une frame trop tôt.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        remeasureAlphabetSections();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections]);
 
   // FONCTION FINALE UNIQUE — appelée à la fois par le geste tactile (tap et glisser continu, voir
   // AlphabetIndex) : aucune deuxième implémentation de la navigation lettre -> section n'existe

@@ -166,8 +166,30 @@ check(
     !contactsScreenSrc.includes('console.log('),
 );
 check(
-  'les offsets mesurés sont invalidés quand les contacts changent (jamais de cache obsolète silencieux)',
-  contactsScreenSrc.includes('sectionOffsetByTitleRef.current = {};') && contactsScreenSrc.includes('}, [contacts]);'),
+  // RÉGRESSION (2026-09-28) : l'invalidation seule (vidage de la map) ne suffisait pas — rien ne
+  // redéclenchait de mesure ensuite tant qu'on restait sur Proches (headers déjà montés dont
+  // `onLayout` ne se redéclenche pas forcément). Le vidage doit maintenant être TOUJOURS suivi
+  // d'une remesure programmée (double rAF -> remeasureAlphabetSections), jamais laissé "à vide"
+  // en attendant un hypothétique futur onLayout.
+  'l’invalidation des offsets (changement de sections) est TOUJOURS suivie d’une remesure explicite programmée — jamais un simple vidage sans suite',
+  /sectionOffsetByTitleRef\.current = \{\};[\s\S]{0,400}requestAnimationFrame\(\(\) => \{[\s\S]{0,200}requestAnimationFrame\(\(\) => \{[\s\S]{0,100}remeasureAlphabetSections\(\);/.test(
+    contactsScreenSrc,
+  ) && contactsScreenSrc.includes('}, [sections]);'),
+);
+check(
+  'remeasureAlphabetSections nettoie les refs/offsets des lettres disparues (ex. dernier proche d’une lettre supprimé) avant de remesurer les headers encore montés',
+  contactsScreenSrc.includes('if (!validTitles.has(title)) delete sectionHeaderNodesRef.current[title];') &&
+    contactsScreenSrc.includes('if (!validTitles.has(title)) delete sectionOffsetByTitleRef.current[title];'),
+);
+check(
+  'remeasureAlphabetSections utilise la MÊME géométrie que measureSectionHeader (measureInWindow + listViewportRef + currentScrollYRef) — pas un calcul divergent',
+  contactsScreenSrc.includes(
+    'sectionOffsetByTitleRef.current[title] = currentScrollYRef.current + (headerWindowY - listWindowY);',
+  ),
+);
+check(
+  'la remesure est déclenchée par un changement de `sections` (donc aussi par un ajout/retrait de Favori, qui change la hauteur de la section Favoris et décale tout ce qui suit) — pas seulement `contacts`',
+  contactsScreenSrc.includes('}, [sections]);') && !/\}, \[contacts\]\);[\s\S]{0,50}remeasureAlphabetSections/.test(contactsScreenSrc),
 );
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
