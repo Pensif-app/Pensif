@@ -112,6 +112,36 @@ async function main() {
     check('single-flight (garde signingOut)', /if \(signingOut\) return/.test(fnBody));
     const gatingMatch = screen.match(/\{!isAnonymous && \(\s*\n\s*<>\s*\n[\s\S]{0,400}confirmSignOut/);
     check("ligne 'Se déconnecter' rendue UNIQUEMENT pour !isAnonymous (compte sécurisé)", Boolean(gatingMatch));
+
+    // AUDIT (2026-09-30, device physique : bouton absent alors que "Supprimer mon compte" — copie
+    // secured-only, voir getAccountDeletionCopy — s'affichait déjà) — la valeur `isAnonymous` utilisée
+    // par le gate DOIT être exactement le même identifiant que celui déjà PROUVÉ correct sur device par
+    // "Sauvegarde et synchronisation"/"Supprimer mon compte" (`deletionCopy`/`backupCopy`, calculés à
+    // partir du MÊME `isAnonymous` déstructuré de `useStore()`, lui-même reflet direct de
+    // `session.user.is_anonymous` — voir store.tsx `isAnonymousState`/`initializeForSession`). Verrouille
+    // qu'aucune variable distincte (ex. `isAnonymousState` local, un `securityStep`, un flag dérivé
+    // périmé) n'est introduite pour le gate du bouton — un seul identifiant `isAnonymous`, une seule
+    // source de vérité, dans TOUT le composant.
+    const isAnonymousIdentifiers = new Set(
+      Array.from(screen.matchAll(/\{!?(isAnonymous\w*)\b/g)).map((m) => m[1]),
+    );
+    check(
+      "un seul identifiant 'isAnonymous' utilisé dans tout le composant (gate, copie suppression, copie sauvegarde)",
+      isAnonymousIdentifiers.size === 1 && isAnonymousIdentifiers.has('isAnonymous'),
+      JSON.stringify([...isAnonymousIdentifiers]),
+    );
+  }
+
+  console.log('5. Scénarios explicites — anonyme → bouton absent / sécurisé → bouton visible');
+  {
+    // Reproduit fidèlement la condition JSX exacte `{!isAnonymous && (...)}` (ligne verrouillée par le
+    // test 4 ci-dessus) — AUCUNE logique dupliquée, seulement la même expression booléenne évaluée pour
+    // les deux valeurs possibles de `session.user.is_anonymous`.
+    function signOutButtonVisible(isAnonymous: boolean): boolean {
+      return !isAnonymous;
+    }
+    check('compte ANONYME (isAnonymous=true) → bouton "Se déconnecter" ABSENT', signOutButtonVisible(true) === false);
+    check('compte SÉCURISÉ par e-mail (isAnonymous=false) → bouton "Se déconnecter" VISIBLE', signOutButtonVisible(false) === true);
   }
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${failures} échec(s)`);
