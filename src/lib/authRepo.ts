@@ -176,8 +176,12 @@ export function describeAuthErrorCode(code: string | undefined, fallbackMessage:
 /**
  * Déconnexion LOCALE (production) — CHANTIER "Suppression des données / du compte" (2026-09-26).
  * `scope:'local'` ne révoque que la session de CET appareil et efface le jeton persisté, sans appel serveur
- * bloquant : à utiliser APRÈS la suppression serveur du compte (un signOut global échouerait, l'utilisateur
- * n'existant plus). Jamais appelée avant que le serveur ait confirmé la suppression.
+ * bloquant. Deux appelants légitimes (store.tsx) :
+ *   - suppression de compte : appelée APRÈS confirmation serveur (un signOut global échouerait, l'utilisateur
+ *     n'existant plus) — jamais avant.
+ *   - déconnexion / changement de compte (`signOutAndSwitchAccount`, CHANTIER 2026-09-30) : appelée sur un
+ *     compte encore existant, à la demande explicite de l'utilisateur — le compte et ses données distantes
+ *     restent intacts, récupérables ensuite via `requestExistingAccountOtp`/`verifyExistingAccountOtp`.
  */
 export async function signOutLocalSession(): Promise<void> {
   if (!supabase) return;

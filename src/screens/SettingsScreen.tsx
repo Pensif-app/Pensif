@@ -53,7 +53,12 @@ export function SettingsScreen() {
     markAccountSecured,
     devSimulateReinstall,
     deleteAllUserData,
+    signOutAndSwitchAccount,
   } = useStore();
+
+  // CHANTIER "Déconnexion / changement de compte" (2026-09-30) — même garde single-flight que la
+  // suppression (double tap impossible pendant l'opération).
+  const [signingOut, setSigningOut] = useState(false);
 
   // CHANTIER "Suppression des données / du compte" (2026-09-26) — `deleting` désactive la ligne et affiche un
   // loader (double tap impossible ; le store est en plus single-flight). Le libellé dépend de l'état du compte :
@@ -91,6 +96,36 @@ export function SettingsScreen() {
         },
       },
     ]);
+  }
+
+  // CHANTIER "Déconnexion / changement de compte" (2026-09-30) — visible UNIQUEMENT pour un compte
+  // sécurisé par e-mail (`!isAnonymous`, même discriminant que "Sécuriser mes données" ci-dessus).
+  // Aucune suppression serveur : `signOutAndSwitchAccount` (store.tsx) appelle uniquement
+  // `signOutLocalSession` (scope:'local', authRepo.ts) puis purge le cache local — le compte et ses
+  // données Supabase restent intacts, récupérables ensuite via "J'ai déjà un compte" (OTP, inchangé).
+  function confirmSignOut() {
+    if (signingOut) return;
+    Alert.alert(
+      'Se déconnecter ?',
+      "Tes données restent enregistrées et sécurisées — tu pourras les retrouver avec ton email. Seule la session sur cet appareil sera fermée.",
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Se déconnecter',
+          style: 'destructive',
+          onPress: () => {
+            setSigningOut(true);
+            void signOutAndSwitchAccount()
+              .then(() => {
+                // Retour à l'écran initial : la pile est reconstruite (même raison que confirmDeleteAllData/
+                // confirmSimulateReinstall ci-dessus — sinon Réglages resterait empilé sous l'auth gate).
+                if (navigationRef.isReady()) navigationRef.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+              })
+              .finally(() => setSigningOut(false));
+          },
+        },
+      ],
+    );
   }
 
   const [permStatus, setPermStatus] = useState<'granted' | 'denied' | 'undetermined' | 'unsupported'>('undetermined');
@@ -457,6 +492,24 @@ export function SettingsScreen() {
             {securityLoading && <ActivityIndicator style={{ marginTop: 10 }} color={theme.accent} />}
             {securityError && <Text style={[styles.securityError, { color: theme.danger }]}>{securityError}</Text>}
                 </View>
+              </>
+            )}
+            {/* "Se déconnecter" — compte sécurisé par e-mail UNIQUEMENT (voir confirmSignOut) : une session
+                anonyme n'a rien à récupérer ensuite par email, donc rien à "déconnecter" au sens utilisateur. */}
+            {!isAnonymous && (
+              <>
+                <View style={[styles.divider, { backgroundColor: theme.line }]} />
+                <Pressable
+                  onPress={confirmSignOut}
+                  disabled={signingOut}
+                  style={[styles.row, { opacity: signingOut ? 0.6 : 1 }]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: signingOut }}
+                >
+                  <Ionicons name="log-out-outline" size={18} color={theme.ink} style={{ marginRight: 10 }} />
+                  <Text style={[styles.rowLabel, { color: theme.ink, flex: 1 }]}>Se déconnecter</Text>
+                  {signingOut && <ActivityIndicator color={theme.ink} />}
+                </Pressable>
               </>
             )}
             {/* Action destructive légèrement détachée du bloc de sauvegarde (marge avant le séparateur). */}

@@ -123,6 +123,17 @@ type Store = {
    * Single-flight (double tap). Voir data/accountDeletion.ts pour l'ordre exact et les échecs.
    */
   deleteAllUserData: () => Promise<AccountDeletionResult>;
+  /**
+   * CHANTIER "Déconnexion / changement de compte" (2026-09-30) — déconnexion PRODUCTION d'un compte
+   * sécurisé par e-mail : AUCUN appel serveur destructeur (jamais `deleteUser`/`delete-account`), les
+   * données distantes du compte restent intactes et récupérables ensuite via le flux OTP existant
+   * (AuthGateScreen, `requestExistingAccountOtp`/`verifyExistingAccountOtp`, inchangés). Réutilise
+   * EXACTEMENT le même mécanisme de purge que `devSimulateReinstall` (même ordre : signOut AVANT toute
+   * purge, cache account-scoped + brouillons + préférences device-scoped + tutoriel remis à neuf,
+   * `authGate = 'choice'`) mais avec `signOutLocalSession` (scope:'local', production) au lieu de
+   * l'outil dev — voir ce fichier pour le détail de l'ordre et son justificatif.
+   */
+  signOutAndSwitchAccount: () => Promise<void>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -402,6 +413,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // tutoriel (sinon : plus de saisie de prénom ni de tutoriel après "Commencer"). Les permissions
       // SYSTÈME iOS (micro/notifications) ne sont pas réinitialisables par l'app. AUCUNE donnée serveur n'est
       // touchée (signOut local uniquement, voir devSignOutForReinstallSimulation).
+      AsyncStorage.removeItem(KEYS.userName),
+      AsyncStorage.removeItem(KEYS.themePref),
+      AsyncStorage.removeItem(KEYS.notificationsEnabled),
+      AsyncStorage.removeItem(TUTORIAL_SEEN_KEY),
+    ]).catch(() => {});
+    await clearAllLocalDrafts();
+
+    outboxRef.current = [];
+    setOutbox([]);
+    setContacts([]);
+    setPensees([]);
+    setUserNameState(null);
+    setNamePromptOpen(false);
+    setThemePrefState('system');
+    setNotificationsEnabledState(true);
+    userIdRef.current = null;
+    setUserId(null);
+    setIsAnonymousState(false);
+    setAuthGate('choice');
+  }
+
+  /**
+   * Déconnexion PRODUCTION (voir doc du type `signOutAndSwitchAccount` sur `Store`) — même ordre
+   * STRICT que `devSimulateReinstall` :
+   *   1. `signOutLocalSession()` (authRepo.ts, `scope:'local'`, déjà utilisé en production pour la
+   *      suppression de compte) — AVANT toute purge, aucune écriture distante ne peut plus partir
+   *      avec l'ancien `user.id` après cet appel.
+   *   2. Purge AsyncStorage du cache account-scoped (contacts/pensées/outbox/cacheOwnerUserId) +
+   *      brouillons locaux + préférences device-scoped (userName/themePref/notificationsEnabled) +
+   *      flag tutoriel — l'app doit revenir dans un état propre "comme pour un nouvel utilisateur"
+   *      (consigne explicite), jamais un mélange visible de deux comptes.
+   *   3. État en mémoire réinitialisé SEULEMENT ENSUITE (outboxRef avant tout, `userIdRef.current`
+   *      remis à `null` en dernier — `enqueueAndDrain`/`drainNow` sont gardés par
+   *      `if (!userIdRef.current) return`, donc rien ne peut plus s'exécuter sous l'ancien compte).
+   *   4. `authGate = 'choice'` — ré-affiche l'écran de choix ; c'est l'utilisateur qui déclenche
+   *      ensuite explicitement "Continuer" (nouveau compte anonyme) ou "J'ai déjà un compte" (récupère
+   *      CE compte ou un autre par e-mail/OTP), jamais un compte anonyme créé automatiquement ici
+   *      (même principe que tout le reste de ce fichier — voir `chooseAnonymous`).
+   * AUCUNE donnée serveur n'est jamais touchée par cette fonction : ni le compte qu'on quitte, ni ses
+   * contacts/pensées Supabase — seule la session locale de CET appareil est fermée.
+   */
+  async function signOutAndSwitchAccount() {
+    await signOutLocalSession();
+
+    await Promise.all([
+      AsyncStorage.removeItem(KEYS.contacts),
+      AsyncStorage.removeItem(KEYS.pensees),
+      AsyncStorage.removeItem(KEYS.outbox),
+      AsyncStorage.removeItem(KEYS.cacheOwnerUserId),
       AsyncStorage.removeItem(KEYS.userName),
       AsyncStorage.removeItem(KEYS.themePref),
       AsyncStorage.removeItem(KEYS.notificationsEnabled),
@@ -858,6 +918,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       devSimulateReinstall,
       deleteAllUserData,
+      signOutAndSwitchAccount,
       };
     },
     [ready, today, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
