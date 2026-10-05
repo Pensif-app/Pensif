@@ -71,7 +71,8 @@
         "expo-audio",
         {
           "microphonePermission": "Pensif a besoin du micro pour enregistrer une pensée dictée à voix haute.",
-          "enableBackgroundRecording": false
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
         }
       ],
       "expo-asset"
