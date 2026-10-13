@@ -10,6 +10,8 @@ import { countScheduledReminders } from '../data/penseeReminderRecurrence';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { describeDeletionFailure, getAccountDeletionCopy, getBackupSectionCopy } from '../data/accountDeletion';
 import { PUBLIC_LINKS, openPublicUrl } from '../data/publicLinks';
+import { AI_CONSENT_COPY, AI_CONSENT_SCOPES, AiConsentScope, hasValidConsent } from '../data/aiConsent';
+import { askAiConsent } from '../lib/aiConsentPrompt';
 import { ensureNotificationPermissions, getNotificationPermissionStatus, scheduleTestNotificationIn60Seconds } from '../lib/notifications';
 import {
   OTP_MAX_LENGTH,
@@ -54,7 +56,34 @@ export function SettingsScreen() {
     devSimulateReinstall,
     deleteAllUserData,
     signOutAndSwitchAccount,
+    aiConsent,
+    grantAiConsent,
+    revokeAiConsent,
   } = useStore();
+
+  // CHANTIER "App Review 5.1.1(i)/5.1.2(i)" (2026-10-14) — activer = dialogue d'autorisation explicite (jamais un simple basculement) ;
+  // désactiver = révocation immédiate, les envois suivants sont bloqués (verrou réseau, lib/aiConsentGate.ts).
+  async function toggleAiConsent(scope: AiConsentScope, enable: boolean) {
+    if (!enable) {
+      // Révocation toujours appliquée immédiatement (envois bloqués) ; si elle n'a pas pu être ENREGISTRÉE sur l'appareil,
+      // on le dit : elle pourrait être perdue au redémarrage.
+      const persisted = await revokeAiConsent(scope);
+      if (!persisted) {
+        // Jamais de formulation laissant croire que c'est enregistré : l'envoi reste bloqué pendant cette session, mais le choix
+        // n'a pas pu être écrit sur l'appareil. « Réessayer » relance la persistance (revokeAiConsent est idempotent).
+        Alert.alert(
+          'Désactivation non enregistrée',
+          "L'envoi reste bloqué tant que l'application est ouverte, mais ce choix n'a pas pu être enregistré sur l'appareil. Il pourrait être perdu au redémarrage de l'application.",
+          [
+            { text: 'Fermer', style: 'cancel' },
+            { text: 'Réessayer', onPress: () => void toggleAiConsent(scope, false) },
+          ],
+        );
+      }
+      return;
+    }
+    if (await askAiConsent(scope)) await grantAiConsent(scope);
+  }
 
   // CHANTIER "Déconnexion / changement de compte" (2026-09-30) — même garde single-flight que la
   // suppression (double tap impossible pendant l'opération).
@@ -522,6 +551,28 @@ export function SettingsScreen() {
               </View>
               {deleting && <ActivityIndicator color={theme.danger} />}
             </Pressable>
+          </Card>
+
+          {/* Partage avec des services d'IA tiers — destinataires et données toujours visibles, avant tout accord. */}
+          <SectionLabel theme={theme}>SERVICES D’IA</SectionLabel>
+          <Card theme={theme}>
+            {AI_CONSENT_SCOPES.map((scope, index) => (
+              <React.Fragment key={scope}>
+                {index > 0 && <View style={[styles.divider, { backgroundColor: theme.line }]} />}
+                <View style={styles.row}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={[styles.rowLabel, { color: theme.ink }]}>{AI_CONSENT_COPY[scope].settingsLabel}</Text>
+                    <Text style={[styles.rowSub, { color: theme.inkSoft }]}>{AI_CONSENT_COPY[scope].settingsDetail}</Text>
+                  </View>
+                  <Switch
+                    value={hasValidConsent(aiConsent, scope)}
+                    onValueChange={(value) => void toggleAiConsent(scope, value)}
+                    trackColor={{ false: theme.paperDim, true: theme.accent }}
+                    thumbColor="#fff"
+                  />
+                </View>
+              </React.Fragment>
+            ))}
           </Card>
         </>
       )}

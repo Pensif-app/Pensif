@@ -6,6 +6,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { MessageSuggestionContext, MessageTone } from '../data/messageSuggestion';
 import { mapMessageSuggestionBlockedCodeToMessage } from '../data/messageSuggestionUsageMessages';
+import { assertAiConsent } from './aiConsentGate';
 
 export class MessageSuggestionApiError extends Error {
   constructor(message: string, public readonly status?: number) {
@@ -19,6 +20,8 @@ export class MessageSuggestionApiError extends Error {
  * métier elle-même, uniquement le transport réseau et la traduction des erreurs.
  */
 export async function requestMessageSuggestion(context: MessageSuggestionContext, tone: MessageTone): Promise<string> {
+  // 5.1.1(i)/5.1.2(i) : verrou réseau — aucune donnée n'est envoyée à OpenAI sans consentement valide (voir aiConsentGate.ts).
+  assertAiConsent('smartReplies');
   if (!supabase) throw new MessageSuggestionApiError('Supabase non configuré');
 
   try {

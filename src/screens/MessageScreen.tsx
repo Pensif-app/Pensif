@@ -14,6 +14,7 @@ import { buildMessageSuggestionContext, MessageOccasion, MessageTone } from '../
 import { MessageDrafts, messageDraftStorageKey } from '../data/messageDraftKey';
 import { loadMessageDrafts, saveMessageDrafts } from '../data/messageDraftStorage';
 import { requestMessageSuggestion, MessageSuggestionApiError } from '../lib/messageSuggestionApi';
+import { askAiConsent } from '../lib/aiConsentPrompt';
 import { RootStackParamList } from '../navigation/types';
 
 /** Convertit un numéro français local (06 xx xx xx xx) au format international sans "+" attendu
@@ -57,7 +58,7 @@ export function MessageScreen() {
   const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Message'>>();
-  const { contacts, pensees, today, giftSentIds, toggleGiftSent } = useStore();
+  const { contacts, pensees, today, giftSentIds, toggleGiftSent, hasAiConsent, grantAiConsent } = useStore();
   const contact = contacts.find((c) => c.id === route.params.contactId);
   // CHANTIER RÉPONSES INTELLIGENTES (2026-09-16) — `occasion` optionnel, défaut 'birthday' pour
   // rétrocompatibilité avec les 2 appelants existants (voir navigation/types.ts). `penseeId`
@@ -163,6 +164,15 @@ export function MessageScreen() {
     if (generatingRef.current) return;
     if (!contextResult?.ok) return; // garde défensive — le bouton n'est de toute façon pas rendu sinon
     generatingRef.current = true;
+    // CHANTIER "App Review 5.1.1(i)/5.1.2(i)" (2026-10-14) — consentement AVANT toute transmission à OpenAI. Refus → aucun appel
+    // réseau, brouillon intact. Le verrou réseau (aiConsentGate) protège aussi ce chemin.
+    if (!hasAiConsent('smartReplies')) {
+      const accepted = await askAiConsent('smartReplies');
+      if (!accepted || !(await grantAiConsent('smartReplies'))) {
+        generatingRef.current = false;
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     const toneAtRequestTime = tone; // le ton ACTUELLEMENT sélectionné, jamais un ton figé plus tôt

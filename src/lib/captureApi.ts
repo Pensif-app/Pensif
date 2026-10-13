@@ -6,6 +6,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { CaptureResult } from '../data/captureTypes';
 import { mapCaptureBlockedCodeToMessage } from '../data/captureUsageMessages';
+import { assertAiConsent } from './aiConsentGate';
 
 export type CaptureUploadInput = {
   uri: string;
@@ -80,6 +81,8 @@ function logCaptureResultDev(result: CaptureResult): void {
  *  entre `uploadAudioForCapture` (audio réel) et `reextractCapture` (texte déjà obtenu, voir plus
  *  bas) : même gestion d'erreur, jamais deux implémentations divergentes. */
 async function invokeCaptureFunction(body: FormData | Record<string, unknown>): Promise<CaptureResult> {
+  // 5.1.1(i)/5.1.2(i) : verrou réseau — aucune donnée n'est envoyée à Groq/OpenAI sans consentement valide (voir aiConsentGate.ts).
+  assertAiConsent('voiceCapture');
   if (!supabase) throw new CaptureApiError('Supabase non configuré');
   try {
     const { data, error } = await supabase.functions.invoke('capture', { body });
@@ -118,6 +121,7 @@ async function invokeCaptureFunction(body: FormData | Record<string, unknown>): 
  * quel — jamais renommé en "audio" sans extension (voir le bug déjà rencontré côté adaptateur STT).
  */
 export async function uploadAudioForCapture(input: CaptureUploadInput): Promise<CaptureResult> {
+  assertAiConsent('voiceCapture'); // avant toute lecture/envoi de l'audio
   if (!supabase) throw new CaptureApiError('Supabase non configuré');
 
   // BUG CORRIGÉ (découvert lors du test réel) : Expo SDK 57 remplace le `fetch` global par sa

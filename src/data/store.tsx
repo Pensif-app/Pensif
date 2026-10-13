@@ -39,6 +39,9 @@ import {
   updateContactRemote,
   updatePenseeRemote,
 } from '../lib/supabaseRepo';
+import { AiConsentRecord, AiConsentScope } from './aiConsent';
+import { AiConsentController, createAiConsentController } from './aiConsentController';
+import { setAiConsentSnapshot } from '../lib/aiConsentGate';
 import { ExistingSession, devSignOutForReinstallSimulation, getExistingSession, probeAccountExistence, signOutLocalSession, startAnonymousSession } from '../lib/authRepo';
 
 const KEYS = {
@@ -134,6 +137,16 @@ type Store = {
    * l'outil dev — voir ce fichier pour le détail de l'ordre et son justificatif.
    */
   signOutAndSwitchAccount: () => Promise<void>;
+  /**
+   * CHANTIER "App Review 5.1.1(i)/5.1.2(i)" (2026-10-14) — consentements au partage de données avec une IA tierce
+   * (voir data/aiConsent.ts). Persistés PAR COMPTE (`pensif.aiConsent.<userId>`), jamais partagés entre comptes.
+   * `grantAiConsent`/`revokeAiConsent` mettent à jour le verrou réseau (lib/aiConsentGate.ts) de façon synchrone.
+   */
+  aiConsent: AiConsentRecord;
+  hasAiConsent: (scope: AiConsentScope) => boolean;
+  grantAiConsent: (scope: AiConsentScope) => Promise<boolean>;
+  /** `true` = révocation aussi enregistrée sur l'appareil ; `false` = active en mémoire mais non persistée (l'appelant prévient l'utilisateur). */
+  revokeAiConsent: (scope: AiConsentScope) => Promise<boolean>;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -169,6 +182,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // réactif qui pourrait se déclencher en arrière-plan).
   const [authGate, setAuthGate] = useState<'none' | 'choice'>('none');
   const [isAnonymousState, setIsAnonymousState] = useState(false);
+  // CHANTIER "App Review 5.1.1(i)/5.1.2(i)" (2026-10-14) — consentements IA du compte COURANT, tenus par un contrôleur pur
+  // (data/aiConsentController.ts) qui publie vers le verrou réseau (lib/aiConsentGate.ts). `bindAiConsentOwner` est appelé
+  // SYNCHRONEMENT partout où `userIdRef` change : aucun consentement n'est valide tant que celui du nouveau compte n'est pas lu.
+  const [aiConsent, setAiConsentState] = useState<AiConsentRecord>({});
+  const aiConsentControllerRef = useRef<AiConsentController | null>(null);
+  if (!aiConsentControllerRef.current) {
+    aiConsentControllerRef.current = createAiConsentController({
+      storage: {
+        read: (key) => AsyncStorage.getItem(key),
+        write: (key, value) => AsyncStorage.setItem(key, value),
+        remove: (key) => AsyncStorage.removeItem(key),
+      },
+      publish: (owner, record) => {
+        setAiConsentSnapshot(owner, record);
+        setAiConsentState(record);
+      },
+    });
+  }
+  const aiConsentController = aiConsentControllerRef.current;
+  function bindAiConsentOwner(owner: string | null) {
+    aiConsentController.bind(owner);
+  }
   // CHANTIER SYNC OFFLINE→SUPABASE : mutations pas encore confirmées côté serveur (create/update/
   // delete, contacts ET pensées) — remplace l'ancien duo pendingDeleteContactIds (explicite, deletes
   // seulement) / diff d'ids au boot (implicite, incapable de représenter une simple modification).
@@ -321,6 +356,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    */
   async function initializeForSession(session: ExistingSession) {
     userIdRef.current = session.userId;
+    bindAiConsentOwner(session.userId);
     setUserId(session.userId);
     setIsAnonymousState(session.isAnonymous);
 
@@ -429,6 +465,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setThemePrefState('system');
     setNotificationsEnabledState(true);
     userIdRef.current = null;
+    bindAiConsentOwner(null);
     setUserId(null);
     setIsAnonymousState(false);
     setAuthGate('choice');
@@ -478,6 +515,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setThemePrefState('system');
     setNotificationsEnabledState(true);
     userIdRef.current = null;
+    bindAiConsentOwner(null);
     setUserId(null);
     setIsAnonymousState(false);
     setAuthGate('choice');
@@ -491,6 +529,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     detachSession: () => {
       outboxRef.current = [];
       userIdRef.current = null;
+      bindAiConsentOwner(null);
     },
     cancelNotifications: async () => {
       await cancelAllReminders();
@@ -559,6 +598,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const session = await getExistingSession();
         if (session) {
           userIdRef.current = session.userId;
+          bindAiConsentOwner(session.userId);
           setUserId(session.userId);
           setIsAnonymousState(session.isAnonymous);
         }
@@ -796,6 +836,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [ready]);
 
+  const hasAiConsent = (scope: AiConsentScope) => aiConsentController.has(scope);
+  const grantAiConsent = (scope: AiConsentScope) => aiConsentController.grant(scope);
+  const revokeAiConsent = (scope: AiConsentScope) => aiConsentController.revoke(scope);
+
   const value = useMemo<Store>(
     () => {
       return {
@@ -919,9 +963,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       devSimulateReinstall,
       deleteAllUserData,
       signOutAndSwitchAccount,
+      aiConsent,
+      hasAiConsent,
+      grantAiConsent,
+      revokeAiConsent,
       };
     },
-    [ready, today, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState],
+    [ready, today, contacts, pensees, userName, userId, namePromptOpen, themePref, notificationsEnabled, authGate, isAnonymousState, aiConsent],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

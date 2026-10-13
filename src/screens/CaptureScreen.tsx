@@ -41,6 +41,7 @@ import { useStore } from '../data/store';
 import { requestNotificationPermissionIfUndetermined } from '../lib/notifications';
 import { RootStackParamList } from '../navigation/types';
 import { uploadAudioForCapture, reextractCapture, CaptureApiError } from '../lib/captureApi';
+import { askAiConsent } from '../lib/aiConsentPrompt';
 import { deleteCaptureAudioFile } from '../lib/captureAudio';
 import { runWithAudioCleanup } from '../data/captureAudioCleanup';
 import { matchContactByHeardName } from '../data/contactMatching';
@@ -244,7 +245,7 @@ export function CaptureScreen() {
   // trop près du bord (voir retour utilisateur).
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { contacts, addPensee, setNotificationsEnabled } = useStore();
+  const { contacts, addPensee, setNotificationsEnabled, hasAiConsent, grantAiConsent } = useStore();
 
   // `isMeteringEnabled: true` — sans ce réglage explicite, `RecorderState.metering` reste toujours
   // `undefined` (voir expo-audio/utils/options.ts, défaut false). Avec, expo-audio expose un niveau
@@ -255,6 +256,8 @@ export function CaptureScreen() {
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  // Après "Autoriser" (consentement IA), le dialogue a interrompu le geste : indication discrète pour appuyer à nouveau.
+  const [consentJustGranted, setConsentJustGranted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<string>('');
   const [cards, setCards] = useState<CaptureCard[]>([]);
@@ -484,6 +487,18 @@ export function CaptureScreen() {
     pressStartRef.current = Date.now();
     setErrorMessage(null);
     setPermissionMessage(null);
+    setConsentJustGranted(false);
+
+    // CHANTIER "App Review 5.1.1(i)/5.1.2(i)" (2026-10-14) — consentement AVANT tout enregistrement : sans accord valide, rien
+    // n'est capturé (donc rien ne peut être envoyé à Groq/OpenAI). Distinct de la permission système du micro. Après
+    // "Autoriser", l'utilisateur doit relancer l'appui : le doigt a déjà quitté le bouton (le dialogue interrompt le geste).
+    if (!hasAiConsent('voiceCapture')) {
+      cancelledRef.current = true;
+      const accepted = await askAiConsent('voiceCapture');
+      if (accepted && (await grantAiConsent('voiceCapture'))) setConsentJustGranted(true);
+      busyRef.current = false;
+      return;
+    }
 
     // V1 online-only (voir architecture Capture Intelligente) : inutile de faire parler
     // l'utilisateur pour échouer ensuite à l'envoi.
@@ -930,6 +945,12 @@ export function CaptureScreen() {
 
   async function handleRetryAnalysis(cardId: string) {
     if (analysisRetryingCardIds.has(cardId)) return;
+    // 5.1.1(i)/5.1.2(i) : "Réessayer" renvoie le texte transcrit à OpenAI — jamais sans consentement valide (révoqué entre-temps
+    // → nouvelle demande ; refus → aucun envoi). Le verrou réseau (aiConsentGate) protège aussi ce chemin.
+    if (!hasAiConsent('voiceCapture')) {
+      const accepted = await askAiConsent('voiceCapture');
+      if (!accepted || !(await grantAiConsent('voiceCapture'))) return;
+    }
     setAnalysisRetryingCardIds((prev) => new Set(prev).add(cardId));
     try {
       const result = await reextractCapture(transcript);
@@ -1060,7 +1081,7 @@ export function CaptureScreen() {
           {/* Textes interactifs en HAUT de l'écran (voir mockup) — plus le centre géométrique. */}
           <Text style={[styles.title, { color: theme.ink, marginTop: 18 }]}>{isListening ? 'J’écoute…' : 'Maintenez pour parler'}</Text>
           <Text style={[styles.subtitle, { color: theme.inkSoft }]}>
-            {isListening ? 'Parlez naturellement.' : 'Relâchez quand vous avez terminé.'}
+            {isListening ? 'Parlez naturellement.' : consentJustGranted ? 'Autorisation enregistrée. Maintenez le bouton pour enregistrer.' : 'Relâchez quand vous avez terminé.'}
           </Text>
 
           {/* Spacer flexible RESPONSIVE (ratio, pas de coordonnée fixe) qui positionne le bouton

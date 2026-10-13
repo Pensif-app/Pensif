@@ -98,7 +98,7 @@ async function main() {
     check("purge cacheOwnerUserId (empêche tout mélange de données entre comptes)", /KEYS\.cacheOwnerUserId/.test(fnBody));
     check("remet authGate à 'choice'", /setAuthGate\('choice'\)/.test(fnBody));
     check('ne référence ni deleteAccountRemote ni deleteAllUserData', !/deleteAccountRemote|deleteAllUserData/.test(fnBody));
-    check("exposée dans l'objet retourné du store", /signOutAndSwitchAccount,\s*\n\s*\};/.test(store));
+    check("exposée dans l'objet retourné du store", /\n\s+signOutAndSwitchAccount,\s*\n/.test(store));
   }
 
   console.log('4. SettingsScreen.tsx — gating compte sécurisé, confirmation explicite, aucun auto-anonyme');
