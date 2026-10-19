@@ -105,6 +105,9 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'amis', label: 'Avec ses amis' },
           { key: 'both', label: 'Les deux' },
         ],
+        // v1.1 : aucun produit du catalogue ne diffère réellement selon cette réponse — masquée
+        // jusqu'à la v2 plutôt que de poser une question sans effet.
+        hidden: true,
       },
       {
         id: 'favorite',
@@ -869,6 +872,8 @@ const DEDICATED_QUIZZES: Partial<Record<InterestTag, ThemeQuizConfig>> = {
           { key: 'quotidien', label: 'Au quotidien' },
           { key: 'occasionnel', label: 'Occasionnellement' },
         ],
+        // v1.1 : cadence d'usage sans produit associé (voir commentaire ci-dessus) — masquée jusqu'à la v2.
+        hidden: true,
       },
       {
         id: 'format',

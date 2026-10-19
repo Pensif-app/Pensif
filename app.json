@@ -17,6 +17,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.yomic.pensif",
       "buildNumber": "8",
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "fr",
+        "CFBundleLocalizations": ["fr"]
+      },
       "config": {
         "usesNonExemptEncryption": false
       }

@@ -39,8 +39,9 @@ function isAmazonAffiliateEnabled(): boolean {
 function renderState(gift: Pick<CuratedGift, 'asin' | 'imageUrl'>, imageFailed: boolean) {
   const amazonEnabled = isAmazonAffiliateEnabled();
   const hasAmazonLink = amazonEnabled && !!gift.asin;
-  const showAmazonImage = amazonEnabled && !!gift.imageUrl && !imageFailed;
-  const showPrice = amazonEnabled || !gift.asin;
+  // v1.1 — liens seuls : jamais d'image distante ni de prix pour un produit à lien, flag ON comme OFF.
+  const showAmazonImage = false;
+  const showPrice = !gift.asin;
   return { hasAmazonLink, showAmazonImage, showPrice };
 }
 
@@ -103,13 +104,13 @@ console.log('\n[3] OFF + gift SANS asin (catalogue éditorial) → rendu normal,
   check('OFF : showAmazonImage = false (repli emoji, comportement Phase 6B inchangé)', state.showAmazonImage === false);
 }
 
-console.log('\n[4] ON + gift avec asin/imageUrl → comportement historique conservé (mode ON non modifié en profondeur)');
+console.log('\n[4] ON + gift avec asin/imageUrl → lien seul (v1.1 : jamais d’image Amazon)');
 {
   setFlag('1');
   const giftWithCommerce = { asin: 'B0886C3SR8', imageUrl: 'https://m.media-amazon.com/images/I/example.jpg' };
   const state = renderState(giftWithCommerce, false);
   check('ON : hasAmazonLink = true (comportement historique)', state.hasAmazonLink === true);
-  check('ON : showAmazonImage = true (comportement historique)', state.showAmazonImage === true);
+  check('ON : showAmazonImage = false (v1.1 liens seuls)', state.showAmazonImage === false);
   setFlag(undefined);
 }
 
@@ -131,7 +132,7 @@ console.log('\n[6] Catalogue réel — même produit historique (avec asin), OFF
   const on = renderState(realGift, false);
   setFlag(undefined);
   check(`produit réel "${realGift.id}" — OFF: aucun lien/image`, off.hasAmazonLink === false && off.showAmazonImage === false);
-  check(`produit réel "${realGift.id}" — ON: lien/image comme avant`, on.hasAmazonLink === true && on.showAmazonImage === true);
+  check(`produit réel "${realGift.id}" — ON: lien sans image`, on.hasAmazonLink === true && on.showAmazonImage === false);
 }
 
 console.log('\n[7] Scoring/historique — IDENTIQUE que le flag soit ON ou OFF (le moteur ne le lit jamais)');
@@ -169,8 +170,8 @@ console.log('\n[8] Nouveaux thèmes éditoriaux — strictement inchangés par l
 console.log('\n[9] Aucun chemin UI n’échappe au flag — audit source exhaustif (grep, pas une supposition)');
 {
   const giftsScreenSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'GiftsScreen.tsx'), 'utf-8');
-  check("amazonUrl() n'est appelé qu'après avoir vérifié hasAmazonLink (dérivé du flag)", giftsScreenSrc.includes('hasAmazonLink ?') && giftsScreenSrc.includes('amazonUrl(gift.asin!)'));
-  check("l'affichage de l'image dépend de showAmazonImage (dérivé du flag), jamais de imageUrl seul", /showAmazonImage \? \(/.test(giftsScreenSrc));
+  check("amazonUrl() n'est appelé qu'après avoir vérifié hasAmazonLink (dérivé du flag)", giftsScreenSrc.includes('{hasAmazonLink && (') && giftsScreenSrc.includes('amazonUrl(gift.asin!)'));
+  check("v1.1 : GiftsScreen n'affiche aucune image distante (pas de <Image>, imageUrl jamais lue)", !/<Image\b/.test(giftsScreenSrc) && !giftsScreenSrc.includes('gift.imageUrl'));
 
   const allSrcFiles: string[] = [];
   function walk(dir: string) {
@@ -208,12 +209,12 @@ console.log('\n[11] Phase 1B — OFF + gift sans asin (éditorial) → prix Pens
   check('OFF sans asin : showPrice = true (prix éditorial Pensif, toujours affichable)', state.showPrice === true);
 }
 
-console.log('\n[12] Phase 1B — ON + gift avec asin → comportement historique conservé (prix affiché)');
+console.log('\n[12] v1.1 — ON + gift avec asin → prix jamais affiché');
 {
   setFlag('1');
   const giftWithAsin = { asin: 'B0886C3SR8', imageUrl: 'https://m.media-amazon.com/images/I/example.jpg' };
   const state = renderState(giftWithAsin, false);
-  check('ON + asin : showPrice = true (comportement historique inchangé)', state.showPrice === true);
+  check('ON + asin : showPrice = false (v1.1 : prix hors API non affichables)', state.showPrice === false);
   setFlag(undefined);
 }
 
@@ -226,7 +227,7 @@ console.log('\n[13] Phase 1B — catalogue réel : showPrice sur un produit hist
   const on = renderState(realGift, false);
   setFlag(undefined);
   check(`produit réel "${realGift.id}" — OFF: prix masqué`, off.showPrice === false);
-  check(`produit réel "${realGift.id}" — ON: prix affiché comme avant`, on.showPrice === true);
+  check(`produit réel "${realGift.id}" — ON: prix masqué`, on.showPrice === false);
 
   const editorialGift = CURATED_GIFTS.find((g) => !g.asin)!;
   setFlag(undefined);

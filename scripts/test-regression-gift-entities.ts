@@ -10,7 +10,7 @@
 // Usage : npx tsx scripts/test-regression-gift-entities.ts
 
 import { Contact, QuizProfile } from '../src/data/types';
-import { generateCandidates, topRecommendations, whyForContact, ScoredCandidate } from '../src/data/recommendationEngine';
+import { generateCandidates, topRecommendations, whyForContact, ScoredCandidate, budgetFitBonus } from '../src/data/recommendationEngine';
 import { CURATED_GIFTS } from '../src/data/giftCatalog';
 import { canonicalize, toCanonicalConcept, extractConcepts } from '../src/data/textSignals';
 import { getThemeQuiz } from '../src/data/themeQuizzes';
@@ -159,8 +159,8 @@ console.log('\n[5] wish correspondant réellement à un produit → influence r�
   check('le Kindle apparaît dans le Top 3 quand le wish le mentionne', topWith.some((c) => c.gift.asin === kindleProduct.asin));
   const wasInTopWithout = topWithout.some((c) => c.gift.asin === kindleProduct.asin);
   check(
-    'le classement change réellement (le Kindle grimpe grâce au wish, cas discriminant)',
-    topWith.some((c) => c.gift.asin === kindleProduct.asin) && !wasInTopWithout,
+    'le wish augmente réellement le score du Kindle (v1.1 : à 250 € le bonus de budget le place déjà dans le Top sans wish)',
+    (findById(generateCandidates(withWish, { maxEuros: 250 }), kindleProduct.id)?.score ?? 0) > (findById(generateCandidates(withoutWish, { maxEuros: 250 }), kindleProduct.id)?.score ?? 0),
     `présent avant=${wasInTopWithout}`
   );
   const withScore = findById(generateCandidates(withWish, { maxEuros: 250 }), kindleProduct.id);
@@ -233,7 +233,11 @@ console.log('\n[8] Profils comparatifs — même profil sans/avec favorite Poké
   const rankSans = topSans.findIndex((c) => c.gift.asin === LEGO_POKEMON.asin);
   const rankAvec = topAvec.findIndex((c) => c.gift.asin === LEGO_POKEMON.asin);
 
-  check('LEGO Pokémon absent ou moins bien classé SANS le favorite', rankSans === -1 || rankSans > 0);
+  // v1.1 : à 100 €, LEGO Pokémon (65 €) profite du bonus de budget même sans favorite — ce qui compte est que
+  // le favorite lui donne un score strictement plus haut (rang jamais pire).
+  const scoreSans = findById(generateCandidates(contactSans, { maxEuros: 100 }), LEGO_POKEMON.id)!.score;
+  const scoreAvec = findById(generateCandidates(contactAvec, { maxEuros: 100 }), LEGO_POKEMON.id)!.score;
+  check('LEGO Pokémon a un score strictement plus haut AVEC le favorite', scoreAvec > scoreSans);
   check('LEGO Pokémon entre dans le Top 3 (voire en tête) AVEC le favorite "Pokémon"', rankAvec !== -1 && rankAvec <= (rankSans === -1 ? Infinity : rankSans));
   check('le ranking change bien dans le bon sens (LEGO Pokémon progresse, jamais régresse)', rankAvec !== -1 && (rankSans === -1 || rankAvec <= rankSans));
 }
@@ -1166,8 +1170,13 @@ console.log('\n[38] Phase 7B — profils réels science (catalogue éditorial d�
   // hasard d'ordre — assertion exacte plutôt que permissive.
   const scoreBinoculars = candidatesAstro.find((c) => c.gift.giftConcept === 'stargazing-binoculars')?.score;
   const scoreTelescope = candidatesAstro.find((c) => c.gift.giftConcept === 'telescope')?.score;
-  check('profil A : stargazing-binoculars et telescope ont bien le même score (égalité confirmée)', scoreBinoculars !== undefined && scoreBinoculars === scoreTelescope);
-  check('profil A : stargazing-binoculars en tête, déterministe (tie-break prix croissant, 45€ < 129€)', topAstro[0]?.gift.giftConcept === 'stargazing-binoculars');
+  // v1.1 : le bonus d'adéquation au budget (150 € : télescope 129 € → +14, jumelles 45 € → 0) est la seule
+  // différence entre les deux — hors bonus, l'égalité d'origine est inchangée, et le télescope, plus proche
+  // du budget, passe désormais en tête.
+  const bonusBinoculars = budgetFitBonus(45, 150);
+  const bonusTelescope = budgetFitBonus(129, 150);
+  check('profil A : stargazing-binoculars et telescope ont le même score HORS bonus de budget', scoreBinoculars !== undefined && scoreTelescope !== undefined && scoreBinoculars - bonusBinoculars === scoreTelescope - bonusTelescope);
+  check('profil A : telescope en tête, déterministe (plus proche du budget 150€)', topAstro[0]?.gift.giftConcept === 'telescope');
 
   const contactDino = makeContact('Tom', makeQuiz({
     interests: ['science'],

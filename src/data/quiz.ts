@@ -172,6 +172,19 @@ export const INTEREST_OPTIONS: { key: InterestTag; label: string; emoji: string 
  */
 export const VISIBLE_INTEREST_OPTIONS = INTEREST_OPTIONS.filter((opt) => (COVERED_THEMES as readonly InterestTag[]).includes(opt.key));
 
+/** v1.1 — nombre minimal de produits À LIEN pour qu'un thème soit proposé quand les liens Amazon sont
+ *  actifs (les produits éditoriaux sans ASIN y sont masqués). */
+export const MIN_LINKABLE_PRODUCTS_PER_THEME = 3;
+
+/** Sélecteur d'intérêts affiché : identique à VISIBLE_INTEREST_OPTIONS hors mode Amazon ; en mode
+ *  Amazon, uniquement les thèmes ayant au moins MIN_LINKABLE_PRODUCTS_PER_THEME produits à lien. */
+export function visibleInterestOptions(amazonEnabled: boolean) {
+  if (!amazonEnabled) return VISIBLE_INTEREST_OPTIONS;
+  return VISIBLE_INTEREST_OPTIONS.filter(
+    (opt) => CURATED_GIFTS.filter((g) => g.theme === opt.key && !!g.asin).length >= MIN_LINKABLE_PRODUCTS_PER_THEME
+  );
+}
+
 /** Paliers de budget proposés au moment de générer des recommandations (voir GiftsScreen.tsx) —
  *  ce n'est plus une question du quiz général, le budget appartient à la recherche, pas au profil. */
 export const BUDGET_OPTIONS: { key: BudgetBand; label: string; max: number }[] = [

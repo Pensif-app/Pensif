@@ -43,12 +43,13 @@ import {
   computeTraits,
   formatQuizText,
   INTEREST_OPTIONS,
-  VISIBLE_INTEREST_OPTIONS,
+  visibleInterestOptions,
   QUIZ_QUESTIONS,
   sortedTraits,
   TRAIT_LABELS,
 } from '../data/quiz';
 import { getThemeQuiz } from '../data/themeQuizzes';
+import { isAmazonAffiliateEnabled } from '../lib/amazonAffiliate';
 import { inferAvoidFromText } from '../data/textSignals';
 import { Contact, InterestTag, QuizAnswer } from '../data/types';
 import { RootStackParamList } from '../navigation/types';
@@ -611,7 +612,7 @@ function TagStep({
             le catalogue (voir VISIBLE_INTEREST_OPTIONS, quiz.ts) — un thème sans produit
             (jeux_societe/beaute/science tant qu'ils ne sont pas sourcés) reste préparé côté
             config mais n'apparaît pas ici. */}
-        {VISIBLE_INTEREST_OPTIONS.map((opt) => {
+        {visibleInterestOptions(isAmazonAffiliateEnabled()).map((opt) => {
           const active = selected.includes(opt.key);
           return (
             <Pressable

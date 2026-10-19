@@ -2,7 +2,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
@@ -81,7 +81,7 @@ export function GiftsScreen() {
   // naturellement sa place. Une seule source de vérité, donc pas de désynchronisation possible.
   const candidates = useMemo<ScoredCandidate[]>(() => {
     if (!contact) return [];
-    return generateCandidates(contact, { maxEuros: budgetMax }, sessionExcluded);
+    return generateCandidates(contact, { maxEuros: budgetMax }, sessionExcluded, { linkableOnly: isAmazonAffiliateEnabled() });
   }, [contact, budgetMax, sessionExcluded]);
   const top = topRecommendations(candidates, 3);
 
@@ -239,6 +239,11 @@ export function GiftsScreen() {
                   <Text style={{ color: theme.accent, fontWeight: '700' }}>{showAll ? 'Réduire' : 'Tout voir'}</Text>
                 </Pressable>
               )}
+              {isAmazonAffiliateEnabled() && (
+                <Text style={[styles.affiliateNote, { color: theme.inkSoft, marginBottom: 8 }]}>
+                  Les liens Amazon sont des liens affiliés : en achetant via ces liens, tu soutiens Pensif sans payer plus cher.
+                </Text>
+              )}
             </>
           )}
         </>
@@ -288,7 +293,6 @@ function RecommendationCard({
   onLike: () => void;
   onReject: () => void;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
   const gift = candidate.gift;
   // CHANTIER "Cadeaux V2 — Phase 6B" (2026-09-21), étendu par "Pré-bêta Phase 1 — Amazon Safe Beta"
   // (2026-09-22) — un produit sans donnée commerce (asin/imageUrl absents, ex. catalogue éditorial
@@ -301,7 +305,8 @@ function RecommendationCard({
   // quel que soit le contenu du produit.
   const amazonEnabled = isAmazonAffiliateEnabled();
   const hasAmazonLink = amazonEnabled && !!gift.asin;
-  const showAmazonImage = amazonEnabled && !!gift.imageUrl && !imageFailed;
+  // v1.1 — liens seuls : AUCUNE image ni prix Amazon affichés (réservés à l'API officielle du programme).
+  // Le visuel est toujours l'émoji du produit ; le prix reste interne (budget/scoring).
   // CHANTIER "Pré-bêta Phase 1B — Safe Beta prix historiques" (2026-09-22) — `gift.price` sur un
   // produit historique (asin présent) est un SNAPSHOT marchand vérifié à une date passée (voir
   // giftCatalog.ts : "Chaque ASIN a été vérifié en direct sur Amazon.fr... le 2026-09-11"), pas un
@@ -310,15 +315,11 @@ function RecommendationCard({
   // jamais laisser croire à un prix marchand courant. Un produit éditorial (asin absent) n'a jamais
   // eu ce problème — son prix est une référence Pensif assumée, toujours affichable, quel que soit
   // le flag (voir amazonAffiliate.ts/docs/amazon-affiliate.md).
-  const showPrice = amazonEnabled || !gift.asin;
+  const showPrice = !gift.asin;
   const TopRow = (
     <>
       <View style={[styles.thumb, { backgroundColor: theme.sageTint }]}>
-        {showAmazonImage ? (
-          <Image source={{ uri: gift.imageUrl }} style={styles.thumbImage} resizeMode="contain" onError={() => setImageFailed(true)} />
-        ) : (
-          <Text style={{ fontSize: 22 }}>{gift.emoji}</Text>
-        )}
+        <Text style={{ fontSize: 28 }}>{gift.emoji}</Text>
       </View>
       <View style={{ flex: 1 }}>
         {medal && <Text style={{ fontSize: 12 }}>{medal}</Text>}
@@ -331,18 +332,11 @@ function RecommendationCard({
             un produit historique tant qu'Amazon est OFF (voir showPrice ci-dessus). */}
         {showPrice && <Text style={[styles.giftPrice, { color: theme.accentStrong }]}>{gift.price} €</Text>}
       </View>
-      {hasAmazonLink && <Ionicons name="open-outline" size={18} color={theme.inkSoft} />}
     </>
   );
   return (
     <View style={[styles.recoCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
-      {hasAmazonLink ? (
-        <Pressable onPress={() => Linking.openURL(amazonUrl(gift.asin!))} style={styles.recoTop}>
-          {TopRow}
-        </Pressable>
-      ) : (
-        <View style={styles.recoTop}>{TopRow}</View>
-      )}
+      <View style={styles.recoTop}>{TopRow}</View>
       <Text style={[styles.giftWhy, { color: theme.inkSoft }]}>{whyForContact(candidate, contact)}</Text>
       <View style={styles.recoActions}>
         <Pressable onPress={onLike} style={[styles.recoActionBtn, { borderColor: theme.line }]}>
@@ -354,6 +348,20 @@ function RecommendationCard({
           <Text style={{ color: theme.inkSoft, fontSize: 12, fontWeight: '600' }}>Pas convaincu</Text>
         </Pressable>
       </View>
+      {hasAmazonLink && (
+        <>
+          <Pressable
+            onPress={() => Linking.openURL(amazonUrl(gift.asin!))}
+            accessibilityRole="link"
+            accessibilityLabel={`Voir ${gift.title} sur Amazon`}
+            style={[styles.amazonBtn, { backgroundColor: theme.accent }]}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Voir sur Amazon</Text>
+            <Ionicons name="open-outline" size={16} color="#fff" />
+          </Pressable>
+          <Text style={[styles.affiliateNote, { color: theme.inkSoft }]}>Lien affilié · Pensif peut percevoir une commission</Text>
+        </>
+      )}
     </View>
   );
 }
@@ -369,8 +377,9 @@ const styles = StyleSheet.create({
   budgetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   recoCard: { borderWidth: 1, borderRadius: 16, padding: 12, marginBottom: 12 },
   recoTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  thumb: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  thumbImage: { width: '100%', height: '100%' },
+  amazonBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 12, marginTop: 10 },
+  affiliateNote: { fontSize: 11, textAlign: 'center', marginTop: 6 },
+  thumb: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   giftTitle: { fontWeight: '700', fontSize: 14, marginTop: 1 },
   giftWhy: { fontSize: 12, marginTop: 10, lineHeight: 16 },
   giftPrice: { fontWeight: '700', fontSize: 14, marginTop: 4 },

@@ -519,15 +519,46 @@ function notStyleTaxonomyPenalty(gift: CuratedGift, feedback: ReturnType<typeof 
   return Math.min(penalty, 20);
 }
 
+/** v1.1 — chaque refus « Trop cher » abaisse de 20 % la cible de prix (2 refus maximum pris en compte). */
+const TOO_EXPENSIVE_TARGET_FACTOR = 0.8;
+const TOO_EXPENSIVE_MAX_COUNTED = 2;
+/** Budget « 100 € et + » (illimité) : cible de référence pour le bonus. */
+const OPEN_BUDGET_TARGET = 115;
+
+export function budgetTargetFor(maxEuros: number, feedback: ReadonlyArray<{ reason: string }>): number {
+  const base = Number.isFinite(maxEuros) ? maxEuros : OPEN_BUDGET_TARGET;
+  const n = Math.min(feedback.filter((f) => f.reason === 'too_expensive').length, TOO_EXPENSIVE_MAX_COUNTED);
+  return base * Math.pow(TOO_EXPENSIVE_TARGET_FACTOR, n);
+}
+
+/** v1.1 — adéquation au budget : privilégie les idées proches de la cible plutôt que les moins chères
+ *  (le plafond dur reste appliqué en amont). Même ordre de grandeur qu'une réponse d'affinage (12). */
+export function budgetFitBonus(price: number, target: number): number {
+  if (!(target > 0)) return 0;
+  const ratio = price / target;
+  if (ratio >= 0.6) return 14;
+  if (ratio >= 0.4) return 6;
+  return 0;
+}
+
 /**
  * Génère les candidats compatibles avec le budget, scorés du meilleur au moins bon. Contrainte de
  * budget forte (les produits hors budget sont simplement retirés, pas juste pénalisés) ; si le
  * pool sur les intérêts choisis est trop restreint (<6, ex. un seul centre d'intérêt sélectionné),
  * élargissement automatique à tout le catalogue pour garder assez de choix à scorer.
  */
-export function generateCandidates(contact: Contact, budget: BudgetRequest, excludeGiftIds: string[] = []): ScoredCandidate[] {
+export function generateCandidates(
+  contact: Contact,
+  budget: BudgetRequest,
+  excludeGiftIds: string[] = [],
+  options: { linkableOnly?: boolean } = {}
+): ScoredCandidate[] {
   if (!isQuizComplete(contact.quiz)) return [];
   const quiz = normalizeQuizProfile(contact.quiz);
+  // v1.1 — `linkableOnly` est passé par l'écran (le moteur ne lit jamais le drapeau Amazon lui-même) :
+  // les produits sans ASIN ne sont alors jamais proposés.
+  const catalog = options.linkableOnly ? CURATED_GIFTS.filter((g) => !!g.asin) : CURATED_GIFTS;
+  const budgetTarget = budgetTargetFor(budget.maxEuros, quiz.feedback);
   const traits = computeTraits(quiz.answers);
   // Plafonnés (3 occurrences suffisent à atteindre le maximum) pour qu'un contact avec beaucoup de
   // refus accumulés ne finisse pas par écraser l'intérêt/le budget/les réponses du quiz — même
@@ -540,8 +571,8 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
   // voir GiftsScreen.tsx (sessionExcluded stocke désormais des `gift.id`, jamais des ASIN).
   const excludedSet = new Set(excludeGiftIds);
 
-  const onInterests = CURATED_GIFTS.filter((g) => quiz.interests.includes(g.theme) && g.price <= budget.maxEuros);
-  const pool = onInterests.length >= 6 ? onInterests : CURATED_GIFTS.filter((g) => g.price <= budget.maxEuros);
+  const onInterests = catalog.filter((g) => quiz.interests.includes(g.theme) && g.price <= budget.maxEuros);
+  const pool = onInterests.length >= 6 ? onInterests : catalog.filter((g) => g.price <= budget.maxEuros);
 
   return pool
     .filter(
@@ -616,6 +647,7 @@ export function generateCandidates(contact: Contact, budget: BudgetRequest, excl
       if (g.trait === 'curious') score += originalityBoost;
       if (g.trait === 'sentimental') score += personalBoost;
       score += likedBonus;
+      score += budgetFitBonus(g.price, budgetTarget);
       return {
         gift: g,
         score,

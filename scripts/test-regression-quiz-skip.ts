@@ -166,7 +166,7 @@ console.log('\n[8] Reproduction Lecture EXACTE (consigne §8) — aucune ancienn
   // (2 matches supplémentaires = 24, exactement l'écart entre 93 avant correctif et 69 après).
   check(
     "reading-light retombe à un score cohérent SANS le bonus contexte=lit/besoin=confort (69, pas 93)",
-    readingLight.score === 69,
+    readingLight.score === 69 + 6, // v1.1 : +6 = bonus d'adéquation au budget (17 € / 30 €)
     `score réel=${readingLight.score}`,
   );
   check("reading-light n'est plus dans le Top 3 (n'y était que grâce aux anciennes réponses)", !top.some((c) => c.gift.id === 'lecture-20'));
@@ -178,7 +178,7 @@ console.log('\n[8] Reproduction Lecture EXACTE (consigne §8) — aucune ancienn
   // seul `format` (légitimement répondu) contribue encore à `reasons.themeAnswer=true`.
   check(
     "lecture-science-nature ne profite plus d'un match taxonomy sujet=science (score cohérent, pas le +12 de l'ancien sujet)",
-    scienceNature.score === 62,
+    scienceNature.score === 62 + 14, // v1.1 : +14 = bonus d'adéquation au budget
     `score=${scienceNature.score} themeAnswer=${scienceNature.reasons.themeAnswer}`,
   );
 }
