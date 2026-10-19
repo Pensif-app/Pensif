@@ -167,5 +167,12 @@ console.log('\n[6] Lien affilié et configuration');
   check('GiftsScreen passe linkableOnly au moteur', screen.includes('linkableOnly: isAmazonAffiliateEnabled()'));
 }
 
+console.log('\n[7] Aucune image Amazon stockée (Licence PI, art. 2.c.viii)');
+{
+  check('aucun produit du catalogue ne porte d’imageUrl', CURATED_GIFTS.every((g) => (g as any).imageUrl === undefined));
+  const catalogSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'data', 'giftCatalog.ts'), 'utf8');
+  check('aucune URL d’image Amazon dans le code du catalogue', !catalogSrc.includes('media-amazon.com'));
+}
+
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);
 if (failures > 0) throw new Error(`${failures} test(s) de non-régression ont échoué`);

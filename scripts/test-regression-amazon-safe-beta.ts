@@ -36,7 +36,7 @@ function isAmazonAffiliateEnabled(): boolean {
 /** Reproduit EXACTEMENT GiftsScreen.tsx::RecommendationCard (hasAmazonLink/showAmazonImage/
  *  showPrice — ce dernier ajouté par "Pré-bêta Phase 1B", voir son commentaire dédié dans le
  *  fichier réel). */
-function renderState(gift: Pick<CuratedGift, 'asin' | 'imageUrl'>, imageFailed: boolean) {
+function renderState(gift: Pick<CuratedGift, 'asin'> & { imageUrl?: string }, imageFailed: boolean) {
   const amazonEnabled = isAmazonAffiliateEnabled();
   const hasAmazonLink = amazonEnabled && !!gift.asin;
   // v1.1 — liens seuls : jamais d'image distante ni de prix pour un produit à lien, flag ON comme OFF.

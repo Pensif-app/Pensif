@@ -1004,7 +1004,7 @@ console.log('\n[34] Phase 6B — produit synthétique SANS commerce (test-only, 
     taxonomy: { format: ['papier'] },
     // asin et imageUrl DÉLIBÉRÉMENT absents.
   };
-  check('le gift synthétique n’a bien ni asin ni imageUrl (absence volontaire, pas un oubli)', noCommerceGift.asin === undefined && noCommerceGift.imageUrl === undefined);
+  check('le gift synthétique n’a bien ni asin ni imageUrl (absence volontaire, pas un oubli)', noCommerceGift.asin === undefined && (noCommerceGift as any).imageUrl === undefined);
 
   const syntheticCandidate: ScoredCandidate = {
     gift: noCommerceGift,
@@ -1051,7 +1051,7 @@ console.log('\n[35] Phase 7A — catalogue éditorial jeux_societe (11 cadeaux, 
   check('11 produits jeux_societe présents', jeuxProducts.length === 11);
   check('gift.id uniques parmi les 11', new Set(jeuxProducts.map((g) => g.id)).size === 11);
   check('asin absent sur les 11 (catalogue éditorial, pas de dépendance Amazon)', jeuxProducts.every((g) => g.asin === undefined));
-  check('imageUrl absente sur les 11', jeuxProducts.every((g) => g.imageUrl === undefined));
+  check('imageUrl absente sur les 11', jeuxProducts.every((g) => (g as any).imageUrl === undefined));
   check(
     "les 11 giftConcept correspondent exactement aux concepts validés Phase 5C (aucun 'dice-game' réintroduit)",
     jeuxProducts.map((g) => g.giftConcept).sort().join(',') ===
@@ -1114,7 +1114,7 @@ console.log('\n[37] Phase 7B — catalogue éditorial science (11 cadeaux, sans 
   check('11 produits science présents', scienceProducts.length === 11);
   check('gift.id uniques parmi les 11', new Set(scienceProducts.map((g) => g.id)).size === 11);
   check('asin absent sur les 11 (catalogue éditorial, pas de dépendance Amazon)', scienceProducts.every((g) => g.asin === undefined));
-  check('imageUrl absente sur les 11', scienceProducts.every((g) => g.imageUrl === undefined));
+  check('imageUrl absente sur les 11', scienceProducts.every((g) => (g as any).imageUrl === undefined));
   check(
     "les 11 giftConcept correspondent exactement aux concepts validés Phase 5C (popular-science-book EXCLU)",
     scienceProducts.map((g) => g.giftConcept).sort().join(',') ===
@@ -1217,7 +1217,7 @@ console.log('\n[39] Phase 7C — catalogue éditorial beaute (12 cadeaux, sans c
   check('12 produits beaute présents', beauteProducts.length === 12);
   check('gift.id uniques parmi les 12', new Set(beauteProducts.map((g) => g.id)).size === 12);
   check('asin absent sur les 12 (catalogue éditorial, pas de dépendance Amazon)', beauteProducts.every((g) => g.asin === undefined));
-  check('imageUrl absente sur les 12', beauteProducts.every((g) => g.imageUrl === undefined));
+  check('imageUrl absente sur les 12', beauteProducts.every((g) => (g as any).imageUrl === undefined));
   check(
     "les 12 giftConcept correspondent exactement aux concepts validés (makeup-palette/premium-moisturizer/perfume-premium EXCLUS)",
     beauteProducts.map((g) => g.giftConcept).sort().join(',') ===
@@ -1342,7 +1342,7 @@ console.log('\n[42] Phase 7D — catalogue éditorial de livres (12 cadeaux, 2 p
   check('12 nouveaux cadeaux lecture présents exactement', books.length === 12);
   check('gift.id uniques parmi les 12', new Set(books.map((g) => g.id)).size === 12);
   check('asin absent sur les 12 (catalogue éditorial, pas de dépendance Amazon)', books.every((g) => g.asin === undefined));
-  check('imageUrl absente sur les 12', books.every((g) => g.imageUrl === undefined));
+  check('imageUrl absente sur les 12', books.every((g) => (g as any).imageUrl === undefined));
   check('theme=lecture sur les 12 (jamais science/finance)', books.every((g) => g.theme === 'lecture'));
   check("format=['papier'] sur les 12", books.every((g) => g.taxonomy?.format?.join(',') === 'papier'));
 
