@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { isAmazonAffiliateEnabled } from '../lib/amazonAffiliate';
 import { ActivityIndicator, Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -593,6 +594,13 @@ export function SettingsScreen() {
           </React.Fragment>
         ))}
       </Card>
+
+      {isAmazonAffiliateEnabled() && (
+        <Text style={[styles.rowSub, { color: theme.inkSoft, marginHorizontal: 4, marginBottom: 16 }]}>
+          Les idées cadeaux renvoient vers Amazon.fr par des liens affiliés : tes achats via ces liens soutiennent Pensif, sans surcoût pour toi.
+          En tant que Partenaire Amazon, Pensif réalise un bénéfice sur les achats remplissant les conditions requises.
+        </Text>
+      )}
 
       <SectionLabel theme={theme}>À PROPOS</SectionLabel>
       <Card theme={theme}>

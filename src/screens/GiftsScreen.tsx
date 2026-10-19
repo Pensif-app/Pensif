@@ -2,7 +2,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
 import { Pill } from '../components/Pill';
@@ -16,7 +16,6 @@ import {
   generateCandidates,
   PRECISION_LABELS,
   precisionLevel,
-  REJECT_REASON_LABELS,
   ScoredCandidate,
   topRecommendations,
   whyForContact,
@@ -143,17 +142,12 @@ export function GiftsScreen() {
     setSessionExcluded((prev) => [...prev, giftId]);
     setRejectTarget(null);
 
-    // "Trop cher" ne modifie jamais silencieusement un budget permanent — le budget appartient à
-    // cette recherche, pas au profil du contact. On propose juste, explicitement, de le baisser
-    // pour CETTE session : si accepté, ça ne fait qu'ajuster le curseur déjà affiché à l'écran.
+    // v1.1 — "Trop cher" agit tout de suite et visiblement : le curseur de budget de CETTE recherche
+    // descend de 25 % (jamais le profil du contact), et le moteur abaisse en plus sa cible de prix
+    // (voir budgetTargetFor, recommendationEngine.ts).
     if (reason === 'too_expensive') {
-      const lower = clampBudget(Math.round(sliderValue * 0.75));
-      if (lower < sliderValue) {
-        Alert.alert('Chercher moins cher ?', `Voir les idées à ${lower}€ et moins ?`, [
-          { text: 'Non merci', style: 'cancel' },
-          { text: `Oui, ${lower}€`, onPress: () => commitSlider(lower) },
-        ]);
-      }
+      const lower = clampBudget(Math.round((sliderValue * 0.75) / 5) * 5);
+      if (lower < sliderValue) commitSlider(lower);
     }
   }
 
@@ -239,11 +233,6 @@ export function GiftsScreen() {
                   <Text style={{ color: theme.accent, fontWeight: '700' }}>{showAll ? 'Réduire' : 'Tout voir'}</Text>
                 </Pressable>
               )}
-              {isAmazonAffiliateEnabled() && (
-                <Text style={[styles.affiliateNote, { color: theme.inkSoft, marginBottom: 8 }]}>
-                  Les liens Amazon sont des liens affiliés : en achetant via ces liens, tu soutiens Pensif sans payer plus cher.
-                </Text>
-              )}
             </>
           )}
         </>
@@ -261,9 +250,9 @@ export function GiftsScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setRejectTarget(null)}>
           <Pressable style={[styles.modalCard, { backgroundColor: theme.card }]} onPress={() => {}}>
             <Text style={[styles.modalTitle, { color: theme.ink }]}>Pourquoi cette idée ne convient pas ?</Text>
-            {(Object.keys(REJECT_REASON_LABELS) as RejectReason[]).map((reason) => (
-              <Pressable key={reason} onPress={() => handleReject(reason)} style={[styles.modalRow, { borderColor: theme.line }]}>
-                <Text style={{ color: theme.ink, fontSize: 14 }}>{REJECT_REASON_LABELS[reason]}</Text>
+            {REJECT_CHOICES.map((choice) => (
+              <Pressable key={choice.reason} onPress={() => handleReject(choice.reason)} style={[styles.modalRow, { borderColor: theme.line }]}>
+                <Text style={{ color: theme.ink, fontSize: 14 }}>{choice.label}</Text>
               </Pressable>
             ))}
           </Pressable>
@@ -272,6 +261,13 @@ export function GiftsScreen() {
     </Screen>
   );
 }
+
+/** v1.1 — seuls deux motifs de refus sont proposés (les autres valeurs de RejectReason restent valides
+ *  pour les données déjà enregistrées). */
+const REJECT_CHOICES: { reason: RejectReason; label: string }[] = [
+  { reason: 'too_expensive', label: 'Trop cher' },
+  { reason: 'not_his_style', label: 'Je n’aime pas' },
+];
 
 /** Carte de recommandation cliquable vers Amazon, avec explication personnalisée et les actions
  *  ♡ "J'aime cette idée" / ↻ "Pas convaincu". Tente la vraie photo produit, repli sur l'emoji si
@@ -359,7 +355,6 @@ function RecommendationCard({
             <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Voir sur Amazon</Text>
             <Ionicons name="open-outline" size={16} color="#fff" />
           </Pressable>
-          <Text style={[styles.affiliateNote, { color: theme.inkSoft }]}>Lien affilié · Pensif peut percevoir une commission</Text>
         </>
       )}
     </View>

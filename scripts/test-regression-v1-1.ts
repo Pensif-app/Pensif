@@ -158,8 +158,11 @@ console.log('\n[6] Lien affilié et configuration');
   check('localisations = [fr]', JSON.stringify(plist.CFBundleLocalizations) === '["fr"]');
   const screen = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'GiftsScreen.tsx'), 'utf8');
   check('bouton « Voir sur Amazon » présent', screen.includes('Voir sur Amazon'));
-  check('mention « Lien affilié » sur la carte', screen.includes('Lien affilié'));
-  check('phrase de mention sous la liste', screen.includes('Les liens Amazon sont des liens affiliés'));
+  const settings = fs.readFileSync(path.join(__dirname, '..', 'src', 'screens', 'SettingsScreen.tsx'), 'utf8');
+  check('plus de mention répétée sur chaque carte', !screen.includes('Lien affilié'));
+  check('mention d’affiliation dans les Réglages, conditionnée au mode Amazon', settings.includes('liens affiliés') && settings.includes('isAmazonAffiliateEnabled()') && settings.includes('Partenaire Amazon'));
+  check('deux motifs de refus seulement : trop cher / je n’aime pas', screen.includes("reason: 'too_expensive'") && screen.includes("reason: 'not_his_style'") && !screen.includes('REJECT_REASON_LABELS'));
+  check('« Trop cher » abaisse le curseur sans alerte', !screen.includes('Alert.alert') && screen.includes('commitSlider(lower)'));
   check('le bouton est le seul point d’ouverture du lien', (screen.match(/Linking\.openURL/g) ?? []).length === 1);
   check('GiftsScreen passe linkableOnly au moteur', screen.includes('linkableOnly: isAmazonAffiliateEnabled()'));
 }
