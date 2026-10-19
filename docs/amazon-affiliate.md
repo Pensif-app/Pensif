@@ -17,10 +17,11 @@ Inliné à la compilation : il se règle dans l'environnement EAS `production` (
 - Les ASIN peuvent être stockés sans limite de durée.
 - Chaque lien pointe uniquement vers la page produit Amazon.fr, jamais vers un autre site.
 - Interdit : acheter via ses propres liens ou faire acheter des proches (§6(u) des règles du programme).
-- Mention d'affiliation obligatoire (loi française et programme) : texte dans les Réglages
-  (« En tant que Partenaire Amazon, Pensif réalise un bénéfice sur les achats remplissant les
-  conditions requises. ») + politique de confidentialité. **À confirmer avec le support Amazon**
-  (message du 20 octobre 2026) : suffisance de la mention dans les Réglages.
+- Mention d'affiliation obligatoire (loi française et programme), claire et visible à proximité des liens
+  (réponse du support Amazon Partenaires, 21 octobre 2026) : **une ligne unique sur l'écran Idées cadeaux, sous le
+  budget** (« Liens affiliés Amazon. En tant que Partenaire Amazon, Pensif réalise un bénéfice sur les achats
+  remplissant les conditions requises. »), le même texte dans les Réglages et la politique de confidentialité.
+  Le support a validé la formulation, et confirmé que les rapports n'identifient pas les acheteurs.
 
 ## 3 — Comportement
 

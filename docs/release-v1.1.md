@@ -14,7 +14,7 @@ TestFlight → soumission (vers le 8-10 novembre 2026).
 >   embedded web view and no in-app purchase or payment.
 > - No account and no purchase is needed to review the feature.
 > - The app shows no Amazon images, prices or text. An affiliate disclosure ("As an Amazon Partner,
->   Pensif earns from qualifying purchases") is in Settings, and the privacy policy documents it.
+>   Pensif earns from qualifying purchases") is shown on the Gift ideas screen and in Settings, and the privacy policy documents it.
 > - Gift ideas are computed on the device from the contact's quiz answers. The affiliate link contains only
 >   the product identifier and Pensif's partner tag; it contains no user or contact data.
 > - The AI features (voice capture, smart replies) remain opt-in through the consent screens added in 1.0.

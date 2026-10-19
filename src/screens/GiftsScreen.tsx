@@ -205,6 +205,14 @@ export function GiftsScreen() {
             />
           </View>
 
+          {/* v1.1 — mention d'affiliation UNIQUE, visible sur l'écran des idées (réponse du support Amazon
+              Partenaires du 2026-10-21 : mention claire, visible, à proximité des liens). */}
+          {isAmazonAffiliateEnabled() && (
+            <Text style={[styles.affiliateLine, { color: theme.inkSoft }]}>
+              Liens affiliés Amazon. En tant que Partenaire Amazon, Pensif réalise un bénéfice sur les achats remplissant les conditions requises.
+            </Text>
+          )}
+
           {top.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
               <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
@@ -373,7 +381,7 @@ const styles = StyleSheet.create({
   recoCard: { borderWidth: 1, borderRadius: 16, padding: 12, marginBottom: 12 },
   recoTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   amazonBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 12, marginTop: 10 },
-  affiliateNote: { fontSize: 11, textAlign: 'center', marginTop: 6 },
+  affiliateLine: { fontSize: 12, lineHeight: 17, marginTop: -4, marginBottom: 14, paddingHorizontal: 4 },
   thumb: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   giftTitle: { fontWeight: '700', fontSize: 14, marginTop: 1 },
   giftWhy: { fontSize: 12, marginTop: 10, lineHeight: 16 },
