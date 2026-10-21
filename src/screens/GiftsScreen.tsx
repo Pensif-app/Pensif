@@ -21,6 +21,8 @@ import {
   whyForContact,
 } from '../data/recommendationEngine';
 import { Contact, RejectReason } from '../data/types';
+import { atGiftCap, canCollapse, canShowMore, clampVisibleCount, GIFT_PAGE_SIZE, nextVisibleCount } from '../data/giftPagination';
+import { likedGiftIdSet, toggleGiftLike } from '../data/giftLikes';
 import { RootStackParamList } from '../navigation/types';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -61,8 +63,9 @@ export function GiftsScreen() {
   // pouvaient réapparaître en boucle à chaque réglage du curseur.
   const [sessionExcluded, setSessionExcluded] = useState<string[]>([]);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
-  const [likedGiftIds, setLikedGiftIds] = useState<string[]>([]);
-  const [showAll, setShowAll] = useState(false);
+  // Build 9 : pagination 3 par 3 (plafond 12, voir giftPagination.ts) ; les idées aimées se lisent dans
+  // l'historique du profil (voir giftLikes.ts), plus dans un état local qui s'effaçait en quittant l'écran.
+  const [visibleCount, setVisibleCount] = useState(GIFT_PAGE_SIZE);
 
   // Changer de contact repart d'un état propre — le budget/les exclusions n'ont pas de sens d'un
   // contact à l'autre.
@@ -70,8 +73,7 @@ export function GiftsScreen() {
     setSliderValue(initialSlider);
     setBudgetMax(initialSlider === SLIDER_MAX ? Infinity : initialSlider);
     setSessionExcluded([]);
-    setLikedGiftIds([]);
-    setShowAll(false);
+    setVisibleCount(GIFT_PAGE_SIZE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact?.id]);
 
@@ -83,6 +85,9 @@ export function GiftsScreen() {
     return generateCandidates(contact, { maxEuros: budgetMax }, sessionExcluded, { linkableOnly: isAmazonAffiliateEnabled() });
   }, [contact, budgetMax, sessionExcluded]);
   const top = topRecommendations(candidates, 3);
+  const shownCount = clampVisibleCount(visibleCount, candidates.length);
+  const shownCandidates = candidates.slice(0, shownCount);
+  const likedIds = useMemo(() => (contact?.quiz ? likedGiftIdSet(normalizeQuizProfile(contact.quiz).recommendationHistory) : new Set<string>()), [contact]);
 
   if (!contact) {
     return (
@@ -109,20 +114,21 @@ export function GiftsScreen() {
     const v = clampBudget(value);
     setSliderValue(v);
     setBudgetMax(v === SLIDER_MAX ? Infinity : v);
+    setVisibleCount(GIFT_PAGE_SIZE);
     // Un budget différent ne doit pas faire réapparaître ce qui a déjà été vu/rejeté.
   }
 
   function handleLike(giftId: string) {
     if (!contact?.quiz) return;
     const quiz = normalizeQuizProfile(contact.quiz);
-    setLikedGiftIds((prev) => [...prev, giftId]);
     upsertContact({
       ...contact,
       quiz: {
         ...quiz,
         // Nouvel écrit : uniquement la forme canonique (shownGiftIds/likedGiftIds), jamais
         // shownAsins/likedAsins — voir types.ts.
-        recommendationHistory: [...quiz.recommendationHistory, { at: new Date().toISOString(), shownGiftIds: top.map((c) => c.gift.id), likedGiftIds: [giftId] }],
+        // Un second appui retire l'idée aimée (toggleGiftLike) ; jamais d'entrée en double.
+        recommendationHistory: toggleGiftLike(quiz.recommendationHistory, giftId, shownCandidates.map((c) => c.gift.id), new Date().toISOString()),
       },
     });
   }
@@ -221,24 +227,34 @@ export function GiftsScreen() {
             </View>
           ) : (
             <>
-              {(showAll ? candidates : top).map((c, idx) => (
+              {shownCandidates.map((c, idx) => (
                 <RecommendationCard
                   key={c.gift.id}
                   candidate={c}
                   medal={MEDALS[idx] ?? null}
                   contact={contact}
                   theme={theme}
-                  liked={likedGiftIds.includes(c.gift.id)}
+                  liked={likedIds.has(c.gift.id)}
                   onLike={() => handleLike(c.gift.id)}
                   onReject={() => setRejectTarget(c.gift.id)}
                 />
               ))}
-              {candidates.length > 3 && (
+              {canShowMore(shownCount, candidates.length) && (
                 <Pressable
-                  onPress={() => setShowAll((v) => !v)}
+                  onPress={() => setVisibleCount(nextVisibleCount(shownCount, candidates.length))}
                   style={[styles.seeMoreBtn, { borderColor: theme.line, backgroundColor: theme.card }]}
                 >
-                  <Text style={{ color: theme.accent, fontWeight: '700' }}>{showAll ? 'Réduire' : 'Tout voir'}</Text>
+                  <Text style={{ color: theme.accent, fontWeight: '700' }}>Voir {GIFT_PAGE_SIZE} idées de plus</Text>
+                </Pressable>
+              )}
+              {atGiftCap(shownCount, candidates.length) && (
+                <Text style={[styles.capNote, { color: theme.inkSoft }]}>
+                  Pas convaincu ? Touche « Pas convaincu » pour affiner les propositions.
+                </Text>
+              )}
+              {canCollapse(shownCount) && (
+                <Pressable onPress={() => setVisibleCount(GIFT_PAGE_SIZE)} style={styles.collapseBtn}>
+                  <Text style={{ color: theme.inkSoft, fontWeight: '600' }}>Réduire</Text>
                 </Pressable>
               )}
             </>
@@ -251,7 +267,7 @@ export function GiftsScreen() {
         style={[styles.sentToggle, { backgroundColor: theme.card, borderColor: theme.line }]}
       >
         <View style={[styles.checkbox, sent && { backgroundColor: theme.sage, borderColor: theme.sage }]} />
-        <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau déjà envoyé</Text>
+        <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau prévu</Text>
       </Pressable>
 
       <Modal visible={rejectTarget != null} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
@@ -388,6 +404,8 @@ const styles = StyleSheet.create({
   giftPrice: { fontWeight: '700', fontSize: 14, marginTop: 4 },
   recoActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
   recoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 9 },
+  capNote: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
+  collapseBtn: { alignItems: 'center', paddingVertical: 10 },
   seeMoreBtn: { borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 2, marginBottom: 6 },
   sentToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#999' },

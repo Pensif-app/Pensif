@@ -364,7 +364,7 @@ export function MessageScreen() {
           style={[styles.sentToggle, { backgroundColor: theme.card, borderColor: theme.line }]}
         >
           <View style={[styles.checkbox, sent && { backgroundColor: theme.sage, borderColor: theme.sage }]} />
-          <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau déjà envoyé</Text>
+          <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau prévu</Text>
         </Pressable>
       )}
     </Screen>

@@ -105,9 +105,9 @@ check('ancien libellé "Suggestion IA" a bien disparu', !screenSrc.includes('Sug
 check('ancien texte "Pensif peut se tromper" a bien disparu', !screenSrc.includes('Pensif peut se tromper'));
 check('conditionné à currentAiGenerated — dérivé du ton actif (jamais affiché sur une simple édition manuelle, ni pour un autre ton)', /\{currentAiGenerated && \([\s\S]{0,150}Pensif s'appuie/.test(screenSrc));
 
-console.log('\n[§L — source] titre et "Cadeau déjà envoyé" adaptés à l’occasion (non-régression du flux birthday existant)');
+console.log('\n[§L — source] titre et "Cadeau prévu" adaptés à l’occasion (non-régression du flux birthday existant)');
 check('titre dépend de l’occasion (plus jamais "Joyeux anniversaire" figé pour thinking_of_you/event)', screenSrc.includes('OCCASION_TITLES[occasion]') && screenSrc.includes("birthday: 'Joyeux anniversaire'"));
-check('"Cadeau déjà envoyé" réservé à birthday (notion liée à l’occurrence annuelle, non pertinente ailleurs)', /\{occasion === 'birthday' && \(\s*<Pressable\s*\n\s*onPress=\{\(\) => toggleGiftSent/.test(screenSrc));
+check('"Cadeau prévu" réservé à birthday (notion liée à l’occurrence annuelle, non pertinente ailleurs)', /\{occasion === 'birthday' && \(\s*<Pressable\s*\n\s*onPress=\{\(\) => toggleGiftSent/.test(screenSrc));
 
 console.log('\n[§M — source] non-régression des 2 points d’entrée existants (aucun changement requis de leur côté)');
 const homeAttentionSrc = readSrc('src', 'data', 'homeAttention.ts');
