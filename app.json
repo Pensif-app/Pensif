@@ -16,10 +16,12 @@
       "icon": "./assets/icon-ios.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.yomic.pensif",
-      "buildNumber": "8",
+      "buildNumber": "9",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "fr",
-        "CFBundleLocalizations": ["fr"]
+        "CFBundleLocalizations": [
+          "fr"
+        ]
       },
       "config": {
         "usesNonExemptEncryption": false
