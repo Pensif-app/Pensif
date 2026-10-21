@@ -276,7 +276,7 @@ function familyFeteAttentions(contacts: Contact[], today: Date): HomeAttention[]
           date: iso,
           endDate: null,
           contactId: c.id,
-          title: `${label} — pense à ${c.prenom}`,
+          title: `${label} : pense à ${c.prenom}`,
           subtitle: offset === 0 ? "Aujourd'hui" : `Dans ${offset} j`,
           reminderLabel: null,
           horizon: horizonForDays(offset),

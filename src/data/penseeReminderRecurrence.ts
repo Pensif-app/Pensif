@@ -220,7 +220,7 @@ export function describePenseeRecurrenceValidationError(reason: PenseeRecurrence
     case 'until_in_past':
       return 'La date de fin est déjà passée.';
     case 'finite_series_exhausted':
-      return 'Cette répétition ne produirait plus aucun rappel — choisis une nouvelle date de départ ou modifie la fin.';
+      return 'Cette répétition ne produirait plus aucun rappel. Choisis une nouvelle date de départ ou modifie la fin.';
   }
 }
 

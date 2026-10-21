@@ -470,7 +470,7 @@ export function CalendarScreen() {
   const selectedEvents = getDayEvents(selected.year, selected.month, selected.day, contacts, pensees, today, userName);
   const weekLabel =
     mode === 'week'
-      ? `${weekDates[0].getDate()} ${monthAbbrev[weekDates[0].getMonth()]} – ${weekDates[6].getDate()} ${monthAbbrev[weekDates[6].getMonth()]}`
+      ? `${weekDates[0].getDate()} ${monthAbbrev[weekDates[0].getMonth()]} au ${weekDates[6].getDate()} ${monthAbbrev[weekDates[6].getMonth()]}`
       : monthLabel;
 
   function dotsFor(y: number, m: number, d: number) {
@@ -498,7 +498,7 @@ export function CalendarScreen() {
       // isPresetPast) — filet de sécurité ici au cas où l'état serait resté sur un choix devenu
       // invalide entre l'ouverture du formulaire et l'enregistrement.
       if (reminderChoice !== 'custom' && isPresetPast(parseInt(reminderChoice, 10))) {
-        Alert.alert('Rappel dans le passé', 'Ce rappel tomberait avant maintenant — choisis un délai plus court ou "Personnaliser".');
+        Alert.alert('Rappel dans le passé', 'Ce rappel tomberait avant maintenant. Choisis un délai plus court ou "Personnaliser".');
         return;
       }
       reminderAt =
@@ -953,7 +953,7 @@ export function CalendarScreen() {
                   {periodModal &&
                     (periodModal.start === periodModal.end
                       ? `${periodModal.start} ${monthFull[view.month]}`
-                      : `${periodModal.start} — ${periodModal.end} ${monthFull[view.month]}`)}
+                      : `${periodModal.start} au ${periodModal.end} ${monthFull[view.month]}`)}
                 </Text>
                 <TextInput
                   value={periodText}

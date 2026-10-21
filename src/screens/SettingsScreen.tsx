@@ -137,7 +137,7 @@ export function SettingsScreen() {
     if (signingOut) return;
     Alert.alert(
       'Se déconnecter ?',
-      "Tes données restent enregistrées et sécurisées — tu pourras les retrouver avec ton email. Seule la session sur cet appareil sera fermée.",
+      "Tes données restent enregistrées et sécurisées. Tu pourras les retrouver avec ton email. Seule la session sur cet appareil sera fermée.",
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -293,7 +293,7 @@ export function SettingsScreen() {
   function confirmSimulateReinstall() {
     Alert.alert(
       '[Dev] Simuler une réinstallation ?',
-      "Déconnecte la session et remet cet appareil à neuf côté Pensif (contacts, pensées, prénom, préférences, tutoriel), comme une première installation. Rien n'est supprimé côté serveur — l'ancien compte reste récupérable via \"J'ai déjà un compte\".",
+      "Déconnecte la session et remet cet appareil à neuf côté Pensif (contacts, pensées, prénom, préférences, tutoriel), comme une première installation. Rien n'est supprimé côté serveur : l'ancien compte reste récupérable via \"J'ai déjà un compte\".",
       [
         { text: 'Annuler', style: 'cancel' },
         {

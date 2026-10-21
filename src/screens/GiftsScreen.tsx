@@ -90,7 +90,7 @@ export function GiftsScreen() {
         <Text style={[styles.h1, { color: theme.ink }]}>Idées cadeaux</Text>
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
           <Text style={{ color: theme.inkSoft, textAlign: 'center', lineHeight: 20 }}>
-            Ce contact est introuvable — il a peut-être été supprimé depuis.
+            Ce contact est introuvable. Il a peut-être été supprimé depuis.
           </Text>
         </View>
       </Screen>

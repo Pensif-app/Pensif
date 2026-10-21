@@ -1412,7 +1412,7 @@ export function CaptureScreen() {
             {isAmbiguous ? (
               <View style={styles.fuzzyRow}>
                 <Ionicons name="help-circle-outline" size={12} color={theme.plum} />
-                <Text style={[styles.fuzzyHint, { color: theme.plum }]}>Plusieurs proches possibles — choisis lequel.</Text>
+                <Text style={[styles.fuzzyHint, { color: theme.plum }]}>Plusieurs proches possibles : choisis lequel.</Text>
               </View>
             ) : null}
             {/* CHANTIER UX — ContactPicker commun (2026-09-16) : remplace la liste de TOUS les

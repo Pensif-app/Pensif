@@ -259,7 +259,7 @@ export function PenseesScreen() {
           <Text style={[styles.emptyBody, { color: theme.inkSoft }]}>
             {isFiltered
               ? `Tu n’as pas encore confié de pensée liée à ${filterContact?.prenom ?? 'ce proche'}.`
-              : 'Note une petite chose que tu aimerais que Pensif retienne — une date n’est pas obligatoire.'}
+              : 'Note une petite chose que tu aimerais que Pensif retienne. Une date n’est pas obligatoire.'}
           </Text>
           <View style={{ marginTop: 16, width: '100%' }}>
             <PrimaryButton label="Ajouter une pensée" onPress={openCreate} />

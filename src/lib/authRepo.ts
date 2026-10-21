@@ -163,7 +163,7 @@ export function describeAuthErrorCode(code: string | undefined, fallbackMessage:
       return 'Ce code a expiré. Demande-en un nouveau.';
     case 'over_email_send_rate_limit':
     case 'over_request_rate_limit':
-      return 'Trop de tentatives — réessaie dans quelques minutes.';
+      return 'Trop de tentatives. Réessaie dans quelques minutes.';
     case 'email_provider_disabled':
     case 'signup_disabled':
     case 'anonymous_provider_disabled':

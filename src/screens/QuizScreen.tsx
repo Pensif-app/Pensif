@@ -378,7 +378,7 @@ export function QuizScreen() {
               {step === STEP_AVOID && (
                 <TagStep
                   title={formatQuizText('Et ce qu’{il} apprécie moins ?', contact)}
-                  subtitle="Facultatif — pour éviter les impairs."
+                  subtitle="Facultatif, pour éviter les impairs."
                   theme={theme}
                   selected={avoid}
                   onToggle={(t) => toggleTag(avoid, setAvoid, t)}
@@ -674,7 +674,7 @@ function AffinageOverview({
         {formatQuizText('On peut préciser ce que {prenom} aime précisément', contact)}
       </Text>
       <Text style={[styles.subtitle, { color: theme.inkSoft }]}>
-        ~30 secondes par thème, entièrement facultatif — ça rend les idées cadeaux bien plus justes.
+        ~30 secondes par thème, entièrement facultatif : ça rend les idées cadeaux bien plus justes.
       </Text>
       <ScrollView style={{ flex: 1, marginTop: 20 }} contentContainerStyle={{ gap: 10, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
         {interests.map((t) => {

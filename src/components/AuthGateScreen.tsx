@@ -45,7 +45,7 @@ export function AuthGateScreen() {
       // Succès → authGate repasse à 'none' côté store, ce composant n'est alors plus rendu du tout.
     } catch (e) {
       setLoading(false);
-      setError(e instanceof Error ? e.message : 'Impossible de démarrer — vérifie ta connexion et réessaie.');
+      setError(e instanceof Error ? e.message : 'Impossible de démarrer. Vérifie ta connexion et réessaie.');
     }
   }
 
@@ -130,7 +130,7 @@ export function AuthGateScreen() {
           {step === 'email' && (
             <>
               <Text style={[styles.subtitle, { color: theme.inkSoft }]}>
-                Entre l’email associé à ton compte Pensif — on t’envoie un code par email.
+                Entre l’email associé à ton compte Pensif : on t’envoie un code par email.
               </Text>
               <TextInput
                 value={email}

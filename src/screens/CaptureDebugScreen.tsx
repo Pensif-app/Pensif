@@ -135,7 +135,7 @@ export function CaptureDebugScreen() {
   return (
     <Screen>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <Text style={[styles.title, { color: theme.ink }]}>Capture — debug</Text>
+        <Text style={[styles.title, { color: theme.ink }]}>Capture : debug</Text>
         <Text style={[styles.sub, { color: theme.inkSoft }]}>
           Écran temporaire pour valider le chemin micro → backend, avant l’écran final.
         </Text>

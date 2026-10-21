@@ -567,7 +567,7 @@ export function getDayEvents(
     }
     const mmdd = namedayTable[normalizeName(c.prenom)];
     if (mmdd === `${pad2(month + 1)}-${pad2(day)}`) {
-      list.push({ type: 'fete', label: `${c.prenom} — fête de prénom`, kind: 'Bonus 🎉 · petite attention possible', contactId: c.id });
+      list.push({ type: 'fete', label: `${c.prenom} : fête de prénom`, kind: 'Bonus 🎉 · petite attention possible', contactId: c.id });
     }
   });
 
@@ -625,7 +625,7 @@ export function getDayEvents(
         .forEach((c) => {
           list.push({
             type: 'fete',
-            label: `${fam} — pense à ${c.prenom} !`,
+            label: `${fam} : pense à ${c.prenom} !`,
             kind: `Bonus 🎉 · ${c.relation.toLowerCase() === 'famille' ? role : c.relation}`,
             contactId: c.id,
           });

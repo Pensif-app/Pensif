@@ -137,7 +137,7 @@ export function buildCandidates(contacts: Contact[], pensees: Pensee[], today: D
     const bday0 = nextOccurrenceDate(c.date, today);
     const bday1 = nextOccurrenceDate(c.date, addDays(bday0, 1));
     const bdayTitle = `🎂 Anniversaire de ${c.prenom}`;
-    const bdayBody = "C'est aujourd'hui — un petit message lui ferait plaisir.";
+    const bdayBody = "C'est aujourd'hui, un petit message lui ferait plaisir.";
     list.push({ kind: 'oneShot', identifier: `birthday-${c.id}-current`, triggerAt: bday0, tier: 0, title: bdayTitle, body: bdayBody, data: { kind: 'birthday', contactId: c.id } });
     list.push({ kind: 'oneShot', identifier: `birthday-${c.id}-next`, triggerAt: bday1, tier: 1, title: bdayTitle, body: bdayBody, data: { kind: 'birthday', contactId: c.id } });
 

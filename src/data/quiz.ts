@@ -189,9 +189,9 @@ export function visibleInterestOptions(amazonEnabled: boolean) {
  *  ce n'est plus une question du quiz général, le budget appartient à la recherche, pas au profil. */
 export const BUDGET_OPTIONS: { key: BudgetBand; label: string; max: number }[] = [
   { key: '0-20', label: 'Moins de 20 €', max: 20 },
-  { key: '20-40', label: '20 – 40 €', max: 40 },
-  { key: '40-70', label: '40 – 70 €', max: 70 },
-  { key: '70-100', label: '70 – 100 €', max: 100 },
+  { key: '20-40', label: '20 à 40 €', max: 40 },
+  { key: '40-70', label: '40 à 70 €', max: 70 },
+  { key: '70-100', label: '70 à 100 €', max: 100 },
   { key: '100+', label: '100 € et +', max: Infinity },
 ];
 
@@ -230,26 +230,26 @@ const ARCHETYPES: { key: string; when: (t: Record<TraitKey, number>) => boolean;
     when: (t) => t.experience >= 0.5 && t.social >= 0.5,
     title: "L'aventurier",
     description:
-      'Ce qui compte, ce sont les moments vécus plus que les objets accumulés — une expérience à partager fera toujours mouche.',
+      'Ce qui compte, ce sont les moments vécus plus que les objets accumulés : une expérience à partager fera toujours mouche.',
   },
   {
     key: 'sociable',
     when: (t) => t.social >= 0.5,
     title: 'Le sociable',
-    description: 'Les sorties et les moments partagés comptent beaucoup — pense aux cadeaux qui se vivent à plusieurs.',
+    description: 'Les sorties et les moments partagés comptent beaucoup : pense aux cadeaux qui se vivent à plusieurs.',
   },
   {
     key: 'sentimental',
     when: (t) => t.sentimental >= 0.5,
     title: 'Le sentimental',
-    description: 'Attaché·e à ce qu’{il} connaît déjà et à la qualité plus qu’à la quantité — un cadeau qui a du sens compte plus que la surprise.',
+    description: 'Attaché·e à ce qu’{il} connaît déjà et à la qualité plus qu’à la quantité : un cadeau qui a du sens compte plus que la surprise.',
   },
 ];
 
 export function archetypeFor(traits: Record<TraitKey, number>, contact?: Pick<Contact, 'prenom' | 'genre'>): { title: string; description: string } {
   const match = ARCHETYPES.find((a) => a.when(traits)) ?? {
     title: 'Le curieux',
-    description: 'Un mélange équilibré de goûts — difficile à cerner en une phrase, ce qui laisse justement plein d’options pour {le}/{la} surprendre.',
+    description: 'Un mélange équilibré de goûts, difficile à cerner en une phrase, ce qui laisse justement plein d’options pour {le}/{la} surprendre.',
   };
   if (!contact) return match;
   return {
