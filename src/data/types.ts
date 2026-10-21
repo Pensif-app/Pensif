@@ -99,6 +99,10 @@ export type QuizProfile = {
     likedAsins?: string[];
   }[];
 
+  /** Build 9, lot B : idée « à offrir » choisie pour l'anniversaire de l'année `year` (voir myIdeas.ts).
+   *  Facultatif ; ignoré si l'année ne correspond plus ou si le cadeau n'est plus « prévu ». */
+  chosenGift?: { giftId: string; year: number } | null;
+
   /** Ancien "budget habituel" demandé dans le quiz général — conservé uniquement pour pré-remplir
    *  le sélecteur de budget d'une recherche (voir GiftsScreen.tsx) ; le quiz général ne l'écrit
    *  plus (le budget appartient désormais à la recherche/occasion, pas au profil du contact). */

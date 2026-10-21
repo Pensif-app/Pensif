@@ -83,7 +83,7 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
  *  modernes (voir isExcluded, likedGiftsFor, notStyleTaxonomyPenalty ci-dessous). Permet de connaître
  *  le `giftConcept`/`taxonomy` d'un produit référencé dans `quiz.feedback`/`recommendationHistory`
  *  sans dupliquer ces champs (une seule source de vérité, le catalogue). */
-function giftById(id: string | undefined): CuratedGift | undefined {
+export function giftById(id: string | undefined): CuratedGift | undefined {
   if (!id) return undefined;
   return CURATED_GIFTS.find((g) => g.id === id);
 }

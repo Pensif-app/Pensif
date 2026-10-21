@@ -184,8 +184,8 @@ console.log('\n[9] Aucun chemin UI n’échappe au flag — audit source exhaust
   walk(path.join(__dirname, '..', 'src'));
   const filesReferencingAmazonUrl = allSrcFiles.filter((f) => fs.readFileSync(f, 'utf-8').includes('amazonUrl'));
   check(
-    'amazonUrl() est référencé UNIQUEMENT dans giftCatalog.ts (définition) et GiftsScreen.tsx (seul appelant) — aucun autre chemin UI',
-    filesReferencingAmazonUrl.every((f) => f.endsWith('giftCatalog.ts') || f.endsWith('GiftsScreen.tsx')),
+    'amazonUrl() est référencé UNIQUEMENT dans giftCatalog.ts (définition) et les deux écrans de cartes cadeaux (GiftsScreen.tsx, MyIdeasScreen.tsx), tous deux protégés par le drapeau — aucun autre chemin UI',
+    filesReferencingAmazonUrl.every((f) => f.endsWith('giftCatalog.ts') || f.endsWith('GiftsScreen.tsx') || f.endsWith('MyIdeasScreen.tsx')),
     JSON.stringify(filesReferencingAmazonUrl.map((f) => path.relative(path.join(__dirname, '..'), f))),
   );
 

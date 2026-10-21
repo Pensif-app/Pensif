@@ -37,6 +37,8 @@ export type RootStackParamList = {
   // `contactId` obligatoire : un écran Cadeaux doit toujours savoir pour quel proche il est ouvert,
   // plus de sélection implicite du "prochain contact avec quiz fait" (voir chantier).
   Cadeaux: { contactId: string };
+  // Build 9, lot B : les idées aimées d'un proche (voir MyIdeasScreen.tsx).
+  MesIdees: { contactId: string };
   // Détail/édition d'une pensée (CHANTIER PENSÉES V2) — `penseeId` présent = édition d'une pensée
   // existante ; absent = création (avec un `contactId` optionnel pour pré-lier un proche, ex.
   // depuis Pensées filtré sur un proche).

@@ -9,6 +9,7 @@ import { Screen } from '../components/Screen';
 import { useStore } from '../data/store';
 import { useTheme } from '../theme';
 import { messageTemplates } from '../data/messages';
+import { chosenGiftFor } from '../data/myIdeas';
 import { monthFull } from '../data/calendar';
 import { buildMessageSuggestionContext, MessageOccasion, MessageTone } from '../data/messageSuggestion';
 import { MessageDrafts, messageDraftStorageKey } from '../data/messageDraftKey';
@@ -138,6 +139,8 @@ export function MessageScreen() {
   }
 
   const sent = giftSentIds.includes(contact.id);
+  // Build 9, lot B : rappel de l'idée choisie (information seulement, jamais envoyée dans le message ni au modèle IA).
+  const chosenGift = occasion === 'birthday' ? chosenGiftFor(contact, today) : null;
   // Valeurs AFFICHÉES pour le ton actif — dérivées, jamais un état séparé qui pourrait diverger de
   // `drafts`. Absence de brouillon pour ce ton = valeur par défaut (template birthday, vide sinon).
   const currentEntry = drafts[tone];
@@ -364,7 +367,9 @@ export function MessageScreen() {
           style={[styles.sentToggle, { backgroundColor: theme.card, borderColor: theme.line }]}
         >
           <View style={[styles.checkbox, sent && { backgroundColor: theme.sage, borderColor: theme.sage }]} />
-          <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau prévu</Text>
+          <Text style={{ color: theme.ink, fontWeight: '600', flex: 1 }} numberOfLines={2}>
+            {chosenGift ? `Cadeau prévu : ${chosenGift.title}` : 'Cadeau prévu'}
+          </Text>
         </Pressable>
       )}
     </Screen>

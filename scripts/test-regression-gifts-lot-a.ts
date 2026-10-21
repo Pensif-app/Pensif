@@ -88,7 +88,7 @@ console.log('\n[4] Écran Idées : pagination, cœur persistant, libellé');
   check('le cœur se lit dans l’historique du profil, plus dans un état local', screen.includes('likedGiftIdSet(') && !screen.includes('setLikedGiftIds'));
   check('le cœur bascule via toggleGiftLike', screen.includes('toggleGiftLike('));
   check('un changement de budget revient à la première page', /function commitSlider[\s\S]{0,400}setVisibleCount\(GIFT_PAGE_SIZE\)/.test(screen));
-  check('libellé « Cadeau prévu » sur l’écran Idées et l’écran Message', screen.includes('>Cadeau prévu<') && message.includes('>Cadeau prévu<'));
+  check('libellé « Cadeau prévu » sur l’écran Idées et l’écran Message', screen.includes("'Cadeau prévu'") && message.includes("'Cadeau prévu'"));
   check('plus aucun « Cadeau déjà envoyé » dans l’app', !screen.includes('Cadeau déjà envoyé') && !message.includes('Cadeau déjà envoyé'));
   // sanity : 162 candidats possibles avec un seul thème (cause du problème d’origine)
   const one = generateCandidates({

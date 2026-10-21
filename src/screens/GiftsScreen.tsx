@@ -23,6 +23,7 @@ import {
 import { Contact, RejectReason } from '../data/types';
 import { atGiftCap, canCollapse, canShowMore, clampVisibleCount, GIFT_PAGE_SIZE, nextVisibleCount } from '../data/giftPagination';
 import { likedGiftIdSet, toggleGiftLike } from '../data/giftLikes';
+import { chosenGiftFor, savedIdeasFor } from '../data/myIdeas';
 import { RootStackParamList } from '../navigation/types';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -87,6 +88,8 @@ export function GiftsScreen() {
   const top = topRecommendations(candidates, 3);
   const shownCount = clampVisibleCount(visibleCount, candidates.length);
   const shownCandidates = candidates.slice(0, shownCount);
+  const savedCount = useMemo(() => (contact ? savedIdeasFor(contact).length : 0), [contact]);
+  const chosenGift = contact ? chosenGiftFor(contact, today) : null;
   const likedIds = useMemo(() => (contact?.quiz ? likedGiftIdSet(normalizeQuizProfile(contact.quiz).recommendationHistory) : new Set<string>()), [contact]);
 
   if (!contact) {
@@ -211,6 +214,17 @@ export function GiftsScreen() {
             />
           </View>
 
+          {savedCount > 0 && (
+            <Pressable
+              onPress={() => navigation.navigate('MesIdees', { contactId: contact.id })}
+              style={[styles.myIdeasLink, { borderColor: theme.line, backgroundColor: theme.card }]}
+            >
+              <Ionicons name="heart" size={16} color={theme.plum} />
+              <Text style={{ color: theme.ink, fontWeight: '700', flex: 1 }}>Mes idées pour {contact.prenom} ({savedCount})</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.inkSoft} />
+            </Pressable>
+          )}
+
           {/* v1.1 — mention d'affiliation UNIQUE, visible sur l'écran des idées (réponse du support Amazon
               Partenaires du 2026-10-21 : mention claire, visible, à proximité des liens). */}
           {isAmazonAffiliateEnabled() && (
@@ -267,7 +281,9 @@ export function GiftsScreen() {
         style={[styles.sentToggle, { backgroundColor: theme.card, borderColor: theme.line }]}
       >
         <View style={[styles.checkbox, sent && { backgroundColor: theme.sage, borderColor: theme.sage }]} />
-        <Text style={{ color: theme.ink, fontWeight: '600' }}>Cadeau prévu</Text>
+        <Text style={{ color: theme.ink, fontWeight: '600', flex: 1 }} numberOfLines={2}>
+          {chosenGift ? `Cadeau prévu : ${chosenGift.title}` : 'Cadeau prévu'}
+        </Text>
       </Pressable>
 
       <Modal visible={rejectTarget != null} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
@@ -407,6 +423,7 @@ const styles = StyleSheet.create({
   capNote: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
   collapseBtn: { alignItems: 'center', paddingVertical: 10 },
   seeMoreBtn: { borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 2, marginBottom: 6 },
+  myIdeasLink: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 12 },
   sentToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#999' },
   emptyCard: { borderWidth: 1, borderRadius: 16, padding: 24, marginTop: 8, marginBottom: 8 },

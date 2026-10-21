@@ -12,6 +12,7 @@ import { PenseesScreen } from '../screens/PenseesScreen';
 import { GiftsScreen } from '../screens/GiftsScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
 import { FicheScreen } from '../screens/FicheScreen';
+import { MyIdeasScreen } from '../screens/MyIdeasScreen';
 import { MessageScreen } from '../screens/MessageScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { QuizScreen } from '../screens/QuizScreen';
@@ -109,6 +110,7 @@ export function RootNavigator({ onReady }: { onReady?: () => void } = {}) {
         {/* Destination contextuelle, plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) —
             toujours ouvert avec un contactId précis (Accueil, Fiche, Calendrier, notification). */}
         <Stack.Screen name="Cadeaux" component={GiftsScreen} options={{ title: '' }} />
+        <Stack.Screen name="MesIdees" component={MyIdeasScreen} options={{ title: '' }} />
         <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
         {/* Pas de `title` statique : PenseeDetailScreen fixe lui-même son titre ("Nouvelle pensée"
             vs "Modifier la pensée") — même principe que Fiche (voir CHANTIER PENSÉES V2). */}
