@@ -7,6 +7,8 @@ import { occurrenceYear } from '../src/data/calendar';
 import { withGiftLiked } from '../src/data/giftLikes';
 import { chosenGiftFor, savedGiftIdsLatestFirst, savedIdeasFor, withChosenGift, withIdeaRemoved, withoutChosenGift } from '../src/data/myIdeas';
 import { normalizeQuizProfile } from '../src/data/quiz';
+import { generateCandidates } from '../src/data/recommendationEngine';
+import { likedGiftIdSet } from '../src/data/giftLikes';
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: string) {
@@ -96,6 +98,24 @@ console.log('\n[4] Synchronisation et écrans');
   const edgePrompt = read('supabase', 'functions', 'suggest-message', 'prompt.ts');
   const ctx = read('src', 'data', 'messageSuggestion.ts');
   check('l’idée choisie n’est jamais envoyée au modèle IA', !ctx.includes('chosenGift') && !edgePrompt.includes('chosenGift'));
+}
+
+console.log('\n[5] Une idée aimée quitte la liste des idées et va dans « Mes idées »');
+{
+  const c0 = contact([]);
+  const before = generateCandidates(c0, { maxEuros: Infinity }, [], { linkableOnly: true });
+  const target = before[0].gift.id;
+  const liked = contact(withGiftLiked([], target, [target], '2026-10-22T10:00:00.000Z'));
+  const ids = likedGiftIdSet(normalizeQuizProfile(liked.quiz!).recommendationHistory);
+  const after = generateCandidates(liked, { maxEuros: Infinity }, [...ids], { linkableOnly: true });
+  check('l’idée aimée n’est plus dans les candidats affichés', !after.some((c) => c.gift.id === target) && after.length === before.length - 1);
+  check('elle est bien dans « Mes idées »', savedIdeasFor(liked).some((g) => g.id === target));
+  const gifts = read('src', 'screens', 'GiftsScreen.tsx');
+  check('l’écran Idées exclut les idées aimées de la liste', gifts.includes('[...sessionExcluded, ...likedIds]'));
+  check('confirmation brève « ajoutée à Mes idées »', gifts.includes('ajoutée à Mes idées') && gifts.includes('setSavedNotice'));
+  const retired = contact(h);
+  const again = generateCandidates(retired, { maxEuros: Infinity }, [...likedGiftIdSet(normalizeQuizProfile(retired.quiz!).recommendationHistory)], { linkableOnly: true });
+  check('une idée retirée de « Mes idées » peut revenir dans la liste', again.length > 0);
 }
 
 console.log(`\n${failures === 0 ? 'TOUS LES TESTS PASSENT' : `${failures} ÉCHEC(S)`}`);

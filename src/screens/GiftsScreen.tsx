@@ -1,7 +1,7 @@
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/Screen';
@@ -81,16 +81,23 @@ export function GiftsScreen() {
   // Le Top 3 est directement dérivé de candidates (trié par score) plutôt que "figé puis patché" —
   // rejeter un candidat l'ajoute simplement à sessionExcluded, et le 4e de la liste triée prend
   // naturellement sa place. Une seule source de vérité, donc pas de désynchronisation possible.
+  // Build 9 : une idée aimée quitte cette liste et va dans « Mes idées pour Prénom » (elle continue d'orienter
+  // les recommandations, via l'historique lu par le moteur). On la retire donc des candidats affichés.
+  const likedIds = useMemo(() => (contact?.quiz ? likedGiftIdSet(normalizeQuizProfile(contact.quiz).recommendationHistory) : new Set<string>()), [contact]);
   const candidates = useMemo<ScoredCandidate[]>(() => {
     if (!contact) return [];
-    return generateCandidates(contact, { maxEuros: budgetMax }, sessionExcluded, { linkableOnly: isAmazonAffiliateEnabled() });
-  }, [contact, budgetMax, sessionExcluded]);
+    return generateCandidates(contact, { maxEuros: budgetMax }, [...sessionExcluded, ...likedIds], { linkableOnly: isAmazonAffiliateEnabled() });
+  }, [contact, budgetMax, sessionExcluded, likedIds]);
   const top = topRecommendations(candidates, 3);
   const shownCount = clampVisibleCount(visibleCount, candidates.length);
   const shownCandidates = candidates.slice(0, shownCount);
   const savedCount = useMemo(() => (contact ? savedIdeasFor(contact).length : 0), [contact]);
   const chosenGift = contact ? chosenGiftFor(contact, today) : null;
-  const likedIds = useMemo(() => (contact?.quiz ? likedGiftIdSet(normalizeQuizProfile(contact.quiz).recommendationHistory) : new Set<string>()), [contact]);
+
+  // Confirmation brève après un « J'aime » : l'idée disparaît de la liste, on dit où elle est allée.
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
   if (!contact) {
     return (
@@ -124,6 +131,12 @@ export function GiftsScreen() {
   function handleLike(giftId: string) {
     if (!contact?.quiz) return;
     const quiz = normalizeQuizProfile(contact.quiz);
+    const title = candidateById.get(giftId)?.gift.title;
+    if (title) {
+      setSavedNotice(`${title} : ajoutée à Mes idées`);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => setSavedNotice(null), 3000);
+    }
     upsertContact({
       ...contact,
       quiz: {
@@ -213,6 +226,8 @@ export function GiftsScreen() {
               thumbTintColor={theme.accentStrong}
             />
           </View>
+
+          {savedNotice && <Text style={[styles.savedNotice, { color: theme.plum }]}>{savedNotice}</Text>}
 
           {savedCount > 0 && (
             <Pressable
@@ -423,6 +438,7 @@ const styles = StyleSheet.create({
   capNote: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
   collapseBtn: { alignItems: 'center', paddingVertical: 10 },
   seeMoreBtn: { borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 2, marginBottom: 6 },
+  savedNotice: { fontSize: 12, fontWeight: '600', marginBottom: 8, paddingHorizontal: 4 },
   myIdeasLink: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 12 },
   sentToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#999' },
