@@ -151,7 +151,11 @@ check(
   /navigation\.navigate\('Message', \{ contactId: existing\.id, occasion: 'thinking_of_you' \}\)/.test(ficheSrc),
 );
 check('le bloc "Écrire un message" ne passe pas penseeId (absent de l’appel, contrairement à PenseeDetailScreen)', !/occasion: 'thinking_of_you', penseeId/.test(ficheSrc));
-check('visible uniquement pour un contact existant (existing && ...), jamais en mode création', /\{existing && \(\s*<Pressable\s*\n\s*onPress=\{\(\) => navigation\.navigate\('Message', \{ contactId: existing\.id, occasion: 'thinking_of_you' \}\)\}/.test(ficheSrc));
+// Build 9, lot C : l'action vit dans la fiche en LECTURE (existing && mode === 'view'), jamais dans le formulaire de création/modification.
+const viewBranch = ficheSrc.slice(ficheSrc.indexOf("existing && mode === 'view' ? ("), ficheSrc.indexOf('Carte dépliable de la fiche en lecture'));
+const messageIdx = viewBranch.indexOf("navigation.navigate('Message', { contactId: existing.id, occasion: 'thinking_of_you' })");
+const editBranchIdx = viewBranch.indexOf('Enregistrer la fiche');
+check('visible uniquement pour un contact existant en lecture (existing && mode === \'view\'), jamais en création/modification', messageIdx >= 0 && editBranchIdx > messageIdx && ficheSrc.split("occasion: 'thinking_of_you'").length === 2);
 
 console.log('\n[§Q — source] Accueil (homeAttention.ts) — non-régression explicite : pas de carte auto pour thinking_of_you');
 check(

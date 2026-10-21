@@ -12,7 +12,8 @@ import { Avatar } from '../components/Avatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useStore } from '../data/store';
 import { useIsDark, useTheme } from '../theme';
-import { archetypeFor, computeTraits, isQuizComplete } from '../data/quiz';
+import { archetypeFor, computeTraits, INTEREST_OPTIONS, isQuizComplete } from '../data/quiz';
+import { chosenGiftFor, savedIdeasFor } from '../data/myIdeas';
 import { birthdayCountdownLabel } from '../data/calendar';
 import { buildPenseeCards, groupPenseeCards } from '../data/penseesView';
 import { contactDeletionMessage } from '../data/contactDeletionMessage';
@@ -143,7 +144,11 @@ export function FicheScreen() {
   const [familyRole, setFamilyRole] = useState<string | null>(existing?.familyRole ?? null);
   const [genre, setGenre] = useState<Genre | null>(existing?.genre ?? null);
   const [favorite, setFavorite] = useState(existing?.favorite ?? false);
-  const [birthdayReminderDays, setBirthdayReminderDays] = useState<number | null>(existing?.birthdayReminderDays ?? null);
+  // Build 9, lot C : un proche existant s'ouvre en LECTURE (cartes dépliables) ; le formulaire n'est plus que le
+  // mode « Modifier ». Un nouveau proche s'ouvre directement en modification (flux de création inchangé).
+  const [mode, setMode] = useState<'view' | 'edit'>(existing ? 'view' : 'edit');
+  // Une seule carte dépliée à la fois.
+  const [openCard, setOpenCard] = useState<'idees' | 'portrait' | 'pensees' | 'rappel' | null>(null);
   // Ouvert d'office pour un nouveau contact SUR iOS SEULEMENT : sans ça, rien n'indique qu'il faut
   // renseigner l'anniversaire avant de pouvoir enregistrer (la fiche refuse sinon silencieusement
   // l'échec) — comportement iOS existant, non modifié. Sur Android, le DateTimePicker natif est une
@@ -172,18 +177,35 @@ export function FicheScreen() {
     // proche" à la création — plus jamais un intitulé générique (voir CHANTIER PROCHES + FICHE V1 §6).
     navigation.setOptions({
       title: existing ? `${existing.prenom} ${existing.nom}`.trim() : 'Nouveau proche',
-      headerRight: () => (
-        <Pressable
-          onPress={() => setFavorite((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-          style={styles.favoriteBtn}
-        >
-          <Ionicons name={favorite ? 'star' : 'star-outline'} size={22} color={favorite ? theme.plum : theme.inkSoft} />
-        </Pressable>
-      ),
+      headerRight: () => {
+        const viewing = !!existing && mode === 'view';
+        const starred = viewing ? !!existing?.favorite : favorite;
+        return (
+          <View style={styles.headerActions}>
+            {viewing && (
+              <Pressable
+                onPress={startEditing}
+                accessibilityRole="button"
+                accessibilityLabel="Modifier la fiche"
+                style={styles.favoriteBtn}
+              >
+                <Ionicons name="create-outline" size={22} color={theme.inkSoft} />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => (viewing && existing ? upsertContact({ ...existing, favorite: !existing.favorite }) : setFavorite((v) => !v))}
+              accessibilityRole="button"
+              accessibilityLabel={starred ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+              style={styles.favoriteBtn}
+            >
+              <Ionicons name={starred ? 'star' : 'star-outline'} size={22} color={starred ? theme.plum : theme.inkSoft} />
+            </Pressable>
+          </View>
+        );
+      },
     });
-  }, [existing, navigation, favorite, theme]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing, navigation, favorite, theme, mode]);
 
   // CHANTIER AUDIT PRÉ-BÊTA (2026-09-15) — §2 : un contact ouvert avec un id existant qui disparaît
   // du store PENDANT que cet écran reste monté (suppression déclenchée ailleurs) ne doit JAMAIS
@@ -203,6 +225,27 @@ export function FicheScreen() {
         </Pressable>
       </Screen>
     );
+  }
+
+  /** Passe en modification en repartant des valeurs enregistrées (jamais d'un brouillon périmé). */
+  function startEditing() {
+    if (!existing) return;
+    setPrenom(existing.prenom);
+    setNom(existing.nom);
+    setTel(existing.tel);
+    setDate(existing.date);
+    setRelation(normalizeRelation(existing.relation));
+    setFamilyRole(existing.familyRole);
+    setGenre(existing.genre);
+    setFavorite(existing.favorite);
+    setShowDatePicker(false);
+    savingRef.current = false;
+    setMode('edit');
+  }
+
+  function cancelEditing() {
+    setShowDatePicker(false);
+    setMode('view');
   }
 
   async function importFromContacts() {
@@ -276,10 +319,17 @@ export function FicheScreen() {
         quiz: existing?.quiz ?? null,
         giftPreparedYear: existing?.giftPreparedYear ?? null,
         favorite,
-        birthdayReminderDays,
+        birthdayReminderDays: existing?.birthdayReminderDays ?? null,
       };
       upsertContact(contact);
-      navigation.goBack();
+      if (existing) {
+        // Build 9 : « Enregistrer » ramène à la fiche en lecture (le garde anti-double-tap est relâché : l'écran reste monté).
+        savingRef.current = false;
+        setShowDatePicker(false);
+        setMode('view');
+      } else {
+        navigation.goBack();
+      }
     } catch (e) {
       // La navigation n'a pas eu lieu — l'utilisateur reste sur cet écran, il doit pouvoir réessayer.
       savingRef.current = false;
@@ -287,8 +337,150 @@ export function FicheScreen() {
     }
   }
 
+  const savedIdeas = existing ? savedIdeasFor(existing) : [];
+  const chosenGift = existing ? chosenGiftFor(existing, today) : null;
+  const quizDone = !!existing && isQuizComplete(existing.quiz);
+  const reminderLabel = BIRTHDAY_REMINDER_OPTIONS.find((o) => o.days === existing?.birthdayReminderDays)?.label;
+  const toggleCard = (card: NonNullable<typeof openCard>) => setOpenCard((prev) => (prev === card ? null : card));
+
+  const ideasSummary = !quizDone
+    ? 'Fais d’abord son portrait'
+    : `${savedIdeas.length} idée${savedIdeas.length > 1 ? 's' : ''} aimée${savedIdeas.length > 1 ? 's' : ''}${chosenGift ? ' · cadeau prévu' : ''}`;
+
   return (
     <Screen>
+      {existing && mode === 'view' ? (
+        <>
+          {/* Build 9, lot C : fiche en LECTURE. Synthèse + cartes dépliables au toucher (une seule ouverte à la fois) ;
+              tout ce qui se règle est dans le mode « Modifier » (crayon en haut à droite). */}
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.line }]}>
+            <Avatar initials={previewInitials} colorKey={avatarColor} theme={theme} size={48} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.summaryName, { color: theme.ink }]}>{`${existing.prenom} ${existing.nom}`.trim()}</Text>
+              <Text style={[styles.summaryMeta, { color: theme.inkSoft }]}>
+                {existing.familyRole ?? existing.relation}
+                {existing.date ? ` · ${birthdayCountdownLabel(existing.date, today)}` : ''}
+              </Text>
+            </View>
+          </View>
+
+          <InfoCard icon="gift-outline" title="Idées cadeaux" summary={ideasSummary} open={openCard === 'idees'} onToggle={() => toggleCard('idees')} theme={theme}>
+            {chosenGift && (
+              <Text style={{ color: theme.ink, fontSize: 13, marginBottom: 8 }}>Cadeau prévu : {chosenGift.title}</Text>
+            )}
+            {savedIdeas.slice(0, 3).map((g) => (
+              <Text key={g.id} style={{ color: theme.inkSoft, fontSize: 13, marginBottom: 4 }}>
+                {g.emoji} {g.title}
+              </Text>
+            ))}
+            {savedIdeas.length > 0 && (
+              <Pressable
+                onPress={() => navigation.navigate('MesIdees', { contactId: existing.id })}
+                style={[styles.giftsLink, { borderColor: theme.line, marginTop: 6 }]}
+              >
+                <Ionicons name="heart-outline" size={16} color={theme.accent} />
+                <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Mes idées pour {existing.prenom}</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+              </Pressable>
+            )}
+            {/* Cadeaux n'est plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) — sans ce lien, les idées
+                cadeaux d'un proche autre que "le plus proche" deviendraient difficiles à retrouver. Uniquement
+                quand le quiz est fait : un écran Cadeaux sans quiz n'aurait rien à proposer. */}
+            {quizDone ? (
+              <Pressable
+                onPress={() => navigation.navigate('Cadeaux', { contactId: existing.id })}
+                style={[styles.giftsLink, { borderColor: theme.line, marginTop: 6 }]}
+              >
+                <Ionicons name="gift-outline" size={16} color={theme.accent} />
+                <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Voir ses idées cadeaux</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+              </Pressable>
+            ) : (
+              <Text style={{ color: theme.inkSoft, fontSize: 12 }}>Le portrait permet de proposer des idées vraiment adaptées.</Text>
+            )}
+          </InfoCard>
+
+          <InfoCard
+            icon="sparkles-outline"
+            title="Portrait"
+            summary={quizDone ? archetypeFor(computeTraits(existing.quiz!.answers), existing).title : 'À faire'}
+            open={openCard === 'portrait'}
+            onToggle={() => toggleCard('portrait')}
+            theme={theme}
+          >
+            {quizDone && existing.quiz!.interests.length > 0 && (
+              <Text style={{ color: theme.inkSoft, fontSize: 13, marginBottom: 10 }}>
+                {existing.quiz!.interests.map((k) => INTEREST_OPTIONS.find((o) => o.key === k)?.label ?? k).join(' · ')}
+              </Text>
+            )}
+            {/* push (pas navigate) : CAUSE RÉELLE DU BUG "impossible de modifier un quiz déjà complété" — si un écran
+                'Quiz' pour ce contact est déjà quelque part dans la pile, `navigate('Quiz', ...)` se contente de
+                refocaliser cette instance déjà montée, figée à son ancien `step`. `push` monte TOUJOURS une instance
+                neuve ; `mode: 'edit'` quand le quiz est déjà complété repart de la question 1. */}
+            <QuizSummaryCard
+              contact={existing}
+              theme={theme}
+              onPress={() => navigation.push('Quiz', { contactId: existing.id, mode: isQuizComplete(existing.quiz) ? 'edit' : 'default' })}
+            />
+          </InfoCard>
+
+          <InfoCard
+            icon="chatbox-ellipses-outline"
+            title="Pensées liées"
+            summary={penseeSummaryLabel(linkedPenseeTotal, linkedPenseeGroups.today.length, linkedPenseeGroups.upcoming.length).replace(/\.$/, '')}
+            open={openCard === 'pensees'}
+            onToggle={() => toggleCard('pensees')}
+            theme={theme}
+          >
+            <Pressable
+              onPress={() => navigation.navigate('Tabs', { screen: 'Pensées', params: { contactId: existing.id } })}
+              style={[styles.giftsLink, { borderColor: theme.line }]}
+            >
+              <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
+              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Voir les pensées</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+            </Pressable>
+          </InfoCard>
+
+          <InfoCard
+            icon="alarm-outline"
+            title="Rappel d’anniversaire"
+            summary={reminderLabel ? `${reminderLabel} et le jour J` : 'Le jour J seulement'}
+            open={openCard === 'rappel'}
+            onToggle={() => toggleCard('rappel')}
+            theme={theme}
+          >
+            <Text style={[styles.reminderHint, { color: theme.inkSoft }]}>
+              Une alerte le jour J est toujours envoyée. Tu peux en ajouter une avant, pour avoir le temps de préparer
+              quelque chose.
+            </Text>
+            <ChipRow>
+              {BIRTHDAY_REMINDER_OPTIONS.map((opt) => (
+                <Chip
+                  key={String(opt.days)}
+                  label={opt.label}
+                  active={existing.birthdayReminderDays === opt.days}
+                  theme={theme}
+                  onPress={() => upsertContact({ ...existing, birthdayReminderDays: existing.birthdayReminderDays === opt.days ? null : opt.days })}
+                />
+              ))}
+            </ChipRow>
+          </InfoCard>
+
+          {/* CHANTIER UX — exposer `thinking_of_you` (2026-09-17) : volontaire, sans anniversaire ni événement
+              particulier — jamais de carte automatique équivalente sur Accueil. Aucun `penseeId` : MessageScreen
+              construira son contexte à partir des pensées/quiz existants du contact. */}
+          <Pressable
+            onPress={() => navigation.navigate('Message', { contactId: existing.id, occasion: 'thinking_of_you' })}
+            style={[styles.messageRow, { backgroundColor: theme.card, borderColor: theme.line }]}
+          >
+            <Ionicons name="chatbox-ellipses-outline" size={18} color={theme.accent} />
+            <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 14, flex: 1 }}>Écrire un message</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.accent} />
+          </Pressable>
+        </>
+      ) : (
+        <>
       {!existing && (
         <Pressable
           onPress={importFromContacts}
@@ -446,106 +638,66 @@ export function FicheScreen() {
         </ChipRow>
       </Field>
 
-      <SectionLabel theme={theme}>RAPPEL ANNIVERSAIRE</SectionLabel>
-      <Text style={[styles.reminderHint, { color: theme.inkSoft }]}>
-        Une alerte le jour J est toujours envoyée. Tu peux en ajouter une avant, pour avoir le temps de préparer
-        quelque chose.
-      </Text>
-      <View style={{ marginBottom: 13 }}>
-        <ChipRow>
-          {BIRTHDAY_REMINDER_OPTIONS.map((opt) => (
-            <Chip
-              key={String(opt.days)}
-              label={opt.label}
-              active={birthdayReminderDays === opt.days}
-              theme={theme}
-              onPress={() => setBirthdayReminderDays((prev) => (prev === opt.days ? null : opt.days))}
-            />
-          ))}
-        </ChipRow>
-      </View>
 
-      {existing && (
-        <>
-          <SectionLabel theme={theme}>LE PETIT QUIZZ</SectionLabel>
-          {/* push (pas navigate) : CAUSE RÉELLE DU BUG "impossible de modifier un quiz déjà
-              complété" — si un écran 'Quiz' pour ce contact est déjà quelque part dans la pile
-              (ex. après un premier passage terminé par "Voir ses idées cadeaux", qui empile
-              Cadeaux SANS dépiler Quiz), `navigate('Quiz', ...)` se contente de refocaliser cette
-              instance déjà montée, figée à son ancien `step` (souvent les résultats), sans jamais
-              réinitialiser son état interne — le tap semblait alors ne "rien faire" d'utilisable.
-              `push` monte TOUJOURS une instance neuve, avec le flux de questions réellement
-              rejouable depuis le début (réponses préremplies, modifiables).
-              `mode: 'edit'` quand le quiz est déjà complété : ignore explicitement tout brouillon
-              résiduel (voir QuizScreen.tsx) pour repartir systématiquement de la question 1 avec
-              les réponses de contact.quiz, jamais un `step` figé sur d'anciens résultats. */}
-          <QuizSummaryCard
-            contact={existing}
-            theme={theme}
-            onPress={() => navigation.push('Quiz', { contactId: existing.id, mode: isQuizComplete(existing.quiz) ? 'edit' : 'default' })}
-          />
-          {/* Cadeaux n'est plus un onglet permanent (voir CHANTIER ONGLET PENSÉES V1) — sans ce
-              lien, les idées cadeaux d'un proche autre que "le plus proche" deviendraient difficiles
-              à retrouver. Uniquement quand le quiz est fait : un écran Cadeaux sans quiz n'aurait
-              rien à proposer, la carte ci-dessus invite déjà à le faire dans ce cas. */}
-          {isQuizComplete(existing.quiz) && (
-            <Pressable
-              onPress={() => navigation.navigate('Cadeaux', { contactId: existing.id })}
-              style={[styles.giftsLink, { borderColor: theme.line }]}
-            >
-              <Ionicons name="gift-outline" size={16} color={theme.accent} />
-              <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Voir ses idées cadeaux</Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.accent} />
-            </Pressable>
+          <View style={{ marginTop: 12 }}>
+            <PrimaryButton label="Enregistrer la fiche" onPress={save} />
+          </View>
+
+          {existing && (
+            <>
+              <Pressable onPress={cancelEditing} style={styles.cancelBtn}>
+                <Text style={{ color: theme.inkSoft, fontWeight: '700', fontSize: 14 }}>Annuler</Text>
+              </Pressable>
+              <Pressable onPress={remove} style={styles.deleteBtn}>
+                <Ionicons name="trash-outline" size={15} color={theme.danger} />
+                <Text style={[styles.deleteText, { color: theme.danger }]}>Supprimer ce proche</Text>
+              </Pressable>
+            </>
           )}
         </>
       )}
-
-      {/* CHANTIER UX — exposer `thinking_of_you` (2026-09-17) : volontaire, sans anniversaire ni
-          événement particulier — jamais de carte automatique équivalente sur Accueil simplement
-          parce qu'une pensée existe (voir consigne explicite). Aucun `penseeId` : MessageScreen
-          construira son contexte à partir des pensées/quiz existants du contact, selon les règles
-          déjà en vigueur (buildMessageSuggestionContext), sans appel IA automatique à l'ouverture. */}
-      {existing && (
-        <Pressable
-          onPress={() => navigation.navigate('Message', { contactId: existing.id, occasion: 'thinking_of_you' })}
-          style={[styles.giftsLink, { borderColor: theme.line, marginTop: 4 }]}
-        >
-          <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
-          <Text style={{ color: theme.accent, fontWeight: '700', fontSize: 13, flex: 1 }}>Écrire un message</Text>
-          <Ionicons name="chevron-forward" size={16} color={theme.accent} />
-        </Pressable>
-      )}
-
-      {existing && (
-        <>
-          <SectionLabel theme={theme}>PENSÉES LIÉES</SectionLabel>
-          <Pressable
-            onPress={() => navigation.navigate('Tabs', { screen: 'Pensées', params: { contactId: existing.id } })}
-            style={[styles.giftsLink, { borderColor: theme.line }]}
-          >
-            <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.accent} />
-            <Text style={{ color: theme.ink, fontSize: 13, flex: 1 }}>
-              {penseeSummaryLabel(linkedPenseeTotal, linkedPenseeGroups.today.length, linkedPenseeGroups.upcoming.length)}
-              {'  '}
-              <Text style={{ color: theme.accent, fontWeight: '700' }}>Voir les pensées</Text>
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.accent} />
-          </Pressable>
-        </>
-      )}
-
-      <View style={{ marginTop: 12 }}>
-        <PrimaryButton label="Enregistrer la fiche" onPress={save} />
-      </View>
-
-      {existing && (
-        <Pressable onPress={remove} style={styles.deleteBtn}>
-          <Ionicons name="trash-outline" size={15} color={theme.danger} />
-          <Text style={[styles.deleteText, { color: theme.danger }]}>Supprimer ce proche</Text>
-        </Pressable>
-      )}
     </Screen>
+  );
+}
+
+/** Carte dépliable de la fiche en lecture : une ligne de résumé, le détail au toucher. */
+function InfoCard({
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+  theme,
+  children,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  theme: any;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: open ? theme.accent : theme.line }]}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${title}, ${summary}`}
+        style={styles.infoHeader}
+      >
+        <Ionicons name={icon} size={18} color={theme.accent} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.ink, fontWeight: '700', fontSize: 14 }}>{title}</Text>
+          <Text style={{ color: theme.inkSoft, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+            {summary}
+          </Text>
+        </View>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={theme.inkSoft} />
+      </Pressable>
+      {open && <View style={styles.infoBody}>{children}</View>}
+    </View>
   );
 }
 
@@ -609,6 +761,12 @@ function QuizSummaryCard({ contact, theme, onPress }: { contact: Contact; theme:
 
 const styles = StyleSheet.create({
   favoriteBtn: { padding: 6, marginRight: 4 },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  infoCard: { borderWidth: 1, borderRadius: 14, marginBottom: 10, overflow: 'hidden' },
+  infoHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  infoBody: { paddingHorizontal: 14, paddingBottom: 14 },
+  messageRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  cancelBtn: { alignItems: 'center', paddingVertical: 12 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 16 },
   deleteText: { fontWeight: '700', fontSize: 13 },
   importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12, marginBottom: 16 },
