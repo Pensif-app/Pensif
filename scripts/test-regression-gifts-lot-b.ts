@@ -112,7 +112,8 @@ console.log('\n[5] Une idée aimée quitte la liste des idées et va dans « Mes
   check('elle est bien dans « Mes idées »', savedIdeasFor(liked).some((g) => g.id === target));
   const gifts = read('src', 'screens', 'GiftsScreen.tsx');
   check('l’écran Idées exclut les idées aimées de la liste', gifts.includes('[...sessionExcluded, ...likedIds]'));
-  check('confirmation brève « ajoutée à Mes idées »', gifts.includes('ajoutée à Mes idées') && gifts.includes('setSavedNotice'));
+  check('confirmation brève, verte, au message fixe « Idée ajoutée à Mes idées »', gifts.includes('Idée ajoutée à Mes idées') && gifts.includes('setSavedNotice(true)') && /checkmark-circle[\s\S]{0,120}theme\.sage/.test(gifts) && !/savedNotice[^\n]{0,80}theme\.plum/.test(gifts));
+  check('aucun titre d’idée dans la confirmation et rien lors d’un retrait', !gifts.includes('${title} : ajoutée') && gifts.includes('if (!likedIds.has(giftId))'));
   const retired = contact(h);
   const again = generateCandidates(retired, { maxEuros: Infinity }, [...likedGiftIdSet(normalizeQuizProfile(retired.quiz!).recommendationHistory)], { linkableOnly: true });
   check('une idée retirée de « Mes idées » peut revenir dans la liste', again.length > 0);

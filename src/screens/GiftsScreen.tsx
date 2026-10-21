@@ -95,7 +95,7 @@ export function GiftsScreen() {
   const chosenGift = contact ? chosenGiftFor(contact, today) : null;
 
   // Confirmation brève après un « J'aime » : l'idée disparaît de la liste, on dit où elle est allée.
-  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [savedNotice, setSavedNotice] = useState(false);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
@@ -131,11 +131,11 @@ export function GiftsScreen() {
   function handleLike(giftId: string) {
     if (!contact?.quiz) return;
     const quiz = normalizeQuizProfile(contact.quiz);
-    const title = candidateById.get(giftId)?.gift.title;
-    if (title) {
-      setSavedNotice(`${title} : ajoutée à Mes idées`);
+    // Une confirmation (verte), toujours le même message ; jamais pour un retrait.
+    if (!likedIds.has(giftId)) {
+      setSavedNotice(true);
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
-      noticeTimer.current = setTimeout(() => setSavedNotice(null), 3000);
+      noticeTimer.current = setTimeout(() => setSavedNotice(false), 3000);
     }
     upsertContact({
       ...contact,
@@ -227,7 +227,12 @@ export function GiftsScreen() {
             />
           </View>
 
-          {savedNotice && <Text style={[styles.savedNotice, { color: theme.plum }]}>{savedNotice}</Text>}
+          {savedNotice && (
+            <View style={styles.savedNotice} accessibilityLiveRegion="polite">
+              <Ionicons name="checkmark-circle" size={16} color={theme.sage} />
+              <Text style={{ color: theme.sage, fontSize: 13, fontWeight: '700' }}>Idée ajoutée à Mes idées</Text>
+            </View>
+          )}
 
           {savedCount > 0 && (
             <Pressable
@@ -438,7 +443,7 @@ const styles = StyleSheet.create({
   capNote: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 8, paddingHorizontal: 8 },
   collapseBtn: { alignItems: 'center', paddingVertical: 10 },
   seeMoreBtn: { borderWidth: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 2, marginBottom: 6 },
-  savedNotice: { fontSize: 12, fontWeight: '600', marginBottom: 8, paddingHorizontal: 4 },
+  savedNotice: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingHorizontal: 4 },
   myIdeasLink: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 12 },
   sentToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#999' },
