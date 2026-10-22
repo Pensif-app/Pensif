@@ -47,10 +47,10 @@ TestFlight → soumission (vers le 8-10 novembre 2026).
 1. [x] Réponses du support Amazon Partenaires reçues (mention validée, rapports sans identification des acheteurs).
 2. [x] Mention d'affiliation : une ligne sous le budget, dans « Mes idées », dans les Réglages et la politique.
 3. [x] Code v1.1 et lots A, B, C du build 9 validés sur iPhone, commits poussés.
-4. [ ] Politique de confidentialité : date finale, publier sur pensif-app.fr (2 fichiers par SFTP, **avant** la soumission).
-5. [ ] Variable EAS `EXPO_PUBLIC_AMAZON_AFFILIATE_ENABLED=1` dans l'environnement `production` (accord requis).
-6. [ ] Build 9 (changement de config native) → TestFlight → test complet sur iPhone.
-7. [ ] Fiche App Store : vérifier « Langues : Français » après le build 9.
-8. [ ] Soumission avec les notes et « Nouveautés » ci-dessus (accord requis).
+4. [x] Politique de confidentialité : date finale, publier sur pensif-app.fr (2 fichiers par SFTP, **avant** la soumission).
+5. [x] Variable EAS `EXPO_PUBLIC_AMAZON_AFFILIATE_ENABLED=1` dans l'environnement `production` (accord requis).
+6. [x] Build 9 (changement de config native) → TestFlight → test complet sur iPhone.
+7. [x] Fiche App Store : vérifier « Langues : Français » après le build 9.
+8. [x] Soumission avec les notes et « Nouveautés » ci-dessus (accord requis).
 9. [x] Contrôle manuel des 20 liens fait, tous valides.
 10. [ ] Ne jamais acheter ni faire acheter via les liens du compte (§6(u)).
